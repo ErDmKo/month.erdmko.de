@@ -72,3 +72,32 @@ npm run save
 ```bash
 npm start
 ```
+
+## Development with PM2
+
+Start server with auto-reload on source changes:
+
+```bash
+pm2 start ecosystem.config.cjs
+```
+
+Watch logs:
+
+```bash
+pm2 logs server --nostream
+```
+
+Restart (rebuilds assets):
+
+```bash
+pm2 restart server
+```
+
+Stop:
+
+```bash
+pm2 stop server
+pm2 delete server
+```
+
+The server auto-rebuilds when files in `assets/` change.
