@@ -14,6 +14,7 @@ use std::{env, option_env};
 use tera::Tera;
 
 pub mod app;
+pub mod chat;
 pub mod db;
 pub mod pages;
 
@@ -113,6 +114,8 @@ async fn main() -> std::io::Result<()> {
             .service(pages::tetris_page_handler)
             .service(pages::tennis_page_handler)
             .service(pages::ws_page_handler)
+            .service(pages::chat_room_page_handler)
+            .service(pages::chat_ws_page_handler)
             .service(pages::month_page_handler)
             .service(pages::month_no_page_handler)
             .service(pages::slugify_page_handler)
