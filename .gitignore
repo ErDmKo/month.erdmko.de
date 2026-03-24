@@ -27,3 +27,4 @@ whatAmonth-*.tar
 
 /bazel-*
 /node_modules
+ses.vim
