@@ -13,7 +13,7 @@
 - Зафиксировать правила валидации: nickname `1..32`, body `1..200`.
 
 ## Deliverables
-- Обновленный контракт в `/CHAT_MVP_PLAN.md`.
+- Обновленный контракт в отдельном файле `/contracts/chat/CHAT_CONTRACT.md`.
 - Короткие примеры payload для happy-path и ошибок.
 
 ## Tests
@@ -24,3 +24,4 @@
 ## Acceptance
 - Backend и frontend используют одинаковые имена событий и полей.
 - Нет конфликтов по room-id логике (room только из URL).
+- Источник правды по API/WS-контракту: `/contracts/chat/CHAT_CONTRACT.md`.
