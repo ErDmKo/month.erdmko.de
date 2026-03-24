@@ -1,5 +1,5 @@
 load("@crate_index//:defs.bzl", "all_crate_deps", "aliases")
-load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 load("//:variables.bzl", "api_token")
 
 package(default_visibility = ["//visibility:public"])
@@ -26,4 +26,12 @@ rust_binary(
         '//assets/img',
         '//assets:assets',
     ]
+)
+
+rust_test(
+    name = "chat_db_test",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    deps = all_crate_deps(normal = True),
 )
