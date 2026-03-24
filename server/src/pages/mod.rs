@@ -1,4 +1,5 @@
 mod base64;
+mod chat;
 mod main_page;
 mod months;
 mod random;
@@ -6,6 +7,7 @@ mod slugify;
 mod some_js_pages;
 mod utils;
 pub use self::base64::*;
+pub use self::chat::*;
 pub use self::main_page::*;
 pub use self::months::*;
 pub use self::random::*;
