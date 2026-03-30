@@ -3,18 +3,27 @@ export const REF = 1 as const;
 export const ATTR = 2 as const;
 
 type PropType = string | Function | Partial<CSSStyleDeclaration> | number
+type AttrType = string | number;
+export type RefKey = string | number;
+type RefMarker = false | true | RefKey;
 
 type Props =
-    | readonly [type: typeof ATTR, key: string, value: string | number]
+    | readonly [type: typeof ATTR, key: string, value: AttrType]
     | readonly [type: typeof PROP, key: string, value: PropType]
-    | readonly [type: typeof REF] ;
+    | readonly [type: typeof REF]
+    | readonly [type: typeof REF, key: RefKey];
 
 type TagName = keyof HTMLElementTagNameMap;
+type PropMap = Record<string, PropType>;
+type AttrMap = Record<string, AttrType>;
 
 export type DOMStruct<K extends TagName> = readonly [
-    tag: K,
-    attributes: readonly Props[],
-    children?: readonly DOMStruct<K>[]
+    tag: K, // 0
+    props: PropMap, // 1
+    attrs: AttrMap, // 2
+    ref: RefMarker, // 3
+    children?: readonly DOMStruct<TagName>[], // 4
+    key?: string | number // 5
 ];
 
 function genPropFn (name: 'style', value: Partial<CSSStyleDeclaration>): Props;
@@ -30,7 +39,11 @@ export const genAttr = (name: string, value: string | number): Props => {
   return [ATTR, name, value] as const;
 };
 
-export const genRef = (): Props => [REF] as const;
+export function genRef(): Props;
+export function genRef(key: RefKey): Props;
+export function genRef(key?: RefKey): Props {
+  return key === undefined ? [REF] as const : [REF, key] as const;
+}
 
 export const genText = (text: string | number): Props => {
   return [PROP, 'innerText', text] as const
@@ -44,7 +57,8 @@ export const genTagDiv = <T extends TagName>(
   props: Props[],
   children: DOMStruct<T>[] = [],
 ): DOMStruct<T> => {
-  return ['div' as T, props, children] as const;
+  const [propMap, attrMap, hasRef] = collectProps(props);
+  return ['div' as T, propMap, attrMap, hasRef, children] as const;
 };
 
 export const genTagName = <T extends TagName>(
@@ -52,25 +66,47 @@ export const genTagName = <T extends TagName>(
   props: Props[],
   children: DOMStruct<T>[] = []
 ): DOMStruct<T> => { 
-  return [tagName, props, children] as const;
+  const [propMap, attrMap, hasRef] = collectProps(props);
+  return [tagName, propMap, attrMap, hasRef, children] as const;
 };
 
-const isFragment = <T extends TagName>(struct: DOMStruct<T> | DOMStruct<T>[]): struct is DOMStruct<T>[] => {
+const collectProps = (attributes: readonly Props[]): [PropMap, AttrMap, RefMarker] => {
+    const props: PropMap = {};
+    const attrs: AttrMap = {};
+    let ref: RefMarker = false;
+    for (const item of attributes) {
+        const type = item[0];
+        if (type === REF) {
+            ref = item.length > 1 ? item[1] : true;
+            continue;
+        }
+        if (type === PROP) {
+            const [, key, value] = item;
+            props[key] = value;
+        } else {
+            const [, key, value] = item;
+            attrs[key] = value;
+        }
+    }
+    return [props, attrs, ref];
+};
+
+const isFragment = (struct: DOMStruct<TagName> | DOMStruct<TagName>[]): struct is DOMStruct<TagName>[] => {
   return struct.length > 0 && Array.isArray(struct[0]);
 }
 
 export const domCreator = <K extends keyof HTMLElementTagNameMap>(
     ctx: Window,
     root: Element,
-    struct: DOMStruct<K> | DOMStruct<K>[]
+    struct: DOMStruct<K> | DOMStruct<TagName>[]
 ): HTMLElementTagNameMap[K][] => {
     if (!(ctx.document && typeof ctx.document.createElement == 'function')) {
         throw new Error();
     }
-    const currnent: [Element, DOMStruct<K>][] = isFragment(struct) 
+    const currnent: [Element, DOMStruct<TagName>][] = isFragment(struct) 
       ? struct.reverse()
           .map((s) => [root, s])
-      : [[root, struct]];
+      : [[root, struct as DOMStruct<TagName>]];
     const refs: HTMLElementTagNameMap[K][] = [];
     while (currnent.length) {
         const nextStruct = currnent.pop();
@@ -78,20 +114,64 @@ export const domCreator = <K extends keyof HTMLElementTagNameMap>(
             break;
         }
         const [root, struct] = nextStruct;
-        const [tag, attributes, children] = struct;
+        const [tag, props, attrs, ref, children] = struct;
         const element = ctx.document.createElement(tag);
-        for (const [type, key, value] of attributes) {
-            if (type === REF) {
-                refs.push(element);
-            } else if (type === PROP) {
-                if (key === 'style') {
-                    Object.assign(element.style, value);
-                } else {
-                    (element as any)[key] = value;
-                }
+        if (ref) {
+            refs.push(element as HTMLElementTagNameMap[K]);
+        }
+        for (const key of Object.keys(props)) {
+            const value = props[key];
+            if (key === 'style') {
+                Object.assign(element.style, value);
             } else {
-                element.setAttribute(key, `${value}`);
+                (element as any)[key] = value;
             }
+        }
+        for (const key of Object.keys(attrs)) {
+            element.setAttribute(key, `${attrs[key]}`);
+        }
+        root.appendChild(element);
+        (children || []).forEach((child) => {
+            currnent.unshift([element, child]);
+        });
+    }
+    return refs;
+};
+
+export const domCreatorRef = <K extends keyof HTMLElementTagNameMap>(
+    ctx: Window,
+    root: Element,
+    struct: DOMStruct<K> | DOMStruct<TagName>[]
+): Record<string, HTMLElementTagNameMap[K]> => {
+    if (!(ctx.document && typeof ctx.document.createElement == 'function')) {
+        throw new Error();
+    }
+    const currnent: [Element, DOMStruct<TagName>][] = isFragment(struct)
+      ? struct.reverse()
+          .map((s) => [root, s])
+      : [[root, struct as DOMStruct<TagName>]];
+    const refs: Record<string, HTMLElementTagNameMap[K]> = {};
+    while (currnent.length) {
+        const nextStruct = currnent.pop();
+        if (!nextStruct) {
+            break;
+        }
+        const [root, struct] = nextStruct;
+        const [tag, props, attrs, ref, children] = struct;
+        const element = ctx.document.createElement(tag);
+        if (ref !== false && ref !== true) {
+            refs[String(ref)] = element as HTMLElementTagNameMap[K];
+        }
+        for (const key of Object.keys(props)) {
+            const value = props[key];
+            if (key === 'style') {
+                Object.assign(element.style, value);
+            } else {
+                (element as any)[key] = value;
+            }
+        }
+        for (const key of Object.keys(attrs)) {
+            element.setAttribute(key, `${attrs[key]}`);
         }
         root.appendChild(element);
         (children || []).forEach((child) => {
