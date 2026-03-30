@@ -6,26 +6,5 @@
 {% endblock head %}
 {% block inner_content %}
 <h1>Chat room: {{ room_id }}</h1>
-<div class="chat js-chat" data-room-id="{{ room_id }}">
-    <div class="chat__meta">
-        <span>Status: </span>
-        <strong class="js-chat-status">connecting</strong>
-    </div>
-    <p class="chat__error js-chat-error" aria-live="polite"></p>
-    <ul class="chat__messages js-chat-messages" aria-live="polite"></ul>
-    <form class="chat__form js-chat-form">
-        <label class="chat__label">
-            Nickname
-            <input class="chat__input js-chat-nickname" type="text" maxlength="32" placeholder="guest" required />
-        </label>
-        <label class="chat__label">
-            Message
-            <textarea class="chat__input chat__textarea js-chat-input" maxlength="200" placeholder="Write a message..." required></textarea>
-        </label>
-        <div class="chat__controls">
-            <span class="chat__counter js-chat-counter">0/200</span>
-            <button class="chat__button js-chat-send" type="submit" disabled>Send</button>
-        </div>
-    </form>
-</div>
+<div class="chat js-chat" data-room-id="{{ room_id }}"></div>
 {% endblock inner_content %}

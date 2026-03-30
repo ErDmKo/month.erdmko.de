@@ -1,3 +1,24 @@
+import {
+    bindArg,
+    cleanHtml,
+    domCreatorRef,
+    observer,
+    on,
+    trigger,
+} from '@month/utils';
+import {
+    CHAT_REF_COUNTER,
+    CHAT_REF_ERROR,
+    CHAT_REF_FORM,
+    CHAT_REF_MESSAGE,
+    CHAT_REF_MESSAGES,
+    CHAT_REF_NICKNAME,
+    CHAT_REF_SEND,
+    CHAT_REF_STATUS,
+    chatMessageTemplate,
+    mountChatUi,
+} from './template';
+
 const MAX_MESSAGE_LEN = 200;
 const MAX_NICKNAME_LEN = 32;
 
@@ -12,11 +33,74 @@ type WsPayload = {
     [key: string]: any;
 };
 
-const createElement = (ctx: Window, tag: string, className: string, text: string) => {
-    const el = ctx.document.createElement(tag);
-    el.className = className;
-    el.textContent = text;
-    return el;
+const JOIN_TYPE = 0 as const;
+const MESSAGE_TYPE = 1 as const;
+type OutgoingType = typeof JOIN_TYPE | typeof MESSAGE_TYPE;
+
+type SendCommand =
+    | readonly [type: typeof JOIN_TYPE, requestId: string, nickname: string]
+    | readonly [type: typeof MESSAGE_TYPE, requestId: string, body: string];
+
+type OutgoingWsEvent =
+    | { type: 'join'; requestId: string; nickname: string }
+    | { type: 'message'; requestId: string; body: string };
+
+const isAllowedType = (eventType: number): eventType is OutgoingType => {
+    return eventType === JOIN_TYPE || eventType === MESSAGE_TYPE;
+};
+
+const serializeCommand = (command: SendCommand): OutgoingWsEvent | null => {
+    const [type, requestId, payload] = command;
+    if (!isAllowedType(type)) {
+        return null;
+    }
+    if (type === JOIN_TYPE) {
+        return { type: 'join', requestId, nickname: payload };
+    }
+    return { type: 'message', requestId, body: payload };
+};
+
+const validateOutgoingCommand = (command: SendCommand): string | null => {
+    const [type, _requestId, payload] = command;
+    if (type === JOIN_TYPE) {
+        const nickname = payload.trim();
+        if (nickname.length === 0 || nickname.length > MAX_NICKNAME_LEN) {
+            return `Nickname must be between 1 and ${MAX_NICKNAME_LEN} characters.`;
+        }
+        return null;
+    }
+    const body = payload.trim();
+    if (body.length === 0 || body.length > MAX_MESSAGE_LEN) {
+        return `Message must be between 1 and ${MAX_MESSAGE_LEN} characters.`;
+    }
+    return null;
+};
+
+const initSendObserver = (
+    ws: WebSocket,
+    setError: (text: string) => void
+) => {
+    const outgoing = observer<SendCommand>();
+    outgoing(
+        bindArg((command: SendCommand) => {
+            if (ws.readyState !== ws.OPEN) {
+                setError('Socket is not connected.');
+                return;
+            }
+            const validationError = validateOutgoingCommand(command);
+            if (validationError) {
+                setError(validationError);
+                return;
+            }
+            const event = serializeCommand(command);
+            if (!event) {
+                setError('Unsupported event type.');
+                return;
+            }
+            ws.send(JSON.stringify(event));
+        }, on)
+    );
+    return outgoing;
 };
 
 const toWsUrl = (ctx: Window, roomId: string) => {
@@ -29,82 +113,72 @@ const renderMessage = (
     list: HTMLUListElement,
     item: { senderName: string; body: string; createdAt?: string }
 ) => {
-    const row = createElement(ctx, 'li', 'chat__message', '');
-    const head = createElement(
+    domCreatorRef(
         ctx,
-        'div',
-        'chat__message-head',
-        `${item.senderName}${item.createdAt ? ` • ${item.createdAt}` : ''}`
+        list,
+        chatMessageTemplate(item.senderName, item.body, item.createdAt)
     );
-    const body = createElement(ctx, 'div', 'chat__message-body', item.body);
-    row.appendChild(head);
-    row.appendChild(body);
-    list.appendChild(row);
     list.scrollTop = list.scrollHeight;
 };
 
 const initTemplate = (ctx: Window, root: Element) => {
     const htmlRoot = root as HTMLDivElement;
     const roomId = htmlRoot.dataset.roomId || 'general';
-    const statusEl = htmlRoot.querySelector('.js-chat-status') as HTMLElement;
-    const errorEl = htmlRoot.querySelector('.js-chat-error') as HTMLElement;
-    const listEl = htmlRoot.querySelector('.js-chat-messages') as HTMLUListElement;
-    const formEl = htmlRoot.querySelector('.js-chat-form') as HTMLFormElement;
-    const nicknameEl = htmlRoot.querySelector('.js-chat-nickname') as HTMLInputElement;
-    const messageEl = htmlRoot.querySelector('.js-chat-input') as HTMLTextAreaElement;
-    const sendEl = htmlRoot.querySelector('.js-chat-send') as HTMLButtonElement;
-    const counterEl = htmlRoot.querySelector('.js-chat-counter') as HTMLElement;
+    const refs = mountChatUi(ctx, htmlRoot, MAX_MESSAGE_LEN);
     const nicknameKey = `chat-nickname-${roomId}`;
 
     const setStatus = (text: string) => {
-        statusEl.textContent = text;
+        refs[CHAT_REF_STATUS].textContent = text;
     };
     const setError = (text: string) => {
-        errorEl.textContent = text;
+        refs[CHAT_REF_ERROR].textContent = text;
     };
     const isValidNickname = () => {
-        const value = nicknameEl.value.trim();
+        const value = refs[CHAT_REF_NICKNAME].value.trim();
         return value.length > 0 && value.length <= MAX_NICKNAME_LEN;
     };
-    const getMessageBody = () => messageEl.value.trim();
+    const getMessageBody = () => refs[CHAT_REF_MESSAGE].value.trim();
     const isValidMessage = () => {
         const body = getMessageBody();
         return body.length > 0 && body.length <= MAX_MESSAGE_LEN;
     };
     const updateControls = () => {
-        counterEl.textContent = `${messageEl.value.length}/${MAX_MESSAGE_LEN}`;
-        sendEl.disabled = !isValidMessage() || !isValidNickname();
+        const counter = refs[CHAT_REF_COUNTER];
+        const message = refs[CHAT_REF_MESSAGE];
+        const send = refs[CHAT_REF_SEND];
+        counter.textContent = `${message.value.length}/${MAX_MESSAGE_LEN}`;
+        send.disabled = !isValidMessage() || !isValidNickname();
     };
 
     const savedNickname = ctx.localStorage.getItem(nicknameKey);
     if (savedNickname && savedNickname.length <= MAX_NICKNAME_LEN) {
-        nicknameEl.value = savedNickname;
+        refs[CHAT_REF_NICKNAME].value = savedNickname;
     }
 
     setStatus('connecting');
     updateControls();
+    refs[CHAT_REF_SEND].disabled = true;
     const ws = new ctx.WebSocket(toWsUrl(ctx, roomId));
+    const sendObserver = initSendObserver(ws, setError);
 
     ws.onopen = () => {
         setStatus('online');
         setError('');
         updateControls();
-        const nickname = nicknameEl.value.trim();
-        if (nickname) {
-            ctx.localStorage.setItem(nicknameKey, nickname);
-            ws.send(
-                JSON.stringify({
-                    type: 'join',
-                    requestId: `join-${Date.now()}`,
-                    nickname,
-                })
+        const currentNickname = refs[CHAT_REF_NICKNAME].value.trim();
+        if (currentNickname) {
+            sendObserver(
+                bindArg(
+                    [JOIN_TYPE, `join-${Date.now()}`, currentNickname] as const,
+                    trigger
+                )
             );
         }
     };
 
     ws.onclose = () => {
         setStatus('offline');
-        sendEl.disabled = true;
+        refs[CHAT_REF_SEND].disabled = true;
     };
 
     ws.onerror = () => {
@@ -122,9 +196,9 @@ const initTemplate = (ctx: Window, root: Element) => {
         if (!payload) return;
 
         if (payload.type === 'history' && Array.isArray(payload.items)) {
-            listEl.innerHTML = '';
+            cleanHtml(refs[CHAT_REF_MESSAGES]);
             payload.items.forEach((item) => {
-                renderMessage(ctx, listEl, {
+                renderMessage(ctx, refs[CHAT_REF_MESSAGES], {
                     senderName: item.senderName,
                     body: item.body,
                     createdAt: item.createdAt,
@@ -134,7 +208,7 @@ const initTemplate = (ctx: Window, root: Element) => {
         }
 
         if (payload.type === 'message' && payload.item) {
-            renderMessage(ctx, listEl, {
+            renderMessage(ctx, refs[CHAT_REF_MESSAGES], {
                 senderName: payload.item.senderName,
                 body: payload.item.body,
                 createdAt: payload.item.createdAt,
@@ -152,55 +226,37 @@ const initTemplate = (ctx: Window, root: Element) => {
         }
     };
 
-    nicknameEl.addEventListener('input', () => {
-        if (nicknameEl.value.trim()) {
-            ctx.localStorage.setItem(nicknameKey, nicknameEl.value.trim());
+    refs[CHAT_REF_NICKNAME].addEventListener('input', () => {
+        const value = refs[CHAT_REF_NICKNAME].value.trim();
+        if (value) {
+            ctx.localStorage.setItem(nicknameKey, value);
         }
         updateControls();
     });
 
-    messageEl.addEventListener('input', updateControls);
+    refs[CHAT_REF_MESSAGE].addEventListener('input', updateControls);
 
-    messageEl.addEventListener('keydown', (event: KeyboardEvent) => {
+    refs[CHAT_REF_MESSAGE].addEventListener('keydown', (event: KeyboardEvent) => {
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-            formEl.requestSubmit();
+            refs[CHAT_REF_FORM].requestSubmit();
         }
     });
 
-    formEl.addEventListener('submit', (event) => {
+    refs[CHAT_REF_FORM].addEventListener('submit', (event) => {
         event.preventDefault();
-        if (ws.readyState !== ctx.WebSocket.OPEN) {
-            setError('Socket is not connected.');
-            return;
-        }
-        if (!isValidNickname()) {
-            setError('Nickname must be between 1 and 32 characters.');
-            return;
-        }
-        if (!isValidMessage()) {
-            setError('Message must be between 1 and 200 characters.');
-            return;
-        }
-
-        const nickname = nicknameEl.value.trim();
-        if (nickname) {
-            ctx.localStorage.setItem(nicknameKey, nickname);
-        }
-
-        ws.send(
-            JSON.stringify({
-                type: 'message',
-                requestId: `msg-${Date.now()}`,
-                body: getMessageBody(),
-            })
+        sendObserver(
+            bindArg(
+                [MESSAGE_TYPE, `msg-${Date.now()}`, getMessageBody()] as const,
+                trigger
+            )
         );
-        messageEl.value = '';
+        refs[CHAT_REF_MESSAGE].value = '';
         updateControls();
     });
 };
 
 export const initChatEffect = (ctx: Window) => {
     const tags = ctx.document.querySelectorAll('.js-chat');
-    Array.from(tags).forEach((el) => initTemplate(ctx, el));
+    Array.from(tags).forEach(bindArg(ctx, initTemplate));
 };

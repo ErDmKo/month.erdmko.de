@@ -97,6 +97,9 @@ ts_project(
     name = "chat",
     srcs = glob(["chat-effect.ts", "chat/**/*.ts"]),
     declaration = True,
+    deps = [
+      ":utils"
+    ]
 )
 
 esbuild(
