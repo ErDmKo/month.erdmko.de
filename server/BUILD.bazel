@@ -21,6 +21,7 @@ rust_binary(
         '//assets/js:tetris-bundle',
         '//assets/js:snowflake-bundle',
         '//assets/js:month-bundle',
+        '//assets/js:chat-bundle',
         '//assets/js:metrika',
         '//assets/css',
         '//assets/img',

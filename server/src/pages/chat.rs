@@ -7,10 +7,12 @@ use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, RwLock};
+use tera::Context;
 
 use crate::app::AppCtx;
 use crate::chat::{MAX_NICKNAME_LEN, WS_MAX_PAYLOAD_BYTES};
 use crate::db;
+use super::utils;
 
 type RoomsMap = Arc<RwLock<HashMap<String, Vec<Addr<ChatWs>>>>>;
 static CHAT_ROOMS: LazyLock<RoomsMap> = LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
@@ -299,8 +301,15 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
 }
 
 #[get("/chat/{room_id}")]
-pub async fn chat_room_page_handler(room_id: web::Path<String>) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().body(format!("Chat room stub: {}", room_id.into_inner())))
+pub async fn chat_room_page_handler(
+    req: HttpRequest,
+    room_id: web::Path<String>,
+) -> Result<HttpResponse> {
+    let mut ctx = Context::new();
+    let room = room_id.into_inner();
+    ctx.insert("room_id", &room);
+    ctx.insert("bundle_name", "chat");
+    utils::render(req, "chat.html", &ctx).await
 }
 
 #[get("/ws/chat/{room_id}")]

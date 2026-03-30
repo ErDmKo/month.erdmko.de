@@ -93,6 +93,25 @@ ts_project(
     ]
 )
 
+ts_project(
+    name = "chat",
+    srcs = glob(["chat-effect.ts", "chat/**/*.ts"]),
+    declaration = True,
+)
+
+esbuild(
+    name = "chat-bundle",
+    entry_point = "chat-effect.ts",
+    metafile = False,
+    minify = True,
+    target = "esnext",
+    sourcemap = False,
+    tsconfig = ":tsconfig",
+    deps = [
+        ":chat",
+    ],
+)
+
 esbuild(
     name = "month-bundle",
     entry_point = "month-effect.ts",
