@@ -1,4 +1,5 @@
 load("@aspect_rules_esbuild//esbuild:defs.bzl", "esbuild")
+load("@aspect_rules_js//js:defs.bzl", "js_test")
 load("@aspect_rules_ts//ts:defs.bzl", "ts_project", "ts_config")
 
 package(default_visibility = ["//visibility:public"])
@@ -8,6 +9,12 @@ exports_files([".swcrc"])
 ts_config(
     name = "tsconfig",
     src = "tsconfig.json",
+    visibility = [":__subpackages__"],
+)
+
+ts_config(
+    name = "tsconfig_test",
+    src = "tsconfig.test.json",
     visibility = [":__subpackages__"],
 )
 
@@ -95,11 +102,25 @@ ts_project(
 
 ts_project(
     name = "chat",
-    srcs = glob(["chat-effect.ts", "chat/**/*.ts"]),
+    srcs = glob(
+        ["chat-effect.ts", "chat/**/*.ts"],
+        exclude = ["chat/**/*.test.ts"],
+    ),
     declaration = True,
     deps = [
       ":utils"
     ]
+)
+
+ts_project(
+    name = "chat_test",
+    srcs = ["chat/protocol.test.ts"],
+    declaration = True,
+    tsconfig = ":tsconfig_test",
+    deps = [
+        ":chat",
+        "//:node_modules/@types/node",
+    ],
 )
 
 esbuild(
@@ -113,6 +134,27 @@ esbuild(
     deps = [
         ":chat",
     ],
+)
+
+esbuild(
+    name = "chat-protocol-test-bin",
+    entry_point = "chat/protocol.test.ts",
+    bundle = True,
+    platform = "node",
+    metafile = False,
+    minify = False,
+    target = "esnext",
+    sourcemap = False,
+    tsconfig = ":tsconfig",
+    deps = [
+        ":chat_test",
+    ],
+)
+
+js_test(
+    name = "chat-protocol-test",
+    entry_point = ":chat-protocol-test-bin",
+    data = [":chat-protocol-test-bin"],
 )
 
 esbuild(
