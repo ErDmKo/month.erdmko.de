@@ -32,6 +32,20 @@ bazel run //assets/js:prettier
 bazel build //assets/css
 ```
 
+### Run tests
+
+Run all tests:
+
+```bash
+bazel test //...
+```
+
+Run chat frontend protocol test (Node.js via Bazel toolchain):
+
+```bash
+bazel test //assets/js:chat-protocol-test
+```
+
 ### Run rust server
 
 This command will run a http server on port 8080
