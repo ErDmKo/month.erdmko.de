@@ -39,10 +39,7 @@ type WsPayload = {
     [key: string]: any;
 };
 
-const initSendObserver = (
-    ws: WebSocket,
-    setError: (text: string) => void
-) => {
+const initSendObserver = (ws: WebSocket, setError: (text: string) => void) => {
     const outgoing = observer<SendCommand>();
     outgoing(
         bindArg((command: SendCommand) => {
@@ -161,21 +158,13 @@ const initTemplate = (ctx: Window, root: Element) => {
         if (payload.type === 'history' && Array.isArray(payload.items)) {
             cleanHtml(refs[CHAT_REF_MESSAGES]);
             payload.items.forEach((item) => {
-                renderMessage(ctx, refs[CHAT_REF_MESSAGES], {
-                    senderName: item.senderName,
-                    body: item.body,
-                    createdAt: item.createdAt,
-                });
+                renderMessage(ctx, refs[CHAT_REF_MESSAGES], item);
             });
             return;
         }
 
         if (payload.type === 'message' && payload.item) {
-            renderMessage(ctx, refs[CHAT_REF_MESSAGES], {
-                senderName: payload.item.senderName,
-                body: payload.item.body,
-                createdAt: payload.item.createdAt,
-            });
+            renderMessage(ctx, refs[CHAT_REF_MESSAGES], payload.item);
             return;
         }
 
@@ -199,12 +188,15 @@ const initTemplate = (ctx: Window, root: Element) => {
 
     refs[CHAT_REF_MESSAGE].addEventListener('input', updateControls);
 
-    refs[CHAT_REF_MESSAGE].addEventListener('keydown', (event: KeyboardEvent) => {
-        if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            refs[CHAT_REF_FORM].requestSubmit();
+    refs[CHAT_REF_MESSAGE].addEventListener(
+        'keydown',
+        (event: KeyboardEvent) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                refs[CHAT_REF_FORM].requestSubmit();
+            }
         }
-    });
+    );
 
     refs[CHAT_REF_FORM].addEventListener('submit', (event) => {
         event.preventDefault();
