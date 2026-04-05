@@ -227,9 +227,18 @@ a:hover {
 }
 
 .chat {
+    text-align: left;
+}
+
+.chat-page {
     max-width: 900px;
     margin: 30px auto;
-    text-align: left;
+    padding: 0 10px;
+    box-sizing: border-box;
+}
+
+.chat__title {
+    margin: 0 0 16px;
 }
 
 .chat__meta {
@@ -259,6 +268,11 @@ a:hover {
     background: #fff;
     border: 1px solid #eee;
     border-radius: 6px;
+}
+
+.chat__message--own {
+    background: #e9f4ff;
+    border-color: #b7d8f5;
 }
 
 .chat__message-head {

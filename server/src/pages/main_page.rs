@@ -118,6 +118,11 @@ fn get_page_ctx() -> MainPageContext<MainPageLinkString> {
                 href: "/catalog",
                 text: "Catalog",
             },
+            MainPageLink {
+                name: "General chat room",
+                href: "/chat/general",
+                text: "Open chat",
+            },
         ],
         games: vec![
             MainPageLink {
