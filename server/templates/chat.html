@@ -5,6 +5,8 @@
 <script async src="/static/js/{{ bundle_name }}-bundle.js"></script>
 {% endblock head %}
 {% block inner_content %}
-<h1>Chat room: {{ room_id }}</h1>
-<div class="chat js-chat" data-room-id="{{ room_id }}"></div>
+<section class="chat-page">
+    <h1 class="chat__title">Chat room: {{ room_id }}</h1>
+    <div class="chat js-chat" data-room-id="{{ room_id }}"></div>
+</section>
 {% endblock inner_content %}

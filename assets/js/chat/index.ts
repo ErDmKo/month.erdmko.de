@@ -8,13 +8,17 @@ import {
 } from '@month/utils';
 import {
     CHAT_REF_COUNTER,
+    CHAT_REF_CHAT_SCREEN,
     CHAT_REF_ERROR,
-    CHAT_REF_FORM,
+    CHAT_REF_JOIN_BUTTON,
+    CHAT_REF_JOIN_FORM,
     CHAT_REF_MESSAGE,
+    CHAT_REF_MESSAGE_FORM,
     CHAT_REF_MESSAGES,
     CHAT_REF_NICKNAME,
     CHAT_REF_SEND,
     CHAT_REF_STATUS,
+    CHAT_REF_WELCOME,
     chatMessageTemplate,
     mountChatUi,
 } from './template';
@@ -71,12 +75,18 @@ const toWsUrl = (ctx: Window, roomId: string) => {
 const renderMessage = (
     ctx: Window,
     list: HTMLUListElement,
-    item: { senderName: string; body: string; createdAt?: string }
+    item: { senderId?: string; senderName: string; body: string; createdAt?: string },
+    selfSenderId: string | null
 ) => {
     domCreatorRef(
         ctx,
         list,
-        chatMessageTemplate(item.senderName, item.body, item.createdAt)
+        chatMessageTemplate(
+            item.senderName,
+            item.body,
+            item.createdAt,
+            !!(selfSenderId && item.senderId && item.senderId === selfSenderId)
+        )
     );
     list.scrollTop = list.scrollHeight;
 };
@@ -86,6 +96,10 @@ const initTemplate = (ctx: Window, root: Element) => {
     const roomId = htmlRoot.dataset.roomId || 'general';
     const refs = mountChatUi(ctx, htmlRoot, MAX_MESSAGE_LEN);
     const nicknameKey = `chat-nickname-${roomId}`;
+    let isJoined = false;
+    let joinInFlight = false;
+    let isOnline = false;
+    let selfSenderId: string | null = null;
 
     const setStatus = (text: string) => {
         refs[CHAT_REF_STATUS].textContent = text;
@@ -102,12 +116,46 @@ const initTemplate = (ctx: Window, root: Element) => {
         const body = getMessageBody();
         return body.length > 0 && body.length <= MAX_MESSAGE_LEN;
     };
+    const showWelcome = () => {
+        refs[CHAT_REF_WELCOME].hidden = false;
+        refs[CHAT_REF_CHAT_SCREEN].hidden = true;
+    };
+    const showChat = () => {
+        refs[CHAT_REF_WELCOME].hidden = true;
+        refs[CHAT_REF_CHAT_SCREEN].hidden = false;
+    };
     const updateControls = () => {
         const counter = refs[CHAT_REF_COUNTER];
         const message = refs[CHAT_REF_MESSAGE];
         const send = refs[CHAT_REF_SEND];
+        const joinButton = refs[CHAT_REF_JOIN_BUTTON];
         counter.textContent = `${message.value.length}/${MAX_MESSAGE_LEN}`;
-        send.disabled = !isValidMessage() || !isValidNickname();
+        send.disabled = !isJoined || !isValidMessage();
+        joinButton.disabled = isJoined || joinInFlight || !isOnline || !isValidNickname();
+    };
+    const requestJoin = (): boolean => {
+        if (isJoined || joinInFlight || !isValidNickname()) {
+            return false;
+        }
+        if (!isOnline || ws.readyState !== ws.OPEN) {
+            return false;
+        }
+        joinInFlight = true;
+        sendObserver(
+            bindArg(
+                [JOIN_TYPE, `join-${Date.now()}`, refs[CHAT_REF_NICKNAME].value.trim()] as const,
+                trigger
+            )
+        );
+        return true;
+    };
+    const sendMessage = (body: string) => {
+        sendObserver(
+            bindArg(
+                [MESSAGE_TYPE, `msg-${Date.now()}`, body] as const,
+                trigger
+            )
+        );
     };
 
     const savedNickname = ctx.localStorage.getItem(nicknameKey);
@@ -116,6 +164,8 @@ const initTemplate = (ctx: Window, root: Element) => {
     }
 
     setStatus('connecting');
+    showWelcome();
+    isJoined = false;
     updateControls();
     refs[CHAT_REF_SEND].disabled = true;
     const ws = new ctx.WebSocket(toWsUrl(ctx, roomId));
@@ -124,21 +174,22 @@ const initTemplate = (ctx: Window, root: Element) => {
     ws.onopen = () => {
         setStatus('online');
         setError('');
+        isOnline = true;
+        isJoined = false;
+        joinInFlight = false;
+        selfSenderId = null;
         updateControls();
-        const currentNickname = refs[CHAT_REF_NICKNAME].value.trim();
-        if (currentNickname) {
-            sendObserver(
-                bindArg(
-                    [JOIN_TYPE, `join-${Date.now()}`, currentNickname] as const,
-                    trigger
-                )
-            );
-        }
     };
 
     ws.onclose = () => {
         setStatus('offline');
+        isOnline = false;
+        isJoined = false;
+        joinInFlight = false;
+        selfSenderId = null;
+        showWelcome();
         refs[CHAT_REF_SEND].disabled = true;
+        updateControls();
     };
 
     ws.onerror = () => {
@@ -158,23 +209,30 @@ const initTemplate = (ctx: Window, root: Element) => {
         if (payload.type === 'history' && Array.isArray(payload.items)) {
             cleanHtml(refs[CHAT_REF_MESSAGES]);
             payload.items.forEach((item) => {
-                renderMessage(ctx, refs[CHAT_REF_MESSAGES], item);
+                renderMessage(ctx, refs[CHAT_REF_MESSAGES], item, selfSenderId);
             });
             return;
         }
 
         if (payload.type === 'message' && payload.item) {
-            renderMessage(ctx, refs[CHAT_REF_MESSAGES], payload.item);
+            renderMessage(ctx, refs[CHAT_REF_MESSAGES], payload.item, selfSenderId);
             return;
         }
 
         if (payload.type === 'error') {
+            joinInFlight = false;
             setError(payload.message || 'Unknown error');
+            updateControls();
             return;
         }
 
         if (payload.type === 'joined') {
+            isJoined = true;
+            joinInFlight = false;
+            selfSenderId = payload.self?.senderId || null;
             setError('');
+            showChat();
+            updateControls();
         }
     };
 
@@ -193,19 +251,35 @@ const initTemplate = (ctx: Window, root: Element) => {
         (event: KeyboardEvent) => {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                refs[CHAT_REF_FORM].requestSubmit();
+                refs[CHAT_REF_MESSAGE_FORM].requestSubmit();
             }
         }
     );
 
-    refs[CHAT_REF_FORM].addEventListener('submit', (event) => {
+    refs[CHAT_REF_JOIN_FORM].addEventListener('submit', (event) => {
         event.preventDefault();
-        sendObserver(
-            bindArg(
-                [MESSAGE_TYPE, `msg-${Date.now()}`, getMessageBody()] as const,
-                trigger
-            )
-        );
+        if (requestJoin()) {
+            setError('');
+            updateControls();
+        } else if (!isValidNickname()) {
+            setError(`Nickname must be between 1 and ${MAX_NICKNAME_LEN} characters.`);
+        } else if (!isOnline) {
+            setError('Socket is not connected.');
+        }
+    });
+
+    refs[CHAT_REF_MESSAGE_FORM].addEventListener('submit', (event) => {
+        event.preventDefault();
+        const body = getMessageBody();
+        if (!isValidMessage()) {
+            setError(`Message must be between 1 and ${MAX_MESSAGE_LEN} characters.`);
+            return;
+        }
+        if (!isJoined) {
+            setError('Join the room first.');
+            return;
+        }
+        sendMessage(body);
         refs[CHAT_REF_MESSAGE].value = '';
         updateControls();
     });
