@@ -1,5 +1,7 @@
 import * as assert from 'node:assert/strict';
+import { chatMessageTemplate } from './template';
 import {
+    DELETE_TYPE,
     JOIN_TYPE,
     MAX_MESSAGE_LEN,
     MESSAGE_TYPE,
@@ -26,6 +28,14 @@ const run = () => {
     }
     assert.equal(messageSerialized.body, 'hello', 'message body mismatch');
 
+    const deleteSerialized = serializeCommand([DELETE_TYPE, 'del-1', 42]);
+    assert.notEqual(deleteSerialized, null, 'delete should serialize');
+    assert.equal(deleteSerialized.type, 'delete', 'delete type mismatch');
+    if (deleteSerialized.type !== 'delete') {
+        throw new Error('delete payload shape mismatch');
+    }
+    assert.equal(deleteSerialized.messageId, 42, 'delete messageId mismatch');
+
     assert.ok(
         validateOutgoingCommand([JOIN_TYPE, 'join-2', '  ']) !== null,
         'empty nickname should be invalid'
@@ -42,6 +52,24 @@ const run = () => {
         validateOutgoingCommand([MESSAGE_TYPE, 'msg-4', ' ok ']),
         null,
         'valid trimmed message should pass'
+    );
+    assert.equal(
+        validateOutgoingCommand([DELETE_TYPE, 'del-2', 100]),
+        null,
+        'valid delete should pass'
+    );
+
+    const xssPayload = '<img src=x onerror=alert(1) />';
+    const struct = chatMessageTemplate(10, 'alice', xssPayload);
+    assert.equal(
+        struct[1].innerHTML,
+        undefined,
+        'message template should not set innerHTML'
+    );
+    assert.equal(
+        struct[4]?.[1]?.[1].innerText,
+        xssPayload,
+        'message body should be rendered as plain text'
     );
 };
 

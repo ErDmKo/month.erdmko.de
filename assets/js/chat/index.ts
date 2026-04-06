@@ -23,6 +23,7 @@ import {
     mountChatUi,
 } from './template';
 import {
+    DELETE_TYPE,
     JOIN_TYPE,
     MAX_MESSAGE_LEN,
     MAX_NICKNAME_LEN,
@@ -75,13 +76,14 @@ const toWsUrl = (ctx: Window, roomId: string) => {
 const renderMessage = (
     ctx: Window,
     list: HTMLUListElement,
-    item: { senderId?: string; senderName: string; body: string; createdAt?: string },
+    item: { id: number; senderId?: string; senderName: string; body: string; createdAt?: string },
     selfSenderId: string | null
 ) => {
     domCreatorRef(
         ctx,
         list,
         chatMessageTemplate(
+            item.id,
             item.senderName,
             item.body,
             item.createdAt,
@@ -157,6 +159,14 @@ const initTemplate = (ctx: Window, root: Element) => {
             )
         );
     };
+    const sendDelete = (messageId: number) => {
+        sendObserver(
+            bindArg(
+                [DELETE_TYPE, `delete-${Date.now()}`, messageId] as const,
+                trigger
+            )
+        );
+    };
 
     const savedNickname = ctx.localStorage.getItem(nicknameKey);
     if (savedNickname && savedNickname.length <= MAX_NICKNAME_LEN) {
@@ -216,6 +226,15 @@ const initTemplate = (ctx: Window, root: Element) => {
 
         if (payload.type === 'message' && payload.item) {
             renderMessage(ctx, refs[CHAT_REF_MESSAGES], payload.item, selfSenderId);
+            return;
+        }
+        if (payload.type === 'deleted' && payload.messageId) {
+            const target = refs[CHAT_REF_MESSAGES].querySelector(
+                `[data-message-id="${payload.messageId}"]`
+            );
+            if (target) {
+                target.remove();
+            }
             return;
         }
 
@@ -282,6 +301,22 @@ const initTemplate = (ctx: Window, root: Element) => {
         sendMessage(body);
         refs[CHAT_REF_MESSAGE].value = '';
         updateControls();
+    });
+    refs[CHAT_REF_MESSAGES].addEventListener('click', (event) => {
+        const target = event.target as HTMLElement | null;
+        if (!target) {
+            return;
+        }
+        const button = target.closest('[data-delete-id]') as HTMLElement | null;
+        if (!button) {
+            return;
+        }
+        const rawId = button.getAttribute('data-delete-id');
+        const messageId = rawId ? Number(rawId) : NaN;
+        if (!Number.isInteger(messageId) || messageId <= 0) {
+            return;
+        }
+        sendDelete(messageId);
     });
 };
 
