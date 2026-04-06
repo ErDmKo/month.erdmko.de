@@ -1,20 +1,23 @@
 export const JOIN_TYPE = 0 as const;
 export const MESSAGE_TYPE = 1 as const;
+export const DELETE_TYPE = 2 as const;
 export const MAX_MESSAGE_LEN = 200;
 export const MAX_NICKNAME_LEN = 32;
 
-type OutgoingType = typeof JOIN_TYPE | typeof MESSAGE_TYPE;
+type OutgoingType = typeof JOIN_TYPE | typeof MESSAGE_TYPE | typeof DELETE_TYPE;
 
 export type SendCommand =
     | readonly [type: typeof JOIN_TYPE, requestId: string, nickname: string]
-    | readonly [type: typeof MESSAGE_TYPE, requestId: string, body: string];
+    | readonly [type: typeof MESSAGE_TYPE, requestId: string, body: string]
+    | readonly [type: typeof DELETE_TYPE, requestId: string, messageId: number];
 
 export type OutgoingWsEvent =
     | { type: 'join'; requestId: string; nickname: string }
-    | { type: 'message'; requestId: string; body: string };
+    | { type: 'message'; requestId: string; body: string }
+    | { type: 'delete'; requestId: string; messageId: number };
 
 const isAllowedType = (eventType: number): eventType is OutgoingType => {
-    return eventType === JOIN_TYPE || eventType === MESSAGE_TYPE;
+    return eventType === JOIN_TYPE || eventType === MESSAGE_TYPE || eventType === DELETE_TYPE;
 };
 
 export const serializeCommand = (command: SendCommand): OutgoingWsEvent | null => {
@@ -25,6 +28,9 @@ export const serializeCommand = (command: SendCommand): OutgoingWsEvent | null =
     if (type === JOIN_TYPE) {
         return { type: 'join', requestId, nickname: payload };
     }
+    if (type === DELETE_TYPE) {
+        return { type: 'delete', requestId, messageId: payload };
+    }
     return { type: 'message', requestId, body: payload };
 };
 
@@ -34,6 +40,12 @@ export const validateOutgoingCommand = (command: SendCommand): string | null => 
         const nickname = payload.trim();
         if (nickname.length === 0 || nickname.length > MAX_NICKNAME_LEN) {
             return `Nickname must be between 1 and ${MAX_NICKNAME_LEN} characters.`;
+        }
+        return null;
+    }
+    if (type === DELETE_TYPE) {
+        if (!Number.isInteger(payload) || payload <= 0) {
+            return 'Message id must be a positive integer.';
         }
         return null;
     }

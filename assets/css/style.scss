@@ -263,6 +263,7 @@ a:hover {
 }
 
 .chat__message {
+    position: relative;
     padding: 10px;
     margin-bottom: 8px;
     background: #fff;
@@ -281,9 +282,36 @@ a:hover {
     margin-bottom: 4px;
 }
 
+.chat__message-meta {
+    display: block;
+    padding-right: 18px;
+}
+
 .chat__message-body {
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+.chat__delete {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: #6b7280;
+    line-height: 18px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.chat__delete:hover {
+    background: rgba(0, 0, 0, 0.08);
+    color: #111827;
 }
 
 .chat__form {
