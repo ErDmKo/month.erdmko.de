@@ -6,6 +6,22 @@
     app_name: 'my_app'
     image_name: 'what_amonth'
   tasks:
+  - name: Configure docker daemon log rotation
+    ansible.builtin.copy:
+      dest: /etc/docker/daemon.json
+      mode: "0644"
+      content: |
+        {
+          "log-driver": "json-file",
+          "log-opts": {
+            "max-size": "10m",
+            "max-file": "5"
+          }
+        }
+  - name: Restart docker daemon
+    ansible.builtin.systemd:
+      name: docker
+      state: restarted
   - name: directory exist
     ansible.builtin.file:
       path: "{{ install_dirr }}"
