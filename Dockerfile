@@ -1,4 +1,4 @@
-FROM rust:slim-bookworm as builder
+FROM --platform=linux/amd64 rust:slim-bookworm AS builder
 
 RUN apt update && apt install -y musl-tools musl-dev sqlite3 libsqlite3-dev
 
@@ -36,7 +36,7 @@ ENV DOMAIN='erdmko.dev'
 ENV API_TOKEN=$API_TOKEN
 RUN cargo build --target x86_64-unknown-linux-musl --release
 
-FROM alpine:3.16.0 AS runtime 
+FROM --platform=linux/amd64 alpine:3.16.0 AS runtime
 WORKDIR /usr/local/bin/
 EXPOSE 8080
 COPY --from=builder /usr/src/app/target/x86_64-unknown-linux-musl/release/server /usr/local/bin/server
