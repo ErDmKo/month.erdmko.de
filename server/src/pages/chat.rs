@@ -1,5 +1,6 @@
 use actix::{Actor, Addr, AsyncContext, Handler, Message, StreamHandler};
 use actix_web::{get, web, Error, HttpRequest, HttpResponse, Result};
+use actix_web::http::header;
 use actix_web_actors::ws;
 use log::{info, warn};
 use rand::random;
@@ -354,6 +355,22 @@ pub async fn chat_ws_page_handler(
     stream: web::Payload,
     room_id: web::Path<String>,
 ) -> Result<HttpResponse, Error> {
+    let origin = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok());
+    let Some(origin) = origin else {
+        warn!("event=chat_error room_id={} sender_id=null code=FORBIDDEN_ORIGIN request_id=null error=missing_origin", room_id.as_str());
+        return Err(actix_web::error::ErrorForbidden("Origin is required."));
+    };
+    if !chat_service::is_allowed_origin(origin) {
+        warn!(
+            "event=chat_error room_id={} sender_id=null code=FORBIDDEN_ORIGIN request_id=null error=origin_not_allowed origin={}",
+            room_id.as_str(),
+            origin
+        );
+        return Err(actix_web::error::ErrorForbidden("Origin is not allowed."));
+    }
     let app_ctx = req
         .app_data::<web::Data<AppCtx>>()
         .cloned()
@@ -501,6 +518,7 @@ mod tests {
         let ws_url = format!("ws://{}/ws/chat/{}", addr, room_id);
         let (_resp, mut ws) = awc::Client::new()
             .ws(ws_url)
+            .set_header("Origin", "http://localhost:8080")
             .connect()
             .await
             .expect("ws connect should succeed");
@@ -560,16 +578,19 @@ mod tests {
         let ws_url_other = format!("ws://{}/ws/chat/{}", addr, other_room);
         let (_resp1, mut ws1) = awc::Client::new()
             .ws(ws_url_1)
+            .set_header("Origin", "http://localhost:8080")
             .connect()
             .await
             .expect("ws1 connect should succeed");
         let (_resp2, mut ws2) = awc::Client::new()
             .ws(ws_url_2)
+            .set_header("Origin", "http://localhost:8080")
             .connect()
             .await
             .expect("ws2 connect should succeed");
         let (_resp_other, mut ws_other) = awc::Client::new()
             .ws(ws_url_other)
+            .set_header("Origin", "http://localhost:8080")
             .connect()
             .await
             .expect("ws_other connect should succeed");
@@ -639,6 +660,7 @@ mod tests {
         let ws_url = format!("ws://{}/ws/chat/{}", addr, room_id);
         let (_resp, mut ws) = awc::Client::new()
             .ws(ws_url)
+            .set_header("Origin", "http://localhost:8080")
             .connect()
             .await
             .expect("ws connect should succeed");
@@ -698,6 +720,7 @@ mod tests {
         let ws_url = format!("ws://{}/ws/chat/{}", addr, room_id);
         let (_resp, mut ws) = awc::Client::new()
             .ws(ws_url)
+            .set_header("Origin", "http://localhost:8080")
             .connect()
             .await
             .expect("ws connect should succeed");
@@ -764,6 +787,7 @@ mod tests {
         let ws_url = format!("ws://{}/ws/chat/{}", addr, room_id);
         let (_resp, mut ws) = awc::Client::new()
             .ws(ws_url)
+            .set_header("Origin", "http://localhost:8080")
             .connect()
             .await
             .expect("ws connect should succeed");
@@ -819,11 +843,13 @@ mod tests {
         let ws_url_2 = format!("ws://{}/ws/chat/{}", addr, room_id);
         let (_resp1, mut ws1) = awc::Client::new()
             .ws(ws_url_1)
+            .set_header("Origin", "http://localhost:8080")
             .connect()
             .await
             .expect("ws1 connect should succeed");
         let (_resp2, mut ws2) = awc::Client::new()
             .ws(ws_url_2)
+            .set_header("Origin", "http://localhost:8080")
             .connect()
             .await
             .expect("ws2 connect should succeed");
