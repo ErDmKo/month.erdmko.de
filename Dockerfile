@@ -1,4 +1,4 @@
-FROM rust:slim-buster as builder
+FROM rust:slim-bookworm as builder
 
 RUN apt update && apt install -y musl-tools musl-dev sqlite3 libsqlite3-dev
 
