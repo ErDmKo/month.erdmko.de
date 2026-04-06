@@ -155,7 +155,22 @@ pub fn is_valid_text_payload_size(payload_len: usize) -> bool {
 
 pub fn parse_client_event(text: &str) -> ChatResult<ClientEvent> {
     serde_json::from_str(text)
-        .map_err(|err| ChatError::bad_payload(format!("Malformed JSON payload: {err}")))
+        .map_err(|_| ChatError::bad_payload("Malformed JSON payload."))
+}
+
+pub fn is_allowed_origin(origin: &str) -> bool {
+    let normalized = origin.trim().trim_end_matches('/').to_ascii_lowercase();
+    let host = normalized
+        .strip_prefix("http://")
+        .or_else(|| normalized.strip_prefix("https://"))
+        .unwrap_or(normalized.as_str())
+        .split('/')
+        .next()
+        .unwrap_or("");
+    matches!(
+        host,
+        "erdmko.dev" | "erdmko.dev:443" | "localhost:8080"
+    )
 }
 
 pub fn error_payload(request_id: Option<&str>, code: &str, message: &str) -> String {
