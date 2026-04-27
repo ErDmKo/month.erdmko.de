@@ -57,6 +57,7 @@ const main = async () => {
         [
             'docker',
             'build .',
+            '--platform linux/amd64',
             `--tag ${PROJECT_NAME}`,
             `--build-arg STATIC_DIR=${TMP_DIR}`,
         ].concat(secrets.apiToken ? [
