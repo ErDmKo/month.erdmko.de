@@ -7,7 +7,7 @@ Source of truth for file attachment upload/download over WebSocket.
 | Identifier | Type | Lifetime | Description |
 |---|---|---|---|
 | `messageId` | integer | permanent | ID of an existing chat message. A file is always attached to a message. Comes from the chat model — must exist before upload starts. |
-| `uploadId` | UUID string | temporary | Identifies an in-progress upload session. Assigned by the server in `upload_ready`, used in `UploadChunk` and `upload_end`. Destroyed after `upload_done` or session disconnect. |
+| `uploadId` | uint32 | temporary | Session-scoped counter assigned by the server in `upload_ready`. Used in `UploadChunk` and `upload_end`. Not stored in the DB — destroyed after `upload_done` or session disconnect. An integer is sufficient because it only needs to be unique within one WS session. |
 | `attachmentId` | integer | permanent | ID of a persisted file in the database. Created only after a successful `upload_done`. Used in `download_request` and in the message `attachments` array. |
 
 Lifecycle summary:
@@ -16,9 +16,9 @@ Lifecycle summary:
 message { id: 42 }  ← messageId, must exist first
   │
   └─► upload_start { messageId: 42 }
-        └─► upload_ready { uploadId: "abc-uuid" }   ← temporary
-              ├─► UploadChunk { uploadId: "abc-uuid", index: 0 }
-              └─► upload_end   { uploadId: "abc-uuid" }
+        └─► upload_ready { uploadId: 1 }       ← temporary uint32
+              ├─► UploadChunk { uploadId: 1, index: 0 }
+              └─► upload_end   { uploadId: 1 }
                     └─► upload_done { attachment: { id: 7, messageId: 42 } }
                                                          ↑
                                                    attachmentId: 7  ← permanent
@@ -49,7 +49,7 @@ See `assets.proto` for the canonical definitions.
 
 ```protobuf
 message UploadChunk {
-  string upload_id = 1;  // UUID assigned by server in upload_ready
+  uint32 upload_id = 1;  // session-scoped upload identifier assigned by server in upload_ready
   uint32 index     = 2;  // 0-based chunk index
   bytes  data      = 3;  // raw file bytes, max 64 KB
 }
@@ -93,13 +93,13 @@ message DownloadChunk {
 {
   "type": "upload_end",
   "requestId": "req-2",
-  "uploadId": "uuid"
+  "uploadId": 1
 }
 ```
 
 | Field | Type | Rules |
 |---|---|---|
-| `uploadId` | string | required; UUID returned in `upload_ready` |
+| `uploadId` | uint32 | required; value returned in `upload_ready` |
 
 #### `download_request`
 
@@ -125,7 +125,7 @@ message DownloadChunk {
 {
   "type": "upload_ready",
   "requestId": "req-1",
-  "uploadId": "uuid",
+  "uploadId": 1,
   "ts": "2024-01-01T00:00:00Z"
 }
 ```
@@ -136,7 +136,7 @@ message DownloadChunk {
 {
   "type": "upload_done",
   "requestId": "req-2",
-  "uploadId": "uuid",
+  "uploadId": 1,
   "attachment": {
     "id": 7,
     "messageId": 42,

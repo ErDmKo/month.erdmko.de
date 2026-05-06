@@ -485,6 +485,9 @@ mod tests {
             (),
         )
         .expect("messages index should be created");
+
+        crate::attachments::db::init_attachments_schema(&conn)
+            .expect("attachments schema should be initialized");
     }
 
     async fn read_next_text<S>(socket: &mut S) -> serde_json::Value

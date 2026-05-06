@@ -4,7 +4,7 @@ package assets;
 
 // Client → Server: chunk of file being uploaded
 message UploadChunk {
-  string upload_id = 1; // UUID assigned by server in upload_ready
+  uint32 upload_id = 1; // session-scoped upload identifier assigned by server in upload_ready
   uint32 index = 2; // 0-based chunk index
   bytes data = 3; // raw file bytes, max 64 KB
 }

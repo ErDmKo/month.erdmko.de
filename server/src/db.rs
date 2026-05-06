@@ -70,6 +70,7 @@ pub async fn init_db(base_dir: &mut PathBuf) -> Result<Pool, rusqlite::Error> {
     conn.execute(token_query, ())?;
 
     crate::chat::db::init_chat_schema(&conn)?;
+    crate::attachments::db::init_attachments_schema(&conn)?;
 
     let random_seed = rand::random::<u64>().to_string();
     let token = format!("im_{random_seed}");

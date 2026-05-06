@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::error::{ChatError, ChatResult};
 use crate::app::AppCtx;
+use crate::attachments::db::{get_attachments_for_messages, AttachmentMeta};
 use crate::chat::service::{
     HISTORY_LIMIT, MAX_MESSAGE_LEN, MAX_MESSAGES_STORAGE_BYTES, MAX_ROOMS_STORAGE_BYTES,
 };
@@ -19,6 +20,8 @@ pub struct ChatMessage {
     pub sender_name: String,
     pub body: String,
     pub created_at: String,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentMeta>,
 }
 
 fn ensure_foreign_keys(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
@@ -234,6 +237,7 @@ pub async fn insert_message(
                 sender_name: row.get("sender_name")?,
                 body: row.get("body")?,
                 created_at: row.get("created_at")?,
+                attachments: vec![],
             })
         })
         .map_err(|err| {
@@ -327,10 +331,24 @@ pub async fn get_recent_messages(
                 sender_name: row.get("sender_name")?,
                 body: row.get("body")?,
                 created_at: row.get("created_at")?,
+                attachments: vec![],
             })
         })
         .and_then(Iterator::collect::<Result<Vec<_>, _>>)
         .map_err(|err| ChatError::internal("Failed to load history.", format!("{err:?}")))?;
+
+    // Batch-fetch attachment metadata for all loaded messages.
+    if !rows.is_empty() {
+        let ids: Vec<i64> = rows.iter().map(|m| m.id).collect();
+        let mut att_map = get_attachments_for_messages(&conn, &ids).map_err(|err| {
+            ChatError::internal("Failed to load attachments.", format!("{err:?}"))
+        })?;
+        for msg in &mut rows {
+            if let Some(atts) = att_map.remove(&msg.id) {
+                msg.attachments = atts;
+            }
+        }
+    }
 
     rows.reverse();
     Ok(rows)
@@ -360,6 +378,8 @@ mod tests {
         });
         let conn = ctx.pool.get().expect("pool connection should be available");
         init_chat_schema(&conn).expect("chat schema should be initialized");
+        crate::attachments::db::init_attachments_schema(&conn)
+            .expect("attachments schema should be initialized");
         ctx
     }
 
