@@ -1,7 +1,7 @@
 use actix_files;
 use actix_web::dev::ServiceRequest;
 use actix_web::http::header;
-use actix_web::{middleware, web, App, HttpServer};
+use actix_web::{App, HttpServer, middleware, web};
 use actix_web_grants::GrantsMiddleware;
 use db::check_token;
 use env_logger;

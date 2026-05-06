@@ -1,5 +1,5 @@
 use actix_web::HttpRequest;
-use actix_web::{get, Responder};
+use actix_web::{Responder, get};
 use chrono::{Datelike, Local};
 use serde::Serialize;
 use tera::Context;

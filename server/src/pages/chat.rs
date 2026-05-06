@@ -1,6 +1,6 @@
 use actix::{Actor, Addr, AsyncContext, Handler, Message, StreamHandler};
 use actix_web::http::header;
-use actix_web::{get, web, Error, HttpRequest, HttpResponse, Result};
+use actix_web::{Error, HttpRequest, HttpResponse, Result, get, web};
 use actix_web_actors::ws;
 use log::{info, warn};
 use rand::random;
@@ -371,7 +371,10 @@ pub async fn chat_ws_page_handler(
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok());
     let Some(origin) = origin else {
-        warn!("event=chat_error room_id={} sender_id=null code=FORBIDDEN_ORIGIN request_id=null error=missing_origin", room_id.as_str());
+        warn!(
+            "event=chat_error room_id={} sender_id=null code=FORBIDDEN_ORIGIN request_id=null error=missing_origin",
+            room_id.as_str()
+        );
         return Err(actix_web::error::ErrorForbidden("Origin is required."));
     };
     if !chat_service::is_allowed_origin(origin) {
@@ -553,11 +556,13 @@ mod tests {
             .iter()
             .find(|e| e["type"] == "history")
             .expect("history event should exist");
-        assert!(history["items"]
-            .as_array()
-            .expect("history items should be array")
-            .iter()
-            .any(|item| item["body"] == "hello history"));
+        assert!(
+            history["items"]
+                .as_array()
+                .expect("history items should be array")
+                .iter()
+                .any(|item| item["body"] == "hello history")
+        );
 
         handle.stop(true).await;
     }

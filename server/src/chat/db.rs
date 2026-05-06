@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::error::{ChatError, ChatResult};
 use crate::app::AppCtx;
 use crate::chat::service::{
-    HISTORY_LIMIT, MAX_MESSAGES_STORAGE_BYTES, MAX_MESSAGE_LEN, MAX_ROOMS_STORAGE_BYTES,
+    HISTORY_LIMIT, MAX_MESSAGE_LEN, MAX_MESSAGES_STORAGE_BYTES, MAX_ROOMS_STORAGE_BYTES,
 };
 
 pub static CHAT_ROOMS_TABLE: &str = "rooms";

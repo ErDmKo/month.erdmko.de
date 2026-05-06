@@ -1,5 +1,5 @@
 use actix_web::HttpRequest;
-use actix_web::{get, web, Responder};
+use actix_web::{Responder, get, web};
 use serde::{Deserialize, Serialize};
 use slug::slugify;
 use tera::Context;

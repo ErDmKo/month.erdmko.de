@@ -1,4 +1,4 @@
-use actix_web::{error, HttpRequest, HttpResponse, Result};
+use actix_web::{HttpRequest, HttpResponse, Result, error};
 use log::error;
 use std::sync::{Arc, RwLock};
 use tera::{Context, Tera};

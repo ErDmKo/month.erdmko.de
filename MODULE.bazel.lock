@@ -1124,7 +1124,7 @@
           "REPO_MAPPING:rules_rust+,rules_cc rules_cc+",
           "REPO_MAPPING:rules_rust+,rules_rust rules_rust+",
           "FILE:@@//server/Cargo.lock d5269e60afe2ce5c825eff81fbdec23b8f4d9df22f511525a29df6b62f6c45a0",
-          "FILE:@@//server/Cargo.toml bceaf88d510bfe1bf353ea8b063e38ee3ef4edb04d01d0b1fc01a947bb1e31c8"
+          "FILE:@@//server/Cargo.toml f5b6afc0a944094dde3971f5e87a3f91c881cc7e1e069bd72a9dd0a745d79314"
         ],
         "generatedRepoSpecs": {
           "crate_index": {
