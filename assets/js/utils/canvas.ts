@@ -11,20 +11,21 @@ export const fillElemWidhCanvas = (
     ctx: Window,
     element: HTMLElement
 ): [DOMRect, HTMLCanvasElement] => {
-    const [canvas] = domCreator(ctx, element, genTagName(
-        'canvas', [
+    const [canvas] = domCreator(
+        ctx,
+        element,
+        genTagName('canvas', [
             genRef(),
             genProp('style', {
-                    position: 'absolute',
-                    top: '0px',
-                    left: '0px',
-                    pointerEvents: 'none',
-                    width: '100%',
-                    height: '100%',
-                },
-            ),
-        ],
-    ));
+                position: 'absolute',
+                top: '0px',
+                left: '0px',
+                pointerEvents: 'none',
+                width: '100%',
+                height: '100%',
+            }),
+        ])
+    );
     ctx.Object.assign(element.style, {
         position: 'relative',
     });

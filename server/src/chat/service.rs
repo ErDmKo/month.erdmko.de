@@ -7,9 +7,9 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::app::AppCtx;
-use super::error::{ChatError, ChatResult};
 use super::db::{self, ChatMessage};
+use super::error::{ChatError, ChatResult};
+use crate::app::AppCtx;
 
 pub const MAX_MESSAGE_LEN: usize = 200;
 pub const MAX_NICKNAME_LEN: usize = 32;
@@ -33,7 +33,12 @@ impl<A: Actor> RoomRegistry<A> {
         }
     }
 
-    pub fn try_register_connection(&self, room_id: &str, addr: Addr<A>, max_connections: usize) -> bool {
+    pub fn try_register_connection(
+        &self,
+        room_id: &str,
+        addr: Addr<A>,
+        max_connections: usize,
+    ) -> bool {
         let mut rooms = self
             .rooms
             .write()
@@ -154,8 +159,7 @@ pub fn is_valid_text_payload_size(payload_len: usize) -> bool {
 }
 
 pub fn parse_client_event(text: &str) -> ChatResult<ClientEvent> {
-    serde_json::from_str(text)
-        .map_err(|_| ChatError::bad_payload("Malformed JSON payload."))
+    serde_json::from_str(text).map_err(|_| ChatError::bad_payload("Malformed JSON payload."))
 }
 
 pub fn is_allowed_origin(origin: &str) -> bool {
@@ -167,10 +171,7 @@ pub fn is_allowed_origin(origin: &str) -> bool {
         .split('/')
         .next()
         .unwrap_or("");
-    matches!(
-        host,
-        "erdmko.dev" | "erdmko.dev:443" | "localhost:8080"
-    )
+    matches!(host, "erdmko.dev" | "erdmko.dev:443" | "localhost:8080")
 }
 
 pub fn error_payload(request_id: Option<&str>, code: &str, message: &str) -> String {

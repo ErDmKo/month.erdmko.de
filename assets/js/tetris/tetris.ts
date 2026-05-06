@@ -85,20 +85,21 @@ const addPhoneControls = (
     keyHandlers: KeyHandlers
 ) => {
     const styles = phoneStyleMap();
-    domCreator(ctx, element, genTagDiv(
-        [genClass('c')],
-        phoneControlsMap.map(([key, name]) => {
-            const classes = styles[key];
-            return genTagName(
-                'button',
-                [
+    domCreator(
+        ctx,
+        element,
+        genTagDiv(
+            [genClass('c')],
+            phoneControlsMap.map(([key, name]) => {
+                const classes = styles[key];
+                return genTagName('button', [
                     genClass((classes || []).join(' ')),
                     genText(name),
                     genProp('onclick', keyHandlers[key]),
-                ],
-            );
-        }),
-    ));
+                ]);
+            })
+        )
+    );
 };
 
 const initCanvas = (ctx: Window, element: Element) => {
@@ -107,14 +108,15 @@ const initCanvas = (ctx: Window, element: Element) => {
     htmlElement.classList.add('tetris');
     const boardSize: Vector2D = [10, 20];
     const infoTemplate = genTagDiv([
-      genClass('info'),
-      genText(START_TEXT),
-      genRef()
+        genClass('info'),
+        genText(START_TEXT),
+        genRef(),
     ]);
-    const [wrapper, info] = domCreator(ctx, htmlElement, genTagDiv(
-        [genClass('wrapper'), genRef()],
-        [infoTemplate],
-    ));
+    const [wrapper, info] = domCreator(
+        ctx,
+        htmlElement,
+        genTagDiv([genClass('wrapper'), genRef()], [infoTemplate])
+    );
     const [rect, canvas] = fillElemWidhCanvas(ctx, wrapper);
     var canvasCtx = canvas.getContext('2d');
     if (!canvasCtx) {

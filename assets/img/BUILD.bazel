@@ -4,10 +4,10 @@ filegroup(
     name = "img",
     srcs = glob(
         ["**/*"],
-        exclude = ['**/*.bazel']
+        exclude = ["**/*.bazel"],
     ),
     data = glob(
         ["**/*"],
-        exclude = ['**/*.bazel']
+        exclude = ["**/*.bazel"],
     ),
 )

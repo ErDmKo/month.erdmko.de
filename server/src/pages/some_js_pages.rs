@@ -13,7 +13,6 @@ pub async fn tetris_page_handler(req: HttpRequest) -> Result<HttpResponse> {
     return utils::render(req, "js_bundle_page.html", &ctx).await;
 }
 
-
 #[get("/tennis")]
 pub async fn tennis_page_handler(req: HttpRequest) -> Result<HttpResponse> {
     let mut ctx = Context::new();

@@ -1,15 +1,15 @@
 use actix::{Actor, Addr, AsyncContext, Handler, Message, StreamHandler};
-use actix_web::{get, web, Error, HttpRequest, HttpResponse, Result};
 use actix_web::http::header;
+use actix_web::{get, web, Error, HttpRequest, HttpResponse, Result};
 use actix_web_actors::ws;
 use log::{info, warn};
 use rand::random;
 use std::sync::LazyLock;
 use tera::Context;
 
+use super::utils;
 use crate::app::AppCtx;
 use crate::chat::service::{self as chat_service, ChatSessionState, ClientEvent, RoomRegistry};
-use super::utils;
 
 static CHAT_ROOMS: LazyLock<RoomRegistry<ChatWs>> = LazyLock::new(RoomRegistry::new);
 
@@ -45,11 +45,7 @@ impl ChatWs {
     }
 
     fn register_connection(room_id: &str, addr: Addr<Self>) -> bool {
-        CHAT_ROOMS.try_register_connection(
-            room_id,
-            addr,
-            chat_service::MAX_OPEN_CONNECTIONS,
-        )
+        CHAT_ROOMS.try_register_connection(room_id, addr, chat_service::MAX_OPEN_CONNECTIONS)
     }
 
     fn cleanup_room(room_id: &str) {
@@ -154,7 +150,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
                         request_id,
                         nickname,
                     } => {
-                        let Some(valid_nickname) = ChatSessionState::validate_nickname(&nickname) else {
+                        let Some(valid_nickname) = ChatSessionState::validate_nickname(&nickname)
+                        else {
                             Self::send_error(
                                 &self.room_id,
                                 &self.sender_id,
@@ -172,7 +169,11 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
                         let app_ctx = self.app_ctx.clone();
                         let addr = ctx.address();
                         actix_web::rt::spawn(async move {
-                            let history_items = match chat_service::join_room_and_get_history(&app_ctx, &room_id).await {
+                            let history_items = match chat_service::join_room_and_get_history(
+                                &app_ctx, &room_id,
+                            )
+                            .await
+                            {
                                 Ok(items) => items,
                                 Err(err) => {
                                     warn!(
@@ -184,10 +185,12 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
                                         err,
                                         err.details()
                                     );
-                                    addr.do_send(PushEvent(chat_service::error_payload_from_error(
-                                        request_id.as_deref(),
-                                        &err,
-                                    )));
+                                    addr.do_send(PushEvent(
+                                        chat_service::error_payload_from_error(
+                                            request_id.as_deref(),
+                                            &err,
+                                        ),
+                                    ));
                                     return;
                                 }
                             };
@@ -248,7 +251,10 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
                                         sender_id,
                                         item.body.chars().count()
                                     );
-                                    ChatWs::broadcast_to_room(&room_id, chat_service::message_payload(&item));
+                                    ChatWs::broadcast_to_room(
+                                        &room_id,
+                                        chat_service::message_payload(&item),
+                                    );
                                 }
                                 Err(err) => {
                                     warn!(
@@ -260,10 +266,12 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
                                         err,
                                         err.details()
                                     );
-                                    addr.do_send(PushEvent(chat_service::error_payload_from_error(
-                                        request_id.as_deref(),
-                                        &err,
-                                    )));
+                                    addr.do_send(PushEvent(
+                                        chat_service::error_payload_from_error(
+                                            request_id.as_deref(),
+                                            &err,
+                                        ),
+                                    ));
                                 }
                             }
                         });
@@ -277,7 +285,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
                         let app_ctx = self.app_ctx.clone();
                         let addr = ctx.address();
                         actix_web::rt::spawn(async move {
-                            match chat_service::delete_message(&app_ctx, &room_id, message_id).await {
+                            match chat_service::delete_message(&app_ctx, &room_id, message_id).await
+                            {
                                 Ok(true) => {
                                     info!(
                                         "event=chat_delete room_id={} sender_id={} message_id={}",
@@ -311,10 +320,12 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
                                         err,
                                         err.details()
                                     );
-                                    addr.do_send(PushEvent(chat_service::error_payload_from_error(
-                                        request_id.as_deref(),
-                                        &err,
-                                    )));
+                                    addr.do_send(PushEvent(
+                                        chat_service::error_payload_from_error(
+                                            request_id.as_deref(),
+                                            &err,
+                                        ),
+                                    ));
                                 }
                             }
                         });
@@ -396,6 +407,8 @@ pub async fn chat_ws_page_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chat::db as chat_db;
+    use crate::chat::service::WS_MAX_PAYLOAD_BYTES;
     use actix_web::{App, HttpServer};
     use futures_util::{SinkExt, Stream, StreamExt};
     use r2d2_sqlite::SqliteConnectionManager;
@@ -403,8 +416,6 @@ mod tests {
     use std::net::TcpListener;
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use crate::chat::db as chat_db;
-    use crate::chat::service::WS_MAX_PAYLOAD_BYTES;
 
     fn setup_ctx() -> web::Data<AppCtx> {
         let unique_suffix = SystemTime::now()
@@ -542,13 +553,11 @@ mod tests {
             .iter()
             .find(|e| e["type"] == "history")
             .expect("history event should exist");
-        assert!(
-            history["items"]
-                .as_array()
-                .expect("history items should be array")
-                .iter()
-                .any(|item| item["body"] == "hello history")
-        );
+        assert!(history["items"]
+            .as_array()
+            .expect("history items should be array")
+            .iter()
+            .any(|item| item["body"] == "hello history"));
 
         handle.stop(true).await;
     }
@@ -607,7 +616,9 @@ mod tests {
         .expect("join ws2");
         ws_other
             .send(awc::ws::Message::Text(
-                json!({"type":"join","nickname":"charlie"}).to_string().into(),
+                json!({"type":"join","nickname":"charlie"})
+                    .to_string()
+                    .into(),
             ))
             .await
             .expect("join ws_other");
@@ -620,7 +631,9 @@ mod tests {
         let _ = read_next_text(&mut ws_other).await;
 
         ws1.send(awc::ws::Message::Text(
-            json!({"type":"message","body":"hello room"}).to_string().into(),
+            json!({"type":"message","body":"hello room"})
+                .to_string()
+                .into(),
         ))
         .await
         .expect("message send should succeed");
@@ -634,7 +647,10 @@ mod tests {
 
         let other_result =
             actix_web::rt::time::timeout(Duration::from_millis(300), ws_other.next()).await;
-        assert!(other_result.is_err(), "other room should not receive broadcast");
+        assert!(
+            other_result.is_err(),
+            "other room should not receive broadcast"
+        );
 
         handle.stop(true).await;
     }
@@ -871,7 +887,9 @@ mod tests {
         let _ = read_next_text(&mut ws2).await;
 
         ws1.send(awc::ws::Message::Text(
-            json!({"type":"message","requestId":"msg-1","body":"hello"}).to_string().into(),
+            json!({"type":"message","requestId":"msg-1","body":"hello"})
+                .to_string()
+                .into(),
         ))
         .await
         .expect("message send should succeed");

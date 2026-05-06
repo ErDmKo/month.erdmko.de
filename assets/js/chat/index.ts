@@ -76,7 +76,13 @@ const toWsUrl = (ctx: Window, roomId: string) => {
 const renderMessage = (
     ctx: Window,
     list: HTMLUListElement,
-    item: { id: number; senderId?: string; senderName: string; body: string; createdAt?: string },
+    item: {
+        id: number;
+        senderId?: string;
+        senderName: string;
+        body: string;
+        createdAt?: string;
+    },
     selfSenderId: string | null
 ) => {
     domCreatorRef(
@@ -133,7 +139,8 @@ const initTemplate = (ctx: Window, root: Element) => {
         const joinButton = refs[CHAT_REF_JOIN_BUTTON];
         counter.textContent = `${message.value.length}/${MAX_MESSAGE_LEN}`;
         send.disabled = !isJoined || !isValidMessage();
-        joinButton.disabled = isJoined || joinInFlight || !isOnline || !isValidNickname();
+        joinButton.disabled =
+            isJoined || joinInFlight || !isOnline || !isValidNickname();
     };
     const requestJoin = (): boolean => {
         if (isJoined || joinInFlight || !isValidNickname()) {
@@ -145,7 +152,11 @@ const initTemplate = (ctx: Window, root: Element) => {
         joinInFlight = true;
         sendObserver(
             bindArg(
-                [JOIN_TYPE, `join-${Date.now()}`, refs[CHAT_REF_NICKNAME].value.trim()] as const,
+                [
+                    JOIN_TYPE,
+                    `join-${Date.now()}`,
+                    refs[CHAT_REF_NICKNAME].value.trim(),
+                ] as const,
                 trigger
             )
         );
@@ -153,10 +164,7 @@ const initTemplate = (ctx: Window, root: Element) => {
     };
     const sendMessage = (body: string) => {
         sendObserver(
-            bindArg(
-                [MESSAGE_TYPE, `msg-${Date.now()}`, body] as const,
-                trigger
-            )
+            bindArg([MESSAGE_TYPE, `msg-${Date.now()}`, body] as const, trigger)
         );
     };
     const sendDelete = (messageId: number) => {
@@ -225,7 +233,12 @@ const initTemplate = (ctx: Window, root: Element) => {
         }
 
         if (payload.type === 'message' && payload.item) {
-            renderMessage(ctx, refs[CHAT_REF_MESSAGES], payload.item, selfSenderId);
+            renderMessage(
+                ctx,
+                refs[CHAT_REF_MESSAGES],
+                payload.item,
+                selfSenderId
+            );
             return;
         }
         if (payload.type === 'deleted' && payload.messageId) {
@@ -281,7 +294,9 @@ const initTemplate = (ctx: Window, root: Element) => {
             setError('');
             updateControls();
         } else if (!isValidNickname()) {
-            setError(`Nickname must be between 1 and ${MAX_NICKNAME_LEN} characters.`);
+            setError(
+                `Nickname must be between 1 and ${MAX_NICKNAME_LEN} characters.`
+            );
         } else if (!isOnline) {
             setError('Socket is not connected.');
         }
@@ -291,7 +306,9 @@ const initTemplate = (ctx: Window, root: Element) => {
         event.preventDefault();
         const body = getMessageBody();
         if (!isValidMessage()) {
-            setError(`Message must be between 1 and ${MAX_MESSAGE_LEN} characters.`);
+            setError(
+                `Message must be between 1 and ${MAX_MESSAGE_LEN} characters.`
+            );
             return;
         }
         if (!isJoined) {

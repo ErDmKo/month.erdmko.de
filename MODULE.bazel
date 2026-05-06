@@ -16,21 +16,19 @@ bazel_dep(name = "bazel_skylib", version = "1.7.1")
 #lint
 bazel_dep(name = "aspect_rules_lint", version = "2.5.2")
 bazel_dep(name = "rules_go", version = "0.60.0")
-
-
+bazel_dep(name = "buildifier_prebuilt", version = "6.4.0")
 bazel_dep(name = "aspect_rules_js", version = "3.1.0")
 bazel_dep(name = "rules_nodejs", version = "6.7.4")
+
 node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
 node.toolchain(node_version = "20.11.1")
 
 npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm", dev_dependency = True)
-
 npm.npm_translate_lock(
     name = "npm",
     data = [":package.json"],
     pnpm_lock = "//:pnpm-lock.yaml",
 )
-
 use_repo(npm, "npm")
 
 #TypeScript
@@ -45,13 +43,16 @@ bazel_dep(name = "aspect_rules_esbuild", version = "0.25.1")
 
 # Rust
 bazel_dep(name = "rules_rust", version = "0.70.0")
+
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = "2021",
     versions = ["1.85.0"],
 )
 use_repo(rust, "rust_toolchains")
+
 register_toolchains("@rust_toolchains//:all")
+
 crate = use_extension(
     "@rules_rust//crate_universe:extension.bzl",
     "crate",

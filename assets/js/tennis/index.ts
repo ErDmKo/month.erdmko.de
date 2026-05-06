@@ -86,7 +86,9 @@ const initTemplate = (ctx: Window, element: Element) => {
     plusOneLeft.addEventListener(
         'click',
         () => {
-            voiceControlObserver(bindArg([COMMAND_TYPE, TEAM_LEFT], trigger) as any);
+            voiceControlObserver(
+                bindArg([COMMAND_TYPE, TEAM_LEFT], trigger) as any
+            );
         },
         eventOptions
     );
@@ -127,7 +129,9 @@ const initTemplate = (ctx: Window, element: Element) => {
     plusOneRight.addEventListener(
         'click',
         () => {
-            voiceControlObserver(bindArg([COMMAND_TYPE, TEAM_RIGHT], trigger) as any);
+            voiceControlObserver(
+                bindArg([COMMAND_TYPE, TEAM_RIGHT], trigger) as any
+            );
         },
         eventOptions
     );

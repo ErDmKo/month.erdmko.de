@@ -19,10 +19,18 @@ const run = () => {
     }
     assert.equal(joinSerialized.nickname, 'alice', 'join nickname mismatch');
 
-    const messageSerialized = serializeCommand([MESSAGE_TYPE, 'msg-1', 'hello']);
+    const messageSerialized = serializeCommand([
+        MESSAGE_TYPE,
+        'msg-1',
+        'hello',
+    ]);
     assert.ok(messageSerialized !== null, 'message should serialize');
     assert.equal(messageSerialized.type, 'message', 'message type mismatch');
-    assert.equal(messageSerialized.requestId, 'msg-1', 'message requestId mismatch');
+    assert.equal(
+        messageSerialized.requestId,
+        'msg-1',
+        'message requestId mismatch'
+    );
     if (messageSerialized.type !== 'message') {
         throw new Error('message payload shape mismatch');
     }
@@ -45,7 +53,11 @@ const run = () => {
         'empty message should be invalid'
     );
     assert.ok(
-        validateOutgoingCommand([MESSAGE_TYPE, 'msg-3', 'x'.repeat(MAX_MESSAGE_LEN + 1)]) !== null,
+        validateOutgoingCommand([
+            MESSAGE_TYPE,
+            'msg-3',
+            'x'.repeat(MAX_MESSAGE_LEN + 1),
+        ]) !== null,
         'oversized message should be invalid'
     );
     assert.equal(

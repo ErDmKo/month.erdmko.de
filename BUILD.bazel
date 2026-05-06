@@ -8,20 +8,25 @@ npm_link_package(
     src = "//assets/js/utils:package",
     visibility = ["//:__subpackages__"],
 )
+
 npm_link_package(
     name = "node_modules/@month/tetris",
     src = "//assets/js/tetris:package",
     visibility = ["//:__subpackages__"],
 )
+
 npm_link_package(
     name = "node_modules/@month/tennis",
     src = "//assets/js/tennis:package",
     visibility = ["//:__subpackages__"],
 )
+
 npm_link_package(
     name = "node_modules/@month/snowflake",
     src = "//assets/js/snowflake:package",
     visibility = ["//:__subpackages__"],
 )
+
+exports_files(["MODULE.bazel"])
 
 package(default_visibility = ["//visibility:public"])

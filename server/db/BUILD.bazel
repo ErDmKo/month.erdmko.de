@@ -4,6 +4,6 @@ filegroup(
     name = "db",
     srcs = glob(
         ["*"],
-        exclude = ['**/*.bazel']
+        exclude = ["**/*.bazel"],
     ),
 )

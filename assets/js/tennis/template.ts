@@ -1,10 +1,10 @@
-import { 
-  domCreator,
-  genClass,
-  genRef,
-  genTagDiv,
-  genTagName,
-  genText
+import {
+    domCreator,
+    genClass,
+    genRef,
+    genTagDiv,
+    genTagName,
+    genText,
 } from '@month/utils';
 import {
     GameState,
@@ -37,13 +37,10 @@ export const gameStateRender = (
         return genTagDiv(
             [],
             [
-                genTagDiv([
-                        genClass('time'),
-                        genText(time),
-                ]),
+                genTagDiv([genClass('time'), genText(time)]),
                 genTagDiv([genText(stateString)]),
-            ],
-        )
+            ]
+        );
     });
     const [res] = domCreator(
         ctx,
@@ -55,33 +52,37 @@ export const gameStateRender = (
 };
 
 export const template = (ctx: Window, root: HTMLElement) => {
-    const res = domCreator(ctx, root, genTagDiv(
-        [genClass('wrapper'), genRef()],
-        [
-            genTagName('button', [
+    const res = domCreator(
+        ctx,
+        root,
+        genTagDiv(
+            [genClass('wrapper'), genRef()],
+            [
+                genTagName('button', [
                     genClass('pOneL'),
                     genText(`+1 ${TEAM_LEFT_NAME}`),
                     genRef(),
-            ]),
-            genTagName('span', [genClass('score'), genRef()]),
-            genTagName('button', [
+                ]),
+                genTagName('span', [genClass('score'), genRef()]),
+                genTagName('button', [
                     genClass('pOneR'),
                     genText(`+1 ${TEAM_RIGHT_NAME}`),
                     genRef(),
-            ]),
-            genTagName('button', [
+                ]),
+                genTagName('button', [
                     genClass('voice'),
                     genText('Voice control disabled'),
                     genRef(),
-            ]),
-            genTagName('button', [
-              genClass('voice'),
-              genText('Back'),
-              genRef()
-            ]),
-            genTagDiv([genClass('log'), genRef()]),
-        ],
-    ));
+                ]),
+                genTagName('button', [
+                    genClass('voice'),
+                    genText('Back'),
+                    genRef(),
+                ]),
+                genTagDiv([genClass('log'), genRef()]),
+            ]
+        )
+    );
     return res as [
         HTMLDivElement,
         HTMLButtonElement,
@@ -89,6 +90,6 @@ export const template = (ctx: Window, root: HTMLElement) => {
         HTMLButtonElement,
         HTMLButtonElement,
         HTMLDivElement,
-        HTMLDivElement
+        HTMLDivElement,
     ];
 };

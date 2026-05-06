@@ -17,10 +17,16 @@ export type OutgoingWsEvent =
     | { type: 'delete'; requestId: string; messageId: number };
 
 const isAllowedType = (eventType: number): eventType is OutgoingType => {
-    return eventType === JOIN_TYPE || eventType === MESSAGE_TYPE || eventType === DELETE_TYPE;
+    return (
+        eventType === JOIN_TYPE ||
+        eventType === MESSAGE_TYPE ||
+        eventType === DELETE_TYPE
+    );
 };
 
-export const serializeCommand = (command: SendCommand): OutgoingWsEvent | null => {
+export const serializeCommand = (
+    command: SendCommand
+): OutgoingWsEvent | null => {
     const [type, requestId, payload] = command;
     if (!isAllowedType(type)) {
         return null;
@@ -34,7 +40,9 @@ export const serializeCommand = (command: SendCommand): OutgoingWsEvent | null =
     return { type: 'message', requestId, body: payload };
 };
 
-export const validateOutgoingCommand = (command: SendCommand): string | null => {
+export const validateOutgoingCommand = (
+    command: SendCommand
+): string | null => {
     const [type, _requestId, payload] = command;
     if (type === JOIN_TYPE) {
         const nickname = payload.trim();

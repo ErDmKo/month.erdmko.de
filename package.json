@@ -1,38 +1,39 @@
 {
-  "name": "whatamonth",
-  "version": "1.0.0",
-  "description": "ErDmKo home page",
-  "main": "index.js",
-  "type": "module",
-  "directories": {
-    "lib": "lib",
-    "test": "test"
-  },
-  "scripts": {
-    "test": "bazel test //...",
-    "build": "node script/docker.js",
-    "save": "docker save what_amonth -o image.tar",
-    "pub": "npm run build && npm run save && ansible-playbook ansible/push.yaml -i ansible/inventory.yaml",
-    "start": "docker run --rm -p 8080:8080 what_amonth"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/ErDmKo/month.git"
-  },
-  "author": "erdmko",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/ErDmKo/month/issues"
-  },
-  "homepage": "https://github.com/ErDmKo/month#readme",
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^6.0.3"
-  },
-  "dependencies": {
-    "pnpm": "^8.15.4"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": []
-  }
+    "name": "whatamonth",
+    "version": "1.0.0",
+    "description": "ErDmKo home page",
+    "main": "index.js",
+    "type": "module",
+    "directories": {
+        "lib": "lib",
+        "test": "test"
+    },
+    "scripts": {
+        "test": "bazel test //...",
+        "build": "node script/docker.js",
+        "save": "docker save what_amonth -o image.tar",
+        "pub": "npm run build && npm run save && ansible-playbook ansible/push.yaml -i ansible/inventory.yaml",
+        "start": "docker run --rm -p 8080:8080 what_amonth"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ErDmKo/month.git"
+    },
+    "author": "erdmko",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/ErDmKo/month/issues"
+    },
+    "homepage": "https://github.com/ErDmKo/month#readme",
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "prettier": "^3.5.3",
+        "typescript": "^6.0.3"
+    },
+    "dependencies": {
+        "pnpm": "^8.15.4"
+    },
+    "pnpm": {
+        "onlyBuiltDependencies": []
+    }
 }

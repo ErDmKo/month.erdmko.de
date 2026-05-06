@@ -15,6 +15,9 @@ importers:
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.39
+      prettier:
+        specifier: ^3.5.3
+        version: 3.8.3
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -27,6 +30,11 @@ packages:
   pnpm@8.15.9:
     resolution: {integrity: sha512-SZQ0ydj90aJ5Tr9FUrOyXApjOrzuW7Fee13pDzL0e1E6ypjNXP0AHDHw20VLw4BO3M1XhQHkyik6aBYWa72fgQ==}
     engines: {node: '>=16.14'}
+    hasBin: true
+
+  prettier@3.8.3:
+    resolution: {integrity: sha512-7igPTM53cGHMW8xWuVTydi2KO233VFiTNyF5hLJqpilHfmn8C8gPf+PS7dUT64YcXFbiMGZxS9pCSxL/Dxm/Jw==}
+    engines: {node: '>=14'}
     hasBin: true
 
   typescript@6.0.3:
@@ -44,6 +52,8 @@ snapshots:
       undici-types: 6.21.0
 
   pnpm@8.15.9: {}
+
+  prettier@3.8.3: {}
 
   typescript@6.0.3: {}
 

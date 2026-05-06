@@ -74,10 +74,7 @@ pub async fn init_db(base_dir: &mut PathBuf) -> Result<Pool, rusqlite::Error> {
     let random_seed = rand::random::<u64>().to_string();
     let token = format!("im_{random_seed}");
     log::info!("Admin token {:?}", token);
-    conn.execute(
-        "INSERT INTO token (token) VALUES (?1)",
-        (token,),
-    )?;
+    conn.execute("INSERT INTO token (token) VALUES (?1)", (token,))?;
     conn.execute(
         format!("INSERT INTO {TABLE_NAME} (promt) VALUES (?1)").as_str(),
         ("1girl, oshi no ko, solo, upper body, v, smile, looking at viewer, outdoors, night",),
