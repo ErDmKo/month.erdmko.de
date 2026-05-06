@@ -53,9 +53,12 @@ use_repo(rules_ts_ext, "npm_typescript")
 bazel_dep(name = "aspect_rules_esbuild", version = "0.18.0")
 
 # Rust
-bazel_dep(name = "rules_rust", version = "0.56.0")
+bazel_dep(name = "rules_rust", version = "0.58.0")
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
-rust.toolchain(edition = "2021")
+rust.toolchain(
+    edition = "2021",
+    versions = ["1.85.0"],
+)
 use_repo(rust, "rust_toolchains")
 register_toolchains("@rust_toolchains//:all")
 crate = use_extension(

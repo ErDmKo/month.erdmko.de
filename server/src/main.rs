@@ -14,6 +14,7 @@ use std::{env, option_env};
 use tera::Tera;
 
 pub mod app;
+pub mod attachments;
 pub mod chat;
 pub mod db;
 pub mod pages;

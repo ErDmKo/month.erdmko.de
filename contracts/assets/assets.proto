@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package assets;
+
+message UploadChunk {
+  string attachment_id = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+message DownloadChunk {
+  string attachment_id = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+  bool is_last = 4;
+}
