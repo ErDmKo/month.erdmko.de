@@ -11,7 +11,7 @@ import {
 
 const run = () => {
     const joinSerialized = serializeCommand([JOIN_TYPE, 'join-1', 'alice']);
-    assert.notEqual(joinSerialized, null, 'join should serialize');
+    assert.ok(joinSerialized !== null, 'join should serialize');
     assert.equal(joinSerialized.type, 'join', 'join type mismatch');
     assert.equal(joinSerialized.requestId, 'join-1', 'join requestId mismatch');
     if (joinSerialized.type !== 'join') {
@@ -20,7 +20,7 @@ const run = () => {
     assert.equal(joinSerialized.nickname, 'alice', 'join nickname mismatch');
 
     const messageSerialized = serializeCommand([MESSAGE_TYPE, 'msg-1', 'hello']);
-    assert.notEqual(messageSerialized, null, 'message should serialize');
+    assert.ok(messageSerialized !== null, 'message should serialize');
     assert.equal(messageSerialized.type, 'message', 'message type mismatch');
     assert.equal(messageSerialized.requestId, 'msg-1', 'message requestId mismatch');
     if (messageSerialized.type !== 'message') {
@@ -29,7 +29,7 @@ const run = () => {
     assert.equal(messageSerialized.body, 'hello', 'message body mismatch');
 
     const deleteSerialized = serializeCommand([DELETE_TYPE, 'del-1', 42]);
-    assert.notEqual(deleteSerialized, null, 'delete should serialize');
+    assert.ok(deleteSerialized !== null, 'delete should serialize');
     assert.equal(deleteSerialized.type, 'delete', 'delete type mismatch');
     if (deleteSerialized.type !== 'delete') {
         throw new Error('delete payload shape mismatch');

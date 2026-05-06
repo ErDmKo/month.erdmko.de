@@ -1,9 +1,6 @@
-load("@gzgz_rules_sass//sass:defs.bzl", "sass_binary")
-
 package(default_visibility = ["//visibility:public"])
 
-sass_binary(
+filegroup(
     name = "css",
-    sourcemap = False,
-    src = "style.scss",
+    srcs = ["style.css"],
 )

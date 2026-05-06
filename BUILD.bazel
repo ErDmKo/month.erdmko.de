@@ -6,25 +6,21 @@ npm_link_all_packages(name = "node_modules")
 npm_link_package(
     name = "node_modules/@month/utils",
     src = "//assets/js/utils:package",
-    root_package = "",
     visibility = ["//:__subpackages__"],
 )
 npm_link_package(
     name = "node_modules/@month/tetris",
     src = "//assets/js/tetris:package",
-    root_package = "",
     visibility = ["//:__subpackages__"],
 )
 npm_link_package(
     name = "node_modules/@month/tennis",
     src = "//assets/js/tennis:package",
-    root_package = "",
     visibility = ["//:__subpackages__"],
 )
 npm_link_package(
     name = "node_modules/@month/snowflake",
     src = "//assets/js/snowflake:package",
-    root_package = "",
     visibility = ["//:__subpackages__"],
 )
 

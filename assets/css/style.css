@@ -1,4 +1,6 @@
-$base-color: #007db5;
+:root {
+    --base-color: #007db5;
+}
 
 body,
 html {
@@ -6,7 +8,7 @@ html {
     font-family: 'Roboto', sans-serif;
 }
 a {
-    color: $base-color;
+    color: var(--base-color);
     text-decoration: none;
 }
 h1,
@@ -81,7 +83,7 @@ h3 {
     text-decoration: none;
     max-width: 500px;
     word-break: break-all;
-    color: $base-color;
+    color: var(--base-color);
 }
 .address__ancor:hover,
 a:hover {
@@ -350,7 +352,7 @@ a:hover {
 }
 
 .chat__button {
-    background: $base-color;
+    background: var(--base-color);
     color: #fff;
     border: 0;
     border-radius: 4px;
