@@ -18,12 +18,18 @@ npm run pub
 
 ## Bazel static build
 
-### Pretter
+### Format code
 
-Run this command to fix code style
+Run this command to fix code style (JS/TS/CSS, Rust, Starlark):
 
 ```bash
-bazel run //assets/js:prettier
+bazel run //tools/format:format
+```
+
+Check formatting without modifying files:
+
+```bash
+bazel test //tools/format:format_test
 ```
 
 ### Build static
@@ -54,24 +60,10 @@ This command will run a http server on port 8080
 bazel run //server:server
 ```
 
-#### Run code formater
-
-Formatter for backend
+### Run npm commands in bazel
 
 ```bash
-cd server && cargo fmt
-```
-
-Formatter for frontend
-
-```bash
-bazel run //assets/js:prettier
-```
-
-### Run npm comands in bazel
-
-```bash
- bazel run @nodejs_host//:npm -- version
+bazel run @nodejs_host//:npm -- version
 ```
 
 ### Build docker container
