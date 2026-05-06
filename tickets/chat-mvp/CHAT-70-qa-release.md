@@ -27,3 +27,17 @@
 
 ## Acceptance
 - Все критерии из `/CHAT_MVP_PLAN.md` выполнены.
+
+## Result
+
+**Status: PENDING**
+
+All acceptance criteria from CHAT-00 through CHAT-60 are met by the implementation. The following items from this ticket's scope remain to be completed:
+
+- [ ] Manual smoke test: 2–3 clients exchanging messages in one room
+- [ ] Validation e2e: empty and >200 char messages rejected correctly in the browser
+- [ ] Restart test: history persists after server restart (SQLite-backed, expected to pass)
+- [ ] Entry-point test: navigation from main page to `/chat/general` works end-to-end
+- [ ] Manual UX check: `connecting` / `online` / `offline` status transitions visible in UI
+- [ ] QA checklist document created and signed off
+- [ ] README updated with run instructions and chat usage

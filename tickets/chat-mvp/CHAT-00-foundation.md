@@ -23,3 +23,22 @@
 ## Acceptance
 - `cargo`/bazel сборка успешна.
 - `GET /chat/general` отвечает (можно заглушкой).
+
+## Result
+
+**Status: DONE**
+
+### Constants
+Defined in `server/src/chat/service.rs`:
+- `MAX_MESSAGE_LEN = 200` (line 14)
+- `HISTORY_LIMIT = 50` (line 16)
+- `WS_MAX_PAYLOAD_BYTES = 4096` (line 17)
+- Additional limits: `MAX_OPEN_CONNECTIONS = 100`, `WS_FRAME_MAX_BYTES = 64KB`, `RATE_LIMIT_MAX_MESSAGES = 5`
+
+### Chat module structure
+`server/src/chat/mod.rs` — module root exposing `db`, `error`, `service` submodules.
+
+### Routes
+Both routes registered in `server/src/pages/chat.rs`:
+- `GET /chat/{room_id}` → `chat_room_page_handler` (line 340) — renders `server/templates/chat.html`
+- `GET /ws/chat/{room_id}` → `chat_ws_page_handler` (line 352) — performs WS upgrade with `actix-web-actors`
