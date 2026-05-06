@@ -101,6 +101,31 @@ pub enum ClientEvent {
         #[serde(rename = "messageId")]
         message_id: i64,
     },
+    #[serde(rename = "upload_start")]
+    UploadStart {
+        #[serde(rename = "requestId")]
+        request_id: Option<String>,
+        #[serde(rename = "messageId")]
+        message_id: i64,
+        filename: String,
+        size: usize,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+    },
+    #[serde(rename = "upload_end")]
+    UploadEnd {
+        #[serde(rename = "requestId")]
+        request_id: Option<String>,
+        #[serde(rename = "uploadId")]
+        upload_id: u32,
+    },
+    #[serde(rename = "download_request")]
+    DownloadRequest {
+        #[serde(rename = "requestId")]
+        request_id: Option<String>,
+        #[serde(rename = "attachmentId")]
+        attachment_id: i64,
+    },
 }
 
 pub struct ChatSessionState {

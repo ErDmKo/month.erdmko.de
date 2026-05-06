@@ -9,6 +9,12 @@ use tera::Context;
 
 use super::utils;
 use crate::app::AppCtx;
+use crate::attachments::MAX_ATTACHMENT_SIZE_BYTES;
+use crate::attachments::service::{
+    UploadSessionState, decode_upload_chunk, download_end_payload, download_start_payload,
+    encode_download_chunk, load_attachment_for_download, persist_upload, split_into_chunks,
+    upload_done_payload, upload_ready_payload,
+};
 use crate::chat::service::{self as chat_service, ChatSessionState, ClientEvent, RoomRegistry};
 
 static CHAT_ROOMS: LazyLock<RoomRegistry<ChatWs>> = LazyLock::new(RoomRegistry::new);
@@ -17,12 +23,17 @@ static CHAT_ROOMS: LazyLock<RoomRegistry<ChatWs>> = LazyLock::new(RoomRegistry::
 #[rtype(result = "()")]
 struct PushEvent(String);
 
+#[derive(Message)]
+#[rtype(result = "()")]
+struct PushBinary(Vec<u8>);
+
 struct ChatWs {
     app_ctx: web::Data<AppCtx>,
     room_id: String,
     sender_id: String,
     session: ChatSessionState,
     is_registered: bool,
+    uploads: UploadSessionState,
 }
 
 impl ChatWs {
@@ -103,6 +114,14 @@ impl Handler<PushEvent> for ChatWs {
 
     fn handle(&mut self, msg: PushEvent, ctx: &mut Self::Context) -> Self::Result {
         ctx.text(msg.0);
+    }
+}
+
+impl Handler<PushBinary> for ChatWs {
+    type Result = ();
+
+    fn handle(&mut self, msg: PushBinary, ctx: &mut Self::Context) -> Self::Result {
+        ctx.binary(msg.0);
     }
 }
 
@@ -330,18 +349,174 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
                             }
                         });
                     }
+                    ClientEvent::UploadStart {
+                        request_id,
+                        message_id,
+                        filename,
+                        size,
+                        mime_type,
+                    } => {
+                        if size == 0 || size > MAX_ATTACHMENT_SIZE_BYTES {
+                            Self::send_error(
+                                &self.room_id,
+                                &self.sender_id,
+                                ctx,
+                                request_id.as_deref(),
+                                "UPLOAD_TOO_LARGE",
+                                "File size must be between 1 byte and 5 MB.",
+                            );
+                            return;
+                        }
+                        match self
+                            .uploads
+                            .start_upload(message_id, filename, size, mime_type)
+                        {
+                            Ok(upload_id) => {
+                                ctx.text(upload_ready_payload(request_id.as_deref(), upload_id));
+                            }
+                            Err(code) => {
+                                Self::send_error(
+                                    &self.room_id,
+                                    &self.sender_id,
+                                    ctx,
+                                    request_id.as_deref(),
+                                    code,
+                                    "Upload limit reached. Complete or wait for existing uploads.",
+                                );
+                            }
+                        }
+                    }
+                    ClientEvent::UploadEnd {
+                        request_id,
+                        upload_id,
+                    } => match self.uploads.finish_upload(upload_id) {
+                        Ok(pending) => {
+                            let room_id = self.room_id.clone();
+                            let sender_id = self.sender_id.clone();
+                            let app_ctx = self.app_ctx.clone();
+                            let addr = ctx.address();
+                            actix_web::rt::spawn(async move {
+                                match persist_upload(&app_ctx, pending).await {
+                                    Ok(meta) => {
+                                        info!(
+                                            "event=upload_done room_id={} sender_id={} attachment_id={}",
+                                            room_id, sender_id, meta.id
+                                        );
+                                        ChatWs::broadcast_to_room(
+                                            &room_id,
+                                            upload_done_payload(
+                                                request_id.as_deref(),
+                                                upload_id,
+                                                &meta,
+                                            ),
+                                        );
+                                    }
+                                    Err(err) => {
+                                        warn!(
+                                            "event=chat_error room_id={} sender_id={} code=INTERNAL error={:?}",
+                                            room_id, sender_id, err
+                                        );
+                                        addr.do_send(PushEvent(chat_service::error_payload(
+                                            request_id.as_deref(),
+                                            "INTERNAL",
+                                            "Failed to persist attachment.",
+                                        )));
+                                    }
+                                }
+                            });
+                        }
+                        Err(code) => {
+                            Self::send_error(
+                                &self.room_id,
+                                &self.sender_id,
+                                ctx,
+                                request_id.as_deref(),
+                                code,
+                                "Upload could not be completed.",
+                            );
+                        }
+                    },
+                    ClientEvent::DownloadRequest {
+                        request_id,
+                        attachment_id,
+                    } => {
+                        let room_id = self.room_id.clone();
+                        let sender_id = self.sender_id.clone();
+                        let app_ctx = self.app_ctx.clone();
+                        let addr = ctx.address();
+                        actix_web::rt::spawn(async move {
+                            match load_attachment_for_download(&app_ctx, attachment_id, &room_id)
+                                .await
+                            {
+                                Ok(Some((meta, data))) => {
+                                    let chunks = split_into_chunks(&data);
+                                    let total = chunks.len();
+                                    addr.do_send(PushEvent(download_start_payload(
+                                        request_id.as_deref(),
+                                        &meta,
+                                        total,
+                                    )));
+                                    for (i, chunk) in chunks.iter().enumerate() {
+                                        let frame =
+                                            encode_download_chunk(attachment_id, i as u32, chunk);
+                                        addr.do_send(PushBinary(frame));
+                                    }
+                                    addr.do_send(PushEvent(download_end_payload(
+                                        request_id.as_deref(),
+                                        attachment_id,
+                                    )));
+                                }
+                                Ok(None) => {
+                                    warn!(
+                                        "event=chat_error room_id={} sender_id={} code=ATTACHMENT_NOT_FOUND",
+                                        room_id, sender_id
+                                    );
+                                    addr.do_send(PushEvent(chat_service::error_payload(
+                                        request_id.as_deref(),
+                                        "ATTACHMENT_NOT_FOUND",
+                                        "Attachment not found.",
+                                    )));
+                                }
+                                Err(err) => {
+                                    warn!(
+                                        "event=chat_error room_id={} sender_id={} code=INTERNAL error={:?}",
+                                        room_id, sender_id, err
+                                    );
+                                    addr.do_send(PushEvent(chat_service::error_payload(
+                                        request_id.as_deref(),
+                                        "INTERNAL",
+                                        "Failed to load attachment.",
+                                    )));
+                                }
+                            }
+                        });
+                    }
                 }
             }
-            Ok(ws::Message::Binary(_)) => {
-                Self::send_error(
-                    &self.room_id,
-                    &self.sender_id,
-                    ctx,
-                    None,
-                    "BAD_PAYLOAD",
-                    "Binary payload is not supported.",
-                );
-            }
+            Ok(ws::Message::Binary(bytes)) => match decode_upload_chunk(&bytes) {
+                Some((upload_id, index, data)) => {
+                    if let Err(code) = self.uploads.add_chunk(upload_id, index, data) {
+                        Self::send_error(
+                            &self.room_id,
+                            &self.sender_id,
+                            ctx,
+                            None,
+                            code,
+                            "Chunk rejected.",
+                        );
+                    }
+                }
+                None => {
+                    Self::send_error(
+                        &self.room_id,
+                        &self.sender_id,
+                        ctx,
+                        None,
+                        "BAD_PAYLOAD",
+                        "Invalid binary frame.",
+                    );
+                }
+            },
             Ok(ws::Message::Close(reason)) => ctx.close(reason),
             _ => {}
         }
@@ -399,6 +574,7 @@ pub async fn chat_ws_page_handler(
             sender_id,
             session: ChatSessionState::new(),
             is_registered: false,
+            uploads: UploadSessionState::new(),
         },
         &req,
         stream,
@@ -929,6 +1105,589 @@ mod tests {
         assert_eq!(deleted1["messageId"], message_id);
         assert_eq!(deleted2["messageId"], message_id);
 
+        handle.stop(true).await;
+    }
+
+    // ── Attachment helpers ────────────────────────────────────────────────────
+
+    /// Read text frames until one matches predicate, skipping others (up to `max` frames).
+    async fn find_text<S, F>(socket: &mut S, max: usize, pred: F) -> Option<serde_json::Value>
+    where
+        S: Stream<Item = Result<awc::ws::Frame, awc::error::WsProtocolError>> + Unpin,
+        F: Fn(&serde_json::Value) -> bool,
+    {
+        for _ in 0..max {
+            let frame = actix_web::rt::time::timeout(Duration::from_secs(3), socket.next())
+                .await
+                .ok()??
+                .ok()?;
+            if let awc::ws::Frame::Text(text) = frame {
+                let v: serde_json::Value =
+                    serde_json::from_str(std::str::from_utf8(&text).ok()?).ok()?;
+                if pred(&v) {
+                    return Some(v);
+                }
+            }
+        }
+        None
+    }
+
+    async fn read_next_binary<S>(socket: &mut S) -> Option<actix_web::web::Bytes>
+    where
+        S: Stream<Item = Result<awc::ws::Frame, awc::error::WsProtocolError>> + Unpin,
+    {
+        loop {
+            let frame = actix_web::rt::time::timeout(Duration::from_secs(3), socket.next())
+                .await
+                .ok()??
+                .ok()?;
+            if let awc::ws::Frame::Binary(b) = frame {
+                return Some(b);
+            }
+        }
+    }
+
+    fn encode_upload_chunk_frame(upload_id: u32, index: u32, data: &[u8]) -> Vec<u8> {
+        fn varint(v: u64) -> Vec<u8> {
+            let mut b = Vec::new();
+            let mut val = v;
+            loop {
+                let byte = (val & 0x7F) as u8;
+                val >>= 7;
+                if val == 0 {
+                    b.push(byte);
+                    break;
+                } else {
+                    b.push(byte | 0x80);
+                }
+            }
+            b
+        }
+        let mut buf = Vec::new();
+        buf.extend(varint((1 << 3) | 0));
+        buf.extend(varint(upload_id as u64));
+        buf.extend(varint((2 << 3) | 0));
+        buf.extend(varint(index as u64));
+        buf.extend(varint((3 << 3) | 2));
+        buf.extend(varint(data.len() as u64));
+        buf.extend_from_slice(data);
+        buf
+    }
+
+    fn extract_download_data(bin: &[u8]) -> Vec<u8> {
+        fn read_varint(buf: &[u8], pos: &mut usize) -> u64 {
+            let mut result = 0u64;
+            let mut shift = 0u32;
+            loop {
+                let b = buf[*pos];
+                *pos += 1;
+                result |= ((b & 0x7f) as u64) << shift;
+                shift += 7;
+                if b & 0x80 == 0 {
+                    break;
+                }
+            }
+            result
+        }
+        let mut pos = 0;
+        while pos < bin.len() {
+            let tw = read_varint(bin, &mut pos);
+            let field = (tw >> 3) as u32;
+            let wire = tw & 0x7;
+            if field == 3 && wire == 2 {
+                let len = read_varint(bin, &mut pos) as usize;
+                return bin[pos..pos + len].to_vec();
+            } else if wire == 0 {
+                read_varint(bin, &mut pos);
+            } else if wire == 2 {
+                let len = read_varint(bin, &mut pos) as usize;
+                pos += len;
+            } else {
+                break;
+            }
+        }
+        Vec::new()
+    }
+
+    macro_rules! spawn_server {
+        ($ctx:expr) => {{
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            let sctx = $ctx.clone();
+            let server = HttpServer::new(move || {
+                App::new()
+                    .app_data(sctx.clone())
+                    .service(chat_ws_page_handler)
+            })
+            .listen(listener)
+            .unwrap()
+            .run();
+            let handle = server.handle();
+            actix_web::rt::spawn(server);
+            (addr, handle)
+        }};
+    }
+
+    macro_rules! ws_join {
+        ($addr:expr, $room:expr, $nick:expr) => {{
+            let (_r, mut ws) = awc::Client::new()
+                .ws(format!("ws://{}/ws/chat/{}", $addr, $room))
+                .set_header("Origin", "http://localhost:8080")
+                .connect().await.unwrap();
+            ws.send(awc::ws::Message::Text(
+                json!({"type":"join","nickname":$nick}).to_string().into()
+            )).await.unwrap();
+            let _ = read_next_text(&mut ws).await;
+            let _ = read_next_text(&mut ws).await;
+            ws
+        }};
+    }
+
+    #[actix_web::test]
+    async fn upload_happy_path() {
+        let ctx = setup_ctx();
+        let room = format!("room-{}", random::<u64>());
+        chat_db::create_room_if_not_exists(&ctx, &room)
+            .await
+            .unwrap();
+        let msg = chat_db::insert_message(&ctx, &room, "u1", "alice", "hi")
+            .await
+            .unwrap();
+        let (addr, handle) = spawn_server!(ctx);
+        let mut ws = ws_join!(addr, room, "alice");
+
+        let file_data = b"hello upload world";
+        ws.send(awc::ws::Message::Text(
+            json!({
+                "type":"upload_start","requestId":"up-1","messageId":msg.id,
+                "filename":"test.txt","size":file_data.len(),"mimeType":"text/plain"
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+        let ready = read_next_text(&mut ws).await;
+        assert_eq!(ready["type"], "upload_ready");
+        let upload_id = ready["uploadId"].as_u64().unwrap() as u32;
+
+        ws.send(awc::ws::Message::Binary(
+            encode_upload_chunk_frame(upload_id, 0, file_data).into(),
+        ))
+        .await
+        .unwrap();
+        ws.send(awc::ws::Message::Text(
+            json!({
+                "type":"upload_end","requestId":"up-1","uploadId":upload_id
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+        let done = find_text(&mut ws, 5, |v| v["type"] == "upload_done")
+            .await
+            .expect("upload_done");
+        assert_eq!(done["attachment"]["filename"], "test.txt");
+        assert!(done["attachment"]["id"].as_i64().unwrap() > 0);
+        handle.stop(true).await;
+    }
+
+    #[actix_web::test]
+    async fn download_happy_path() {
+        let ctx = setup_ctx();
+        let room = format!("room-{}", random::<u64>());
+        chat_db::create_room_if_not_exists(&ctx, &room)
+            .await
+            .unwrap();
+        let msg = chat_db::insert_message(&ctx, &room, "u1", "alice", "hi")
+            .await
+            .unwrap();
+
+        let file_data: Vec<u8> = (0u8..=255).cycle().take(200).collect();
+        let attachment_id = {
+            let conn = ctx.pool.get().unwrap();
+            crate::attachments::db::insert_attachment(
+                &conn,
+                msg.id,
+                "blob.bin",
+                file_data.len() as i64,
+                "application/octet-stream",
+                &file_data,
+            )
+            .unwrap()
+            .meta
+            .id
+        };
+
+        let (addr, handle) = spawn_server!(ctx);
+        let mut ws = ws_join!(addr, room, "alice");
+
+        ws.send(awc::ws::Message::Text(
+            json!({
+                "type":"download_request","requestId":"dl-1","attachmentId":attachment_id
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+        let start = find_text(&mut ws, 5, |v| v["type"] == "download_start")
+            .await
+            .expect("download_start");
+        let total_chunks = start["totalChunks"].as_u64().unwrap() as usize;
+
+        let mut received: Vec<u8> = Vec::new();
+        for _ in 0..total_chunks {
+            let bin = read_next_binary(&mut ws).await.expect("binary chunk");
+            received.extend(extract_download_data(&bin));
+        }
+
+        let end = find_text(&mut ws, 5, |v| v["type"] == "download_end")
+            .await
+            .expect("download_end");
+        assert_eq!(end["attachmentId"], attachment_id);
+        assert_eq!(received, file_data);
+        handle.stop(true).await;
+    }
+
+    #[actix_web::test]
+    async fn upload_out_of_order_chunk() {
+        let ctx = setup_ctx();
+        let room = format!("room-{}", random::<u64>());
+        chat_db::create_room_if_not_exists(&ctx, &room)
+            .await
+            .unwrap();
+        let msg = chat_db::insert_message(&ctx, &room, "u1", "alice", "hi")
+            .await
+            .unwrap();
+        let (addr, handle) = spawn_server!(ctx);
+        let mut ws = ws_join!(addr, room, "alice");
+
+        ws.send(awc::ws::Message::Text(
+            json!({
+                "type":"upload_start","requestId":"up-oo","messageId":msg.id,
+                "filename":"f.bin","size":10,"mimeType":"application/octet-stream"
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+        let ready = read_next_text(&mut ws).await;
+        let upload_id = ready["uploadId"].as_u64().unwrap() as u32;
+
+        ws.send(awc::ws::Message::Binary(
+            encode_upload_chunk_frame(upload_id, 1, &[0u8; 5]).into(),
+        ))
+        .await
+        .unwrap();
+
+        let err = find_text(&mut ws, 5, |v| v["type"] == "error")
+            .await
+            .expect("error");
+        assert_eq!(err["code"], "UPLOAD_CHUNK_OUT_OF_ORDER");
+        handle.stop(true).await;
+    }
+
+    #[actix_web::test]
+    async fn upload_early_end() {
+        let ctx = setup_ctx();
+        let room = format!("room-{}", random::<u64>());
+        chat_db::create_room_if_not_exists(&ctx, &room)
+            .await
+            .unwrap();
+        let msg = chat_db::insert_message(&ctx, &room, "u1", "alice", "hi")
+            .await
+            .unwrap();
+        let (addr, handle) = spawn_server!(ctx);
+        let mut ws = ws_join!(addr, room, "alice");
+
+        ws.send(awc::ws::Message::Text(
+            json!({
+                "type":"upload_start","requestId":"up-early","messageId":msg.id,
+                "filename":"f.bin","size":10,"mimeType":"application/octet-stream"
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+        let ready = read_next_text(&mut ws).await;
+        let upload_id = ready["uploadId"].as_u64().unwrap() as u32;
+
+        ws.send(awc::ws::Message::Binary(
+            encode_upload_chunk_frame(upload_id, 0, &[1u8; 5]).into(),
+        ))
+        .await
+        .unwrap();
+        ws.send(awc::ws::Message::Text(
+            json!({
+                "type":"upload_end","requestId":"up-early","uploadId":upload_id
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+        let err = find_text(&mut ws, 5, |v| v["type"] == "error")
+            .await
+            .expect("error");
+        assert_eq!(err["code"], "UPLOAD_INCOMPLETE");
+        handle.stop(true).await;
+    }
+
+    #[actix_web::test]
+    async fn upload_unknown_id() {
+        let ctx = setup_ctx();
+        let room = format!("room-{}", random::<u64>());
+        let (addr, handle) = spawn_server!(ctx);
+        let mut ws = ws_join!(addr, room, "alice");
+
+        ws.send(awc::ws::Message::Binary(
+            encode_upload_chunk_frame(9999, 0, b"data").into(),
+        ))
+        .await
+        .unwrap();
+
+        let err = find_text(&mut ws, 5, |v| v["type"] == "error")
+            .await
+            .expect("error");
+        assert_eq!(err["code"], "UPLOAD_NOT_FOUND");
+        handle.stop(true).await;
+    }
+
+    #[actix_web::test]
+    async fn upload_session_limit() {
+        let ctx = setup_ctx();
+        let room = format!("room-{}", random::<u64>());
+        chat_db::create_room_if_not_exists(&ctx, &room)
+            .await
+            .unwrap();
+        let msg = chat_db::insert_message(&ctx, &room, "u1", "alice", "hi")
+            .await
+            .unwrap();
+        let (addr, handle) = spawn_server!(ctx);
+        let mut ws = ws_join!(addr, room, "alice");
+
+        for i in 0..crate::attachments::MAX_PENDING_UPLOADS_PER_SESSION {
+            ws.send(awc::ws::Message::Text(
+                json!({
+                    "type":"upload_start","requestId":format!("up-{i}"),"messageId":msg.id,
+                    "filename":"f.bin","size":5,"mimeType":"application/octet-stream"
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            let r = read_next_text(&mut ws).await;
+            assert_eq!(r["type"], "upload_ready");
+        }
+
+        ws.send(awc::ws::Message::Text(
+            json!({
+                "type":"upload_start","requestId":"up-limit","messageId":msg.id,
+                "filename":"f.bin","size":5,"mimeType":"application/octet-stream"
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+        let err = find_text(&mut ws, 5, |v| v["type"] == "error")
+            .await
+            .expect("error");
+        assert_eq!(err["code"], "UPLOAD_LIMIT_EXCEEDED");
+        handle.stop(true).await;
+    }
+
+    #[actix_web::test]
+    async fn download_wrong_room() {
+        let ctx = setup_ctx();
+        let room_a = format!("room-a-{}", random::<u64>());
+        let room_b = format!("room-b-{}", random::<u64>());
+        chat_db::create_room_if_not_exists(&ctx, &room_a)
+            .await
+            .unwrap();
+        chat_db::create_room_if_not_exists(&ctx, &room_b)
+            .await
+            .unwrap();
+        let msg = chat_db::insert_message(&ctx, &room_a, "u1", "alice", "hi")
+            .await
+            .unwrap();
+
+        let attachment_id = {
+            let conn = ctx.pool.get().unwrap();
+            crate::attachments::db::insert_attachment(
+                &conn,
+                msg.id,
+                "secret.txt",
+                6,
+                "text/plain",
+                b"secret",
+            )
+            .unwrap()
+            .meta
+            .id
+        };
+
+        let (addr, handle) = spawn_server!(ctx);
+        let mut ws = ws_join!(addr, room_b, "bob");
+
+        ws.send(awc::ws::Message::Text(
+            json!({
+                "type":"download_request","requestId":"dl-scope","attachmentId":attachment_id
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+        let err = find_text(&mut ws, 5, |v| v["type"] == "error")
+            .await
+            .expect("error");
+        assert_eq!(err["code"], "ATTACHMENT_NOT_FOUND");
+        handle.stop(true).await;
+    }
+
+    #[actix_web::test]
+    async fn disconnect_cancels_upload() {
+        let ctx = setup_ctx();
+        let room = format!("room-{}", random::<u64>());
+        chat_db::create_room_if_not_exists(&ctx, &room)
+            .await
+            .unwrap();
+        let msg = chat_db::insert_message(&ctx, &room, "u1", "alice", "hi")
+            .await
+            .unwrap();
+        let (addr, handle) = spawn_server!(ctx.clone());
+
+        {
+            let mut ws = ws_join!(addr, room, "alice");
+            ws.send(awc::ws::Message::Text(
+                json!({
+                    "type":"upload_start","requestId":"up-dc","messageId":msg.id,
+                    "filename":"f.bin","size":10,"mimeType":"application/octet-stream"
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+            let r = read_next_text(&mut ws).await;
+            assert_eq!(r["type"], "upload_ready");
+            // drop ws without upload_end
+        }
+
+        actix_web::rt::time::sleep(Duration::from_millis(200)).await;
+        let conn = ctx.pool.get().unwrap();
+        let count: i64 = conn
+            .query_row(
+                format!(
+                    "SELECT COUNT(*) FROM {}",
+                    crate::attachments::db::ATTACHMENTS_TABLE
+                )
+                .as_str(),
+                (),
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "incomplete upload must not be persisted");
+        handle.stop(true).await;
+    }
+
+    #[actix_web::test]
+    async fn upload_done_broadcast() {
+        let ctx = setup_ctx();
+        let room = format!("room-{}", random::<u64>());
+        chat_db::create_room_if_not_exists(&ctx, &room)
+            .await
+            .unwrap();
+        let msg = chat_db::insert_message(&ctx, &room, "u1", "alice", "hi")
+            .await
+            .unwrap();
+        let (addr, handle) = spawn_server!(ctx);
+        let mut ws1 = ws_join!(addr, room, "alice");
+        let mut ws2 = ws_join!(addr, room, "bob");
+
+        let file_data = b"broadcast test";
+        ws1.send(awc::ws::Message::Text(
+            json!({
+                "type":"upload_start","requestId":"up-bc","messageId":msg.id,
+                "filename":"bc.txt","size":file_data.len(),"mimeType":"text/plain"
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+        let ready = read_next_text(&mut ws1).await;
+        let upload_id = ready["uploadId"].as_u64().unwrap() as u32;
+
+        ws1.send(awc::ws::Message::Binary(
+            encode_upload_chunk_frame(upload_id, 0, file_data).into(),
+        ))
+        .await
+        .unwrap();
+        ws1.send(awc::ws::Message::Text(
+            json!({
+                "type":"upload_end","requestId":"up-bc","uploadId":upload_id
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+        let done1 = find_text(&mut ws1, 5, |v| v["type"] == "upload_done")
+            .await
+            .expect("ws1 upload_done");
+        let done2 = find_text(&mut ws2, 5, |v| v["type"] == "upload_done")
+            .await
+            .expect("ws2 upload_done");
+        assert_eq!(done1["attachment"]["filename"], "bc.txt");
+        assert_eq!(done2["attachment"]["filename"], "bc.txt");
+        assert_eq!(done1["attachment"]["id"], done2["attachment"]["id"]);
+        handle.stop(true).await;
+    }
+
+    #[actix_web::test]
+    async fn upload_start_rejects_oversized_size() {
+        let ctx = setup_ctx();
+        let room = format!("room-{}", random::<u64>());
+        chat_db::create_room_if_not_exists(&ctx, &room)
+            .await
+            .unwrap();
+        let msg = chat_db::insert_message(&ctx, &room, "u1", "alice", "hi")
+            .await
+            .unwrap();
+        let (addr, handle) = spawn_server!(ctx);
+        let mut ws = ws_join!(addr, room, "alice");
+
+        ws.send(awc::ws::Message::Text(
+            json!({
+                "type":"upload_start","requestId":"up-big","messageId":msg.id,
+                "filename":"big.bin",
+                "size": crate::attachments::MAX_ATTACHMENT_SIZE_BYTES + 1,
+                "mimeType":"application/octet-stream"
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+        let err = find_text(&mut ws, 5, |v| v["type"] == "error")
+            .await
+            .expect("error");
+        assert_eq!(err["code"], "UPLOAD_TOO_LARGE");
         handle.stop(true).await;
     }
 }

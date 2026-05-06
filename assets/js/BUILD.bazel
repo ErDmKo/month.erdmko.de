@@ -172,6 +172,38 @@ js_test(
     entry_point = ":chat-protocol-test-bin",
 )
 
+ts_project(
+    name = "chat_attachments_proto_test",
+    srcs = ["chat/attachments-proto.test.ts"],
+    declaration = True,
+    tsconfig = ":tsconfig_test",
+    deps = [
+        ":chat",
+        "//:node_modules/@types/node",
+    ],
+)
+
+esbuild(
+    name = "chat-attachments-proto-test-bin",
+    bundle = True,
+    entry_point = "chat/attachments-proto.test.ts",
+    metafile = False,
+    minify = False,
+    platform = "node",
+    sourcemap = False,
+    target = "esnext",
+    tsconfig = ":tsconfig",
+    deps = [
+        ":chat_attachments_proto_test",
+    ],
+)
+
+js_test(
+    name = "chat-attachments-proto-test",
+    data = [":chat-attachments-proto-test-bin"],
+    entry_point = ":chat-attachments-proto-test-bin",
+)
+
 esbuild(
     name = "month-bundle",
     entry_point = "month-effect.ts",

@@ -318,8 +318,8 @@ mod tests {
         let msg_id = seed_message(&ctx, "general").await;
         let conn = ctx.pool.get().unwrap();
 
-        let att = insert_attachment(&conn, msg_id, "photo.jpg", 42, "image/jpeg", b"deadbeef")
-            .unwrap();
+        let att =
+            insert_attachment(&conn, msg_id, "photo.jpg", 42, "image/jpeg", b"deadbeef").unwrap();
 
         assert_eq!(att.meta.message_id, msg_id);
         assert_eq!(att.meta.filename, "photo.jpg");
@@ -353,7 +353,15 @@ mod tests {
         let msg_id = seed_message(&ctx, "general").await;
         let conn = ctx.pool.get().unwrap();
 
-        let att = insert_attachment(&conn, msg_id, "file.bin", 4, "application/octet-stream", b"\x01\x02\x03\x04").unwrap();
+        let att = insert_attachment(
+            &conn,
+            msg_id,
+            "file.bin",
+            4,
+            "application/octet-stream",
+            b"\x01\x02\x03\x04",
+        )
+        .unwrap();
 
         let result = get_attachment_data(&conn, att.meta.id, "general").unwrap();
         assert!(result.is_some());
@@ -398,7 +406,10 @@ mod tests {
         let att = insert_attachment(&conn, msg_id, "secret.txt", 3, "text/plain", b"abc").unwrap();
 
         let result = get_attachment_data(&conn, att.meta.id, "room-b").unwrap();
-        assert!(result.is_none(), "should not return attachment from another room");
+        assert!(
+            result.is_none(),
+            "should not return attachment from another room"
+        );
     }
 
     // ── 7. Storage limit test ─────────────────────────────────────────────────
@@ -409,18 +420,40 @@ mod tests {
         let conn = ctx.pool.get().unwrap();
 
         // Three attachments with size 10 each (total 30)
-        let a1 = insert_attachment(&conn, msg_id, "a.bin", 10, "application/octet-stream", &[0u8; 10]).unwrap();
-        let a2 = insert_attachment(&conn, msg_id, "b.bin", 10, "application/octet-stream", &[0u8; 10]).unwrap();
-        let _a3 = insert_attachment(&conn, msg_id, "c.bin", 10, "application/octet-stream", &[0u8; 10]).unwrap();
+        let a1 = insert_attachment(
+            &conn,
+            msg_id,
+            "a.bin",
+            10,
+            "application/octet-stream",
+            &[0u8; 10],
+        )
+        .unwrap();
+        let a2 = insert_attachment(
+            &conn,
+            msg_id,
+            "b.bin",
+            10,
+            "application/octet-stream",
+            &[0u8; 10],
+        )
+        .unwrap();
+        let _a3 = insert_attachment(
+            &conn,
+            msg_id,
+            "c.bin",
+            10,
+            "application/octet-stream",
+            &[0u8; 10],
+        )
+        .unwrap();
 
         // Limit to 15 bytes → oldest two should be removed, newest survives
         enforce_attachments_storage_limit(&conn, 15).unwrap();
 
         let remaining: Vec<i64> = {
             let mut stmt = conn
-                .prepare(
-                    format!("SELECT id FROM {ATTACHMENTS_TABLE} ORDER BY id ASC").as_str(),
-                )
+                .prepare(format!("SELECT id FROM {ATTACHMENTS_TABLE} ORDER BY id ASC").as_str())
                 .unwrap();
             stmt.query_map((), |r| r.get(0))
                 .and_then(Iterator::collect::<Result<Vec<_>, _>>)
@@ -428,7 +461,10 @@ mod tests {
         };
 
         assert!(!remaining.contains(&a1.meta.id), "oldest should be removed");
-        assert!(!remaining.contains(&a2.meta.id), "second oldest should be removed");
+        assert!(
+            !remaining.contains(&a2.meta.id),
+            "second oldest should be removed"
+        );
     }
 
     // ── 8. Batch test ─────────────────────────────────────────────────────────
@@ -436,8 +472,14 @@ mod tests {
     async fn get_attachments_for_messages_groups_by_message_id() {
         let ctx = setup_ctx();
         create_room_if_not_exists(&ctx, "general").await.unwrap();
-        let m1 = insert_message(&ctx, "general", "u1", "alice", "msg1").await.unwrap().id;
-        let m2 = insert_message(&ctx, "general", "u2", "bob", "msg2").await.unwrap().id;
+        let m1 = insert_message(&ctx, "general", "u1", "alice", "msg1")
+            .await
+            .unwrap()
+            .id;
+        let m2 = insert_message(&ctx, "general", "u2", "bob", "msg2")
+            .await
+            .unwrap()
+            .id;
         let conn = ctx.pool.get().unwrap();
 
         insert_attachment(&conn, m1, "a.txt", 1, "text/plain", b"a").unwrap();

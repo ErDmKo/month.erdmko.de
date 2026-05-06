@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::error::{ChatError, ChatResult};
 use crate::app::AppCtx;
-use crate::attachments::db::{get_attachments_for_messages, AttachmentMeta};
+use crate::attachments::db::{AttachmentMeta, get_attachments_for_messages};
 use crate::chat::service::{
     HISTORY_LIMIT, MAX_MESSAGE_LEN, MAX_MESSAGES_STORAGE_BYTES, MAX_ROOMS_STORAGE_BYTES,
 };
