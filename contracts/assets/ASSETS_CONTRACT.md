@@ -2,6 +2,28 @@
 
 Source of truth for file attachment upload/download over WebSocket.
 
+## Key identifiers
+
+| Identifier | Type | Lifetime | Description |
+|---|---|---|---|
+| `messageId` | integer | permanent | ID of an existing chat message. A file is always attached to a message. Comes from the chat model — must exist before upload starts. |
+| `uploadId` | UUID string | temporary | Identifies an in-progress upload session. Assigned by the server in `upload_ready`, used in `UploadChunk` and `upload_end`. Destroyed after `upload_done` or session disconnect. |
+| `attachmentId` | integer | permanent | ID of a persisted file in the database. Created only after a successful `upload_done`. Used in `download_request` and in the message `attachments` array. |
+
+Lifecycle summary:
+
+```
+message { id: 42 }  ← messageId, must exist first
+  │
+  └─► upload_start { messageId: 42 }
+        └─► upload_ready { uploadId: "abc-uuid" }   ← temporary
+              ├─► UploadChunk { uploadId: "abc-uuid", index: 0 }
+              └─► upload_end   { uploadId: "abc-uuid" }
+                    └─► upload_done { attachment: { id: 7, messageId: 42 } }
+                                                         ↑
+                                                   attachmentId: 7  ← permanent
+```
+
 ## Transport
 
 | Frame type | Direction | Format |
