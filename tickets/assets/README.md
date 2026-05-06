@@ -42,3 +42,7 @@ Source: discussion + `contracts/assets/`
 - **Access**: same room-scoped rules as chat messages. No additional auth in v1.
 - **Chunk size**: 64 KB per `UploadChunk` / `DownloadChunk`.
 - **Pending uploads**: in-memory per WS session, discarded on disconnect, never written to DB unless `upload_end` succeeds.
+
+## Future Improvements
+
+- **Disk-buffered uploads**: for larger per-file limits (e.g. 500 MB+), stream incoming chunks to a temp file on disk instead of accumulating in memory. After `upload_end`, read the temp file and write to DB (or store as a file and keep only a path reference in the DB). Not needed at 5 MB — the max memory cost is 3 concurrent uploads × 5 MB = 15 MB.
