@@ -4,11 +4,14 @@
       "target": "esNext",
       "module": "ES2022",
       "esModuleInterop": false,
-      "moduleResolution": "node",
+      "moduleResolution": "bundler",
       "declaration": true,
-      "alwaysStrict": false,
       "skipLibCheck": true,
-      "baseUrl": "./",
+      "strict": false,
+      "noImplicitAny": false,
+      "strictNullChecks": false,
+      "strictFunctionTypes": false,
+      "ignoreDeprecations": "6.0",
       "paths": {
         "@month/*": ["./*"]
       }
