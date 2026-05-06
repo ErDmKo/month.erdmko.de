@@ -1,4 +1,5 @@
 mod attachments;
+mod dispatch;
 mod messaging;
 
 use actix::{Actor, Addr, AsyncContext, Handler, Message, StreamHandler};
