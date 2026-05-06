@@ -27,7 +27,7 @@
   "homepage": "https://github.com/ErDmKo/month#readme",
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.2.2"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "pnpm": "^8.15.4"
