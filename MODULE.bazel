@@ -43,6 +43,9 @@ bazel_dep(name = "aspect_rules_esbuild", version = "0.25.1")
 
 # Rust
 bazel_dep(name = "rules_rust", version = "0.70.0")
+bazel_dep(name = "rules_rust_prost", version = "0.70.0")
+bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "protobuf", version = "28.3")
 
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
@@ -52,6 +55,7 @@ rust.toolchain(
 use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
+register_toolchains("//tools/prost:prost_toolchain")
 
 crate = use_extension(
     "@rules_rust//crate_universe:extension.bzl",
@@ -62,4 +66,12 @@ crate.from_cargo(
     cargo_lockfile = "//server:Cargo.lock",
     manifests = ["//server:Cargo.toml"],
 )
+
+crate.annotation(
+    crate = "protoc-gen-prost",
+    gen_binaries = ["protoc-gen-prost"],
+    repositories = ["crate_index"],
+    version = "=0.3.1",
+)
+
 use_repo(crate, "crate_index")

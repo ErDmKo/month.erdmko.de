@@ -1,0 +1,14 @@
+load("@rules_proto//proto:defs.bzl", "proto_library")
+load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
+
+package(default_visibility = ["//visibility:public"])
+
+proto_library(
+    name = "assets_proto",
+    srcs = ["assets.proto"],
+)
+
+rust_prost_library(
+    name = "assets_rs",
+    proto = ":assets_proto",
+)

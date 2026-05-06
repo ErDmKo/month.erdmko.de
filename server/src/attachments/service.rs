@@ -204,124 +204,23 @@ pub fn download_end_payload(request_id: Option<&str>, attachment_id: i64) -> Str
 
 // ── Protobuf encode/decode ────────────────────────────────────────────────────
 
-/// Encode a `DownloadChunk` to protobuf binary.
-/// Fields: attachment_id(1, string), index(2, uint32), data(3, bytes)
-pub fn encode_download_chunk(attachment_id: i64, index: u32, data: &[u8]) -> Vec<u8> {
-    let id_str = attachment_id.to_string();
-    encode_proto_download_chunk(&id_str, index, data)
-}
+use assets_proto::assets::{DownloadChunk, UploadChunk};
+use prost::Message;
 
-fn encode_proto_download_chunk(attachment_id: &str, index: u32, data: &[u8]) -> Vec<u8> {
-    let mut buf = Vec::new();
-    // field 1: string attachment_id
-    if !attachment_id.is_empty() {
-        encode_varint(&mut buf, (1 << 3) | 2); // tag=1, wire=2 (length-delimited)
-        let bytes = attachment_id.as_bytes();
-        encode_varint(&mut buf, bytes.len() as u64);
-        buf.extend_from_slice(bytes);
+/// Encode a `DownloadChunk` to protobuf binary.
+pub fn encode_download_chunk(attachment_id: i64, index: u32, data: &[u8]) -> Vec<u8> {
+    DownloadChunk {
+        attachment_id: attachment_id.to_string(),
+        index,
+        data: data.to_vec(),
     }
-    // field 2: uint32 index
-    if index != 0 {
-        encode_varint(&mut buf, (2 << 3) | 0); // tag=2, wire=0 (varint)
-        encode_varint(&mut buf, index as u64);
-    }
-    // field 3: bytes data
-    if !data.is_empty() {
-        encode_varint(&mut buf, (3 << 3) | 2); // tag=3, wire=2 (length-delimited)
-        encode_varint(&mut buf, data.len() as u64);
-        buf.extend_from_slice(data);
-    }
-    buf
+    .encode_to_vec()
 }
 
 /// Decode an `UploadChunk` from protobuf binary.
-/// Fields: upload_id(1, uint32), index(2, uint32), data(3, bytes)
 pub fn decode_upload_chunk(buf: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
-    let mut upload_id: u32 = 0;
-    let mut index: u32 = 0;
-    let mut data: Vec<u8> = Vec::new();
-    let mut pos = 0;
-
-    while pos < buf.len() {
-        let (tag_wire, n) = decode_varint(buf, pos)?;
-        pos += n;
-        let field = (tag_wire >> 3) as u32;
-        let wire = tag_wire & 0x7;
-
-        match (field, wire) {
-            (1, 0) => {
-                // upload_id: varint uint32
-                let (v, n) = decode_varint(buf, pos)?;
-                pos += n;
-                upload_id = v as u32;
-            }
-            (2, 0) => {
-                // index: varint uint32
-                let (v, n) = decode_varint(buf, pos)?;
-                pos += n;
-                index = v as u32;
-            }
-            (3, 2) => {
-                // data: length-delimited bytes
-                let (len, n) = decode_varint(buf, pos)?;
-                pos += n;
-                let end = pos + len as usize;
-                if end > buf.len() {
-                    return None;
-                }
-                data = buf[pos..end].to_vec();
-                pos = end;
-            }
-            (_, 0) => {
-                // skip unknown varint field
-                let (_, n) = decode_varint(buf, pos)?;
-                pos += n;
-            }
-            (_, 2) => {
-                // skip unknown length-delimited field
-                let (len, n) = decode_varint(buf, pos)?;
-                pos += n;
-                pos += len as usize;
-            }
-            _ => return None,
-        }
-    }
-    Some((upload_id, index, data))
-}
-
-fn encode_varint(buf: &mut Vec<u8>, mut v: u64) {
-    loop {
-        let byte = (v & 0x7F) as u8;
-        v >>= 7;
-        if v == 0 {
-            buf.push(byte);
-            break;
-        } else {
-            buf.push(byte | 0x80);
-        }
-    }
-}
-
-fn decode_varint(buf: &[u8], mut pos: usize) -> Option<(u64, usize)> {
-    let mut result: u64 = 0;
-    let mut shift = 0u32;
-    let start = pos;
-    loop {
-        if pos >= buf.len() {
-            return None;
-        }
-        let byte = buf[pos];
-        pos += 1;
-        result |= ((byte & 0x7F) as u64) << shift;
-        shift += 7;
-        if byte & 0x80 == 0 {
-            break;
-        }
-        if shift >= 64 {
-            return None;
-        }
-    }
-    Some((result, pos - start))
+    let msg = UploadChunk::decode(buf).ok()?;
+    Some((msg.upload_id, msg.index, msg.data))
 }
 
 // ── DB-level upload/download ops ──────────────────────────────────────────────
@@ -449,19 +348,19 @@ mod tests {
 
     #[test]
     fn encode_decode_upload_chunk_roundtrip() {
-        // encode manually as UploadChunk and decode
+        use assets_proto::assets::UploadChunk;
+        use prost::Message;
+
         let upload_id: u32 = 42;
         let index: u32 = 7;
         let data = b"hello proto";
 
-        let mut buf = Vec::new();
-        encode_varint(&mut buf, (1 << 3) | 0); // field 1, varint
-        encode_varint(&mut buf, upload_id as u64);
-        encode_varint(&mut buf, (2 << 3) | 0); // field 2, varint
-        encode_varint(&mut buf, index as u64);
-        encode_varint(&mut buf, (3 << 3) | 2); // field 3, length-delimited
-        encode_varint(&mut buf, data.len() as u64);
-        buf.extend_from_slice(data);
+        let buf = UploadChunk {
+            upload_id,
+            index,
+            data: data.to_vec(),
+        }
+        .encode_to_vec();
 
         let (got_id, got_index, got_data) = decode_upload_chunk(&buf).unwrap();
         assert_eq!(got_id, upload_id);
@@ -471,18 +370,14 @@ mod tests {
 
     #[test]
     fn encode_download_chunk_produces_valid_proto() {
+        use assets_proto::assets::DownloadChunk;
+        use prost::Message;
+
         let encoded = encode_download_chunk(99, 3, b"world");
-        // field 1: string "99"
-        assert_eq!(encoded[0], (1 << 3) | 2); // tag wire
-        assert_eq!(encoded[1], 2); // len "99"
-        assert_eq!(&encoded[2..4], b"99");
-        // field 2: varint 3
-        assert_eq!(encoded[4], (2 << 3) | 0);
-        assert_eq!(encoded[5], 3);
-        // field 3: bytes "world"
-        assert_eq!(encoded[6], (3 << 3) | 2);
-        assert_eq!(encoded[7], 5);
-        assert_eq!(&encoded[8..], b"world");
+        let decoded = DownloadChunk::decode(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.attachment_id, "99");
+        assert_eq!(decoded.index, 3);
+        assert_eq!(decoded.data, b"world");
     }
 
     #[test]

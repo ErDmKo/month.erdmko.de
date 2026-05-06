@@ -1617,6 +1617,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "protoc-gen-prost"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e810847124cb9a1d4ccefb1aabc80ccaba67f4af047e60dc1c0f2e145494bb85"
+dependencies = [
+ "once_cell",
+ "prost",
+ "prost-build",
+ "prost-types",
+ "regex",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1967,6 +1980,8 @@ dependencies = [
  "log",
  "prost",
  "prost-build",
+ "prost-types",
+ "protoc-gen-prost",
  "r2d2",
  "r2d2_sqlite",
  "rand 0.8.6",
