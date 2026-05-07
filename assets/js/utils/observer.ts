@@ -19,6 +19,16 @@ export const on = <EventType>(
     state.push(callback);
 };
 
+export const off = <EventType>(
+    callback: (e: EventType) => void,
+    state: ObserverState<EventType>
+) => {
+    const index = state.indexOf(callback);
+    if (index !== -1) {
+        state.splice(index, 1);
+    }
+};
+
 export const trigger = <EventType>(
     event: EventType,
     state: ObserverState<EventType>

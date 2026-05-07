@@ -1,4 +1,4 @@
-import { pipe, taskChain, taskFork, noop, Task, bindArgs } from '../utils';
+import { pipe, taskChain, taskFork, noop, Task, bindArgs, ObserverState, on, off } from '../utils';
 import { encodeUploadChunk } from './attachments-proto';
 import { MAX_UPLOAD_SIZE, UploadDonePayload, IncomingWsEvent } from './protocol';
 
@@ -12,49 +12,6 @@ declare global {
 }
 
 const CHUNK_SIZE = 64 * 1024;
-
-// ── WsUploadState tuple ───────────────────────────────────────────────────────
-
-const UPLOAD_ON_READY = 0 as const;
-const UPLOAD_ON_DONE = 1 as const;
-const UPLOAD_ON_ERROR = 2 as const;
-
-type UploadReadyHandler = (uploadId: number) => void;
-type UploadDoneHandler = (payload: UploadDonePayload) => void;
-type UploadErrorHandler = (code: string, message: string) => void;
-
-export type WsUploadState = [
-    onReady: Map<string, UploadReadyHandler>,
-    onDone: Map<string, UploadDoneHandler>,
-    onError: Map<string, UploadErrorHandler>,
-];
-
-export const wsUploadStateCreate = (): WsUploadState => [
-    new Map(),
-    new Map(),
-    new Map(),
-];
-
-const wsUploadStateRegister = (
-    requestId: string,
-    onReady: UploadReadyHandler,
-    onDone: UploadDoneHandler,
-    onError: UploadErrorHandler,
-    state: WsUploadState
-): void => {
-    state[UPLOAD_ON_READY].set(requestId, onReady);
-    state[UPLOAD_ON_DONE].set(requestId, onDone);
-    state[UPLOAD_ON_ERROR].set(requestId, onError);
-};
-
-const wsUploadStateDelete = (
-    requestId: string,
-    state: WsUploadState
-): void => {
-    state[UPLOAD_ON_READY].delete(requestId);
-    state[UPLOAD_ON_DONE].delete(requestId);
-    state[UPLOAD_ON_ERROR].delete(requestId);
-};
 
 // ── Task helpers ──────────────────────────────────────────────────────────────
 
@@ -101,10 +58,7 @@ const sendUploadEnd =
 
 /**
  * Start an upload flow for a single file attached to an existing message.
- *
- * Registers handlers in the provided WsUploadState for upload_ready /
- * upload_done / upload_error events keyed by requestId.
- * Route incoming server events via handleUploadServerEvent().
+ * Subscribes to the shared WS observer and unsubscribes on completion or error.
  */
 export const startUpload = (
     ctx: Window,
@@ -115,7 +69,7 @@ export const startUpload = (
     onReady: (uploadId: number) => void,
     onDone: (payload: UploadDonePayload) => void,
     onError: (code: string, message: string) => void,
-    state: WsUploadState
+    wsEvents: ObserverState<IncomingWsEvent>
 ): void => {
     if (file.size === 0 || file.size > MAX_UPLOAD_SIZE) {
         onError(
@@ -125,27 +79,36 @@ export const startUpload = (
         return;
     }
 
-    const handleReady = (uploadId: number): void => {
-        onReady(uploadId);
-        pipe(
-            readFileAsArrayBuffer(ctx, file),
-            taskChain(bindArgs([ws, uploadId], sendChunks)),
-            taskChain(() => sendUploadEnd(ctx, ws, requestId, uploadId)),
-            taskFork(noop, (e) => onError('UPLOAD_FAILED', String(e)))
-        );
+    const unsubscribe = () => off(handleEvent, wsEvents);
+
+    const handleEvent = (event: IncomingWsEvent): void => {
+        if (event.type === 'upload_ready' && event.requestId === requestId) {
+            onReady(event.uploadId);
+            pipe(
+                readFileAsArrayBuffer(ctx, file),
+                taskChain(bindArgs([ws, event.uploadId], sendChunks)),
+                taskChain(bindArgs([ctx, ws, requestId, event.uploadId], sendUploadEnd)),
+                taskFork(noop, (e) => {
+                    unsubscribe();
+                    onError('UPLOAD_FAILED', String(e));
+                })
+            );
+            return;
+        }
+
+        if (event.type === 'upload_done' && event.requestId === requestId) {
+            unsubscribe();
+            onDone({ attachment: event.attachment });
+            return;
+        }
+
+        if (event.type === 'error' && event.requestId === requestId) {
+            unsubscribe();
+            onError(event.code ?? 'UNKNOWN', event.message ?? '');
+        }
     };
 
-    const handleDone = (payload: UploadDonePayload): void => {
-        wsUploadStateDelete(requestId, state);
-        onDone(payload);
-    };
-
-    const handleError = (code: string, message: string): void => {
-        wsUploadStateDelete(requestId, state);
-        onError(code, message);
-    };
-
-    wsUploadStateRegister(requestId, handleReady, handleDone, handleError, state);
+    on(handleEvent, wsEvents);
 
     ws.send(
         ctx.JSON.stringify({
@@ -157,36 +120,4 @@ export const startUpload = (
             mimeType: file.type || 'application/octet-stream',
         })
     );
-};
-
-/**
- * Route an incoming server JSON payload to the appropriate upload handler.
- * Call this from ws.onmessage for payloads with type upload_ready / upload_done / error.
- */
-export const handleUploadServerEvent = (
-    state: WsUploadState,
-    payload: IncomingWsEvent
-): boolean => {
-    if (payload.type === 'upload_ready') {
-        const handler = state[UPLOAD_ON_READY].get(payload.requestId);
-        if (handler) {
-            handler(payload.uploadId);
-            return true;
-        }
-    }
-    if (payload.type === 'upload_done') {
-        const handler = state[UPLOAD_ON_DONE].get(payload.requestId);
-        if (handler) {
-            handler({ attachment: payload.attachment });
-            return true;
-        }
-    }
-    if (payload.type === 'error' && payload.requestId) {
-        const handler = state[UPLOAD_ON_ERROR].get(payload.requestId);
-        if (handler) {
-            handler(payload.code ?? 'UNKNOWN', payload.message ?? '');
-            return true;
-        }
-    }
-    return false;
 };
