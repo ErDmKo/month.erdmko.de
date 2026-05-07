@@ -1,4 +1,12 @@
+import { pipe, taskChain, taskFork, noop, Task, bindArgs } from '../utils';
 import { encodeUploadChunk } from './attachments-proto';
+
+declare global {
+    interface Window {
+        JSON: typeof JSON;
+        FileReader: typeof FileReader;
+    }
+}
 
 export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 const CHUNK_SIZE = 64 * 1024;
@@ -13,51 +21,63 @@ export type UploadDonePayload = {
     };
 };
 
-export type UploadCallbacks = {
-    onReady?: (uploadId: number) => void;
-    onDone?: (payload: UploadDonePayload) => void;
-    onError?: (code: string, message: string) => void;
+// ── WsUploadState tuple ───────────────────────────────────────────────────────
+
+const UPLOAD_ON_READY = 0 as const;
+const UPLOAD_ON_DONE = 1 as const;
+const UPLOAD_ON_ERROR = 2 as const;
+
+type UploadReadyHandler = (uploadId: number) => void;
+type UploadDoneHandler = (payload: UploadDonePayload) => void;
+type UploadErrorHandler = (code: string, message: string) => void;
+
+export type WsUploadState = [
+    onReady: Map<string, UploadReadyHandler>,
+    onDone: Map<string, UploadDoneHandler>,
+    onError: Map<string, UploadErrorHandler>,
+];
+
+export const wsUploadStateCreate = (): WsUploadState => [
+    new Map(),
+    new Map(),
+    new Map(),
+];
+
+const wsUploadStateRegister = (
+    requestId: string,
+    onReady: UploadReadyHandler,
+    onDone: UploadDoneHandler,
+    onError: UploadErrorHandler,
+    state: WsUploadState
+): void => {
+    state[UPLOAD_ON_READY].set(requestId, onReady);
+    state[UPLOAD_ON_DONE].set(requestId, onDone);
+    state[UPLOAD_ON_ERROR].set(requestId, onError);
 };
 
-/**
- * Start an upload flow for a single file attached to an existing message.
- *
- * Registers one-time handlers on the socket `onmessage` for `upload_ready`
- * and `upload_done` keyed by requestId, then sends `upload_start`.
- * The caller is responsible for dispatching `upload_ready` / `upload_done`
- * events into `handleUploadServerEvent()`.
- */
-export const startUpload = (
-    ws: WebSocket,
+const wsUploadStateDelete = (
     requestId: string,
-    messageId: number,
-    file: File,
-    callbacks: UploadCallbacks
+    state: WsUploadState
 ): void => {
-    if (file.size === 0 || file.size > MAX_UPLOAD_SIZE) {
-        callbacks.onError?.(
-            'UPLOAD_TOO_LARGE',
-            `File must be between 1 byte and ${MAX_UPLOAD_SIZE} bytes.`
-        );
-        return;
-    }
+    state[UPLOAD_ON_READY].delete(requestId);
+    state[UPLOAD_ON_DONE].delete(requestId);
+    state[UPLOAD_ON_ERROR].delete(requestId);
+};
 
-    // Step 1: send upload_start
-    ws.send(
-        JSON.stringify({
-            type: 'upload_start',
-            requestId,
-            messageId,
-            filename: file.name,
-            size: file.size,
-            mimeType: file.type || 'application/octet-stream',
-        })
-    );
+// ── Task helpers ──────────────────────────────────────────────────────────────
 
-    // Step 2: wait for upload_ready, then stream chunks + send upload_end
-    const onReady = async (uploadId: number) => {
-        callbacks.onReady?.(uploadId);
-        const buffer = await file.arrayBuffer();
+const readFileAsArrayBuffer =
+    (ctx: Window, file: File): Task<ArrayBuffer> =>
+    (resolve, reject) => {
+        const reader = new ctx.FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsArrayBuffer(file);
+    };
+
+const sendChunks =
+    (ws: WebSocket, uploadId: number, buffer: ArrayBuffer): Task<void> =>
+    (resolve) => {
         const bytes = new Uint8Array(buffer);
         let offset = 0;
         let index = 0;
@@ -69,41 +89,90 @@ export const startUpload = (
             offset += CHUNK_SIZE;
             index++;
         }
+        resolve();
+    };
+
+const sendUploadEnd =
+    (ctx: Window, ws: WebSocket, requestId: string, uploadId: number): Task<void> =>
+    (resolve) => {
         ws.send(
-            JSON.stringify({
+            ctx.JSON.stringify({
                 type: 'upload_end',
                 requestId,
                 uploadId,
             })
         );
+        resolve();
     };
 
-    // Expose handler — caller should invoke this from ws.onmessage
-    (ws as any)[`__upload_ready_${requestId}`] = onReady;
-    (ws as any)[`__upload_done_${requestId}`] = (
-        payload: UploadDonePayload
-    ) => {
-        delete (ws as any)[`__upload_ready_${requestId}`];
-        delete (ws as any)[`__upload_done_${requestId}`];
-        callbacks.onDone?.(payload);
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Start an upload flow for a single file attached to an existing message.
+ *
+ * Registers handlers in the provided WsUploadState for upload_ready /
+ * upload_done / upload_error events keyed by requestId.
+ * Route incoming server events via handleUploadServerEvent().
+ */
+export const startUpload = (
+    ctx: Window,
+    ws: WebSocket,
+    requestId: string,
+    messageId: number,
+    file: File,
+    onReady: (uploadId: number) => void,
+    onDone: (payload: UploadDonePayload) => void,
+    onError: (code: string, message: string) => void,
+    state: WsUploadState
+): void => {
+    if (file.size === 0 || file.size > MAX_UPLOAD_SIZE) {
+        onError(
+            'UPLOAD_TOO_LARGE',
+            `File must be between 1 byte and ${MAX_UPLOAD_SIZE} bytes.`
+        );
+        return;
+    }
+
+    const handleReady = (uploadId: number): void => {
+        onReady(uploadId);
+        pipe(
+            readFileAsArrayBuffer(ctx, file),
+            taskChain(bindArgs([ws, uploadId], sendChunks)),
+            taskChain(() => sendUploadEnd(ctx, ws, requestId, uploadId)),
+            taskFork(noop, (e) => onError('UPLOAD_FAILED', String(e)))
+        );
     };
-    (ws as any)[`__upload_error_${requestId}`] = (
-        code: string,
-        message: string
-    ) => {
-        delete (ws as any)[`__upload_ready_${requestId}`];
-        delete (ws as any)[`__upload_done_${requestId}`];
-        delete (ws as any)[`__upload_error_${requestId}`];
-        callbacks.onError?.(code, message);
+
+    const handleDone = (payload: UploadDonePayload): void => {
+        wsUploadStateDelete(requestId, state);
+        onDone(payload);
     };
+
+    const handleError = (code: string, message: string): void => {
+        wsUploadStateDelete(requestId, state);
+        onError(code, message);
+    };
+
+    wsUploadStateRegister(requestId, handleReady, handleDone, handleError, state);
+
+    ws.send(
+        ctx.JSON.stringify({
+            type: 'upload_start',
+            requestId,
+            messageId,
+            filename: file.name,
+            size: file.size,
+            mimeType: file.type || 'application/octet-stream',
+        })
+    );
 };
 
 /**
  * Route an incoming server JSON payload to the appropriate upload handler.
- * Call this from ws.onmessage for payloads with type upload_ready / upload_done.
+ * Call this from ws.onmessage for payloads with type upload_ready / upload_done / error.
  */
 export const handleUploadServerEvent = (
-    ws: WebSocket,
+    state: WsUploadState,
     payload: {
         type: string;
         requestId?: string;
@@ -117,24 +186,21 @@ export const handleUploadServerEvent = (
     if (!requestId) return false;
 
     if (payload.type === 'upload_ready' && payload.uploadId !== undefined) {
-        const handler = (ws as any)[`__upload_ready_${requestId}`];
+        const handler = state[UPLOAD_ON_READY].get(requestId);
         if (handler) {
             handler(payload.uploadId);
             return true;
         }
     }
     if (payload.type === 'upload_done' && payload.attachment) {
-        const handler = (ws as any)[`__upload_done_${requestId}`];
+        const handler = state[UPLOAD_ON_DONE].get(requestId);
         if (handler) {
             handler({ attachment: payload.attachment });
             return true;
         }
     }
-    if (
-        payload.type === 'error' &&
-        (ws as any)[`__upload_error_${requestId}`]
-    ) {
-        const handler = (ws as any)[`__upload_error_${requestId}`];
+    if (payload.type === 'error') {
+        const handler = state[UPLOAD_ON_ERROR].get(requestId);
         if (handler) {
             handler(payload.code ?? 'UNKNOWN', payload.message ?? '');
             return true;
