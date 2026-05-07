@@ -241,12 +241,10 @@ explicit and reads left-to-right without nesting.
 import { bindArg, bindArgs } from '@month/utils';
 
 // ✗ wrong — wrapper arrow just to pass a pre-known argument
-tags.forEach((tag) => initTemplate(ctx, tag));
 taskChain(() => sendBuffer(ws));
 observer(bindArg((v) => handle(ctx, v), on));
 
 // ✓ correct — bindArg / bindArgs
-tags.forEach(bindArg(ctx, initTemplate));
 taskChain(bindArg(ws, sendBuffer));
 observer(bindArg(bindArg(ctx, handle), on));
 ```
@@ -259,4 +257,20 @@ ctx.requestAnimationFrame(() => draw(ctx, field, canvas));
 
 // ✓ correct
 ctx.requestAnimationFrame(bindArgs([ctx, field, canvas], draw));
+```
+
+**Caution with `forEach` / `map`:** these callbacks receive extra arguments
+`(element, index, array)`. Only use `bindArg` directly when the target
+function accepts exactly the arguments that will be passed — no more.
+If the caller passes more arguments than the function expects, the extras
+silently become positional parameters on the next call.
+
+```ts
+// ✓ safe — initTemplate(ctx, element) matches forEach(element, index, array)
+// only if initTemplate accepts exactly two parameters and ignores the rest.
+// Prefer an explicit wrapper when the arity is ambiguous:
+tags.forEach((el) => initTemplate(ctx, el));
+
+// ✓ also safe — when you are certain the signature will never grow
+ctx.Array.from(tags).forEach(bindArg(ctx, initTemplate));
 ```
