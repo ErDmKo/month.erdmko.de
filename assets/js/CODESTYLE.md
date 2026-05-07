@@ -123,26 +123,69 @@ valueObserver(bindArg((v: number) => console.log(v), on));
 valueObserver(bindArg(42, trigger));
 ```
 
-## 4. No `async` / `await` / `Promise`
+## 4. Async code via `Task` primitives — no `async` / `await` / `Promise`
 
-Asynchronous work (file reads, fetch, timers) is expressed through callbacks
-and observer chains, not `async` functions or `Promise` chains.
+Asynchronous work is expressed as lazy **Tasks** composed with `taskOf`,
+`taskMap`, `taskChain`, and `taskFork` from `@month/utils`. Do not use
+`async` functions, `await`, or `Promise` chains.
+
+A `Task<T>` is just a function `(resolve, reject) => void` — it does nothing
+until `taskFork` runs it. This keeps async logic lazy, composable, and
+free of implicit scheduling.
 
 ```ts
-// ✗ wrong
-const loadFile = async (file: File): Promise<Uint8Array> => {
+// ── primitives ────────────────────────────────────────────────────────────────
+
+// taskOf   — lift a plain function into a Task
+// taskMap  — transform the resolved value (sync step, stays on resolve track)
+// taskChain — chain an async step that itself returns a Task
+// taskFork — execute a Task and handle resolve / reject
+```
+
+**Example: read a File, then send over WebSocket**
+
+```ts
+// ✗ wrong — async/await
+const sendFile = async (ws: WebSocket, file: File): Promise<void> => {
     const buffer = await file.arrayBuffer();
-    return new Uint8Array(buffer);
+    ws.send(buffer);
 };
 
-// ✓ correct
-const loadFile = (ctx: Window, file: File, onDone: (data: Uint8Array) => void): void => {
-    const reader = new ctx.FileReader();
-    reader.onload = () => {
-        onDone(new ctx.Uint8Array(reader.result as ArrayBuffer));
+// ✓ correct — Task pipeline
+import { taskOf, taskMap, taskChain, taskFork, noop } from '@month/utils';
+
+const readFile =
+    (ctx: Window, file: File) =>
+    (resolve: (data: ArrayBuffer) => void, reject: (e: unknown) => void) => {
+        const reader = new ctx.FileReader();
+        reader.onload = () => resolve(reader.result as ArrayBuffer);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsArrayBuffer(file);
     };
-    reader.readAsArrayBuffer(file);
-};
+
+const sendBuffer = (ws: WebSocket) => taskOf((buf: ArrayBuffer) => {
+    ws.send(buf);
+});
+
+const sendFile = (ctx: Window, ws: WebSocket, file: File) =>
+    taskFork(noop, console.error)(
+        taskChain(sendBuffer(ws))(readFile(ctx, file))
+    );
+```
+
+**Sync transformation with `taskMap`:**
+
+```ts
+// double every resolved number, errors pass through unchanged
+const doubled = taskMap((n: number) => n * 2);
+```
+
+**Railway: errors skip all further steps**
+
+```ts
+const program = taskChain(stepB)(taskChain(stepA)(taskOf(init)()));
+// if stepA rejects, stepB is never called
+taskFork(console.log, console.error)(program);
 ```
 
 ## 5. DOM via `genTagName` / `domCreator` / `domCreatorRef`
