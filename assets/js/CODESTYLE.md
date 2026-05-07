@@ -5,6 +5,15 @@
 All browser globals are accessed through an explicit `ctx: Window` parameter,
 never called as free-standing identifiers.
 
+**Why:**
+- **Testability** — pass a mock or a jsdom instance in tests instead of relying
+  on the real global `window`. Functions become pure with respect to the
+  environment and can be unit-tested without a browser.
+- **Tree-shaking / minimal bundle** — a function that receives `ctx` has no
+  implicit dependency on the global scope. The bundler sees only what is
+  explicitly imported, so unused browser APIs are never pulled in and there
+  are no hidden cross-module couplings.
+
 ```ts
 // ✗ wrong
 JSON.stringify(data);
