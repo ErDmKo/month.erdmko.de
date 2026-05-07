@@ -9,10 +9,6 @@ never called as free-standing identifiers.
 - **Testability** — pass a mock or a jsdom instance in tests instead of relying
   on the real global `window`. Functions become pure with respect to the
   environment and can be unit-tested without a browser.
-- **Tree-shaking / minimal bundle** — a function that receives `ctx` has no
-  implicit dependency on the global scope. The bundler sees only what is
-  explicitly imported, so unused browser APIs are never pulled in and there
-  are no hidden cross-module couplings.
 
 ```ts
 // ✗ wrong
@@ -46,6 +42,16 @@ a typed tuple (named-index array) and write separate top-level functions that
 accept the state as their last argument.
 This mirrors the `observer` / `on` / `trigger` pattern from `@month/utils`
 and the `DOMStruct` tuple from `dom.ts`.
+
+**Why:**
+- **Tree-shaking / minimal bundle** — separate top-level functions are
+  individually referenceable by the bundler. Only the functions actually
+  called end up in the bundle. A class or an object literal with methods
+  creates a single chunk that is either included entirely or not at all,
+  pulling in code that may never run.
+- **No hidden couplings** — each function declares its dependencies
+  explicitly through its arguments. There is no shared `this` context
+  carrying implicit state across methods.
 
 ```ts
 // ✗ wrong — class
