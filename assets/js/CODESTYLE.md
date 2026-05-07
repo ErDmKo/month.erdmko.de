@@ -30,12 +30,13 @@ as its first argument. The module entry point always has the signature:
 export const initXxxEffect = (ctx: Window): void => { ... };
 ```
 
-## 2. No classes, no objects with methods — state + separate functions
+## 2. No classes, no objects with methods — tuples + separate functions
 
-Avoid classes and objects that bundle state with methods. Instead, represent
-state as a plain primitive (array, number, `Map`, tuple) and write separate
-top-level functions that accept the state as their last argument.
-This mirrors the `observer` / `on` / `trigger` pattern from `@month/utils`.
+Avoid classes and objects that bundle state with methods. Represent state as
+a typed tuple (named-index array) and write separate top-level functions that
+accept the state as their last argument.
+This mirrors the `observer` / `on` / `trigger` pattern from `@month/utils`
+and the `DOMStruct` tuple from `dom.ts`.
 
 ```ts
 // ✗ wrong — class
@@ -54,17 +55,22 @@ const makeCounter = () => {
     };
 };
 
-// ✓ correct — plain state + separate functions
-type CounterState = { n: number };         // or just `number` if possible
+// ✗ also wrong — plain object with fields
+type CounterState = { n: number };
+
+// ✓ correct — named-index tuple + separate functions
+const COUNTER_VALUE = 0 as const;
+
+type CounterState = [value: number];   // tuple, index COUNTER_VALUE = 0
 
 const counterIncrement = (state: CounterState): void => {
-    state.n++;
+    state[COUNTER_VALUE]++;
 };
 
-const counterGet = (state: CounterState): number => state.n;
+const counterGet = (state: CounterState): number => state[COUNTER_VALUE];
 
 // usage
-const counter: CounterState = { n: 0 };
+const counter: CounterState = [0];
 counterIncrement(counter);
 counterGet(counter); // 1
 ```
