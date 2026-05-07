@@ -4,6 +4,8 @@ import {
     taskFork,
     noop,
     Task,
+    ObserverInstance,
+    observer,
     bindArgs,
     bindArg,
     trigger,
@@ -43,9 +45,20 @@ declare global {
     }
 }
 
-const CHUNK_SIZE = 64 * 1024;
+// ── Upload event tuple ────────────────────────────────────────────────────────
+
+export const UPLOAD_READY = 0 as const;
+export const UPLOAD_DONE = 1 as const;
+export const UPLOAD_ERROR = 2 as const;
+
+export type UploadEvent =
+    | readonly [type: typeof UPLOAD_READY, uploadId: number]
+    | readonly [type: typeof UPLOAD_DONE, attachment: AttachmentMeta]
+    | readonly [type: typeof UPLOAD_ERROR, code: string, message: string];
 
 // ── Task helpers ──────────────────────────────────────────────────────────────
+
+const CHUNK_SIZE = 64 * 1024;
 
 const readFileAsArrayBuffer =
     (ctx: Window, file: File): Task<ArrayBuffer> =>
@@ -96,7 +109,9 @@ const sendUploadEnd =
 
 /**
  * Start an upload flow for a single file attached to an existing message.
- * Subscribes to the shared WS observer and unsubscribes on completion or error.
+ * Subscribes to the shared WS observer for the lifetime of this upload.
+ * Unsubscribes automatically on completion or error.
+ * Returns an ObserverInstance that emits UPLOAD_READY, UPLOAD_DONE, or UPLOAD_ERROR.
  */
 export const startUpload = (
     ctx: Window,
@@ -104,17 +119,22 @@ export const startUpload = (
     sendBinary: (data: ArrayBuffer) => void,
     requestId: string,
     messageId: number,
-    file: File,
-    onReady: (uploadId: number) => void,
-    onDone: (attachment: AttachmentMeta) => void,
-    onError: (code: string, message: string) => void
-): void => {
+    file: File
+): ObserverInstance<UploadEvent> => {
+    const uploadEvents = observer<UploadEvent>();
+
     if (file.size === 0 || file.size > MAX_UPLOAD_SIZE) {
-        onError(
-            'UPLOAD_TOO_LARGE',
-            `File must be between 1 byte and ${MAX_UPLOAD_SIZE} bytes.`
+        uploadEvents(
+            bindArg(
+                [
+                    UPLOAD_ERROR,
+                    'UPLOAD_TOO_LARGE',
+                    `File must be between 1 byte and ${MAX_UPLOAD_SIZE} bytes.`,
+                ] as const,
+                trigger
+            )
         );
-        return;
+        return uploadEvents;
     }
 
     const outgoing = socket[CHAT_SOCKET_OUTGOING];
@@ -126,7 +146,7 @@ export const startUpload = (
             event[WS_UPLOAD_READY_REQUEST_ID] === requestId
         ) {
             const uploadId = event[WS_UPLOAD_READY_UPLOAD_ID];
-            onReady(uploadId);
+            uploadEvents(bindArg([UPLOAD_READY, uploadId] as const, trigger));
             pipe(
                 readFileAsArrayBuffer(ctx, file),
                 taskChain(bindArgs([ctx, sendBinary, uploadId], sendChunks)),
@@ -135,7 +155,12 @@ export const startUpload = (
                 ),
                 taskFork(noop, (e) => {
                     unsubscribe();
-                    onError('UPLOAD_FAILED', String(e));
+                    uploadEvents(
+                        bindArg(
+                            [UPLOAD_ERROR, 'UPLOAD_FAILED', String(e)] as const,
+                            trigger
+                        )
+                    );
                 })
             );
             return;
@@ -146,7 +171,12 @@ export const startUpload = (
             event[WS_UPLOAD_DONE_REQUEST_ID] === requestId
         ) {
             unsubscribe();
-            onDone(event[WS_UPLOAD_DONE_ATTACHMENT]);
+            uploadEvents(
+                bindArg(
+                    [UPLOAD_DONE, event[WS_UPLOAD_DONE_ATTACHMENT]] as const,
+                    trigger
+                )
+            );
             return;
         }
 
@@ -155,7 +185,16 @@ export const startUpload = (
             event[WS_ERROR_REQUEST_ID] === requestId
         ) {
             unsubscribe();
-            onError(event[WS_ERROR_CODE], event[WS_ERROR_MESSAGE]);
+            uploadEvents(
+                bindArg(
+                    [
+                        UPLOAD_ERROR,
+                        event[WS_ERROR_CODE],
+                        event[WS_ERROR_MESSAGE],
+                    ] as const,
+                    trigger
+                )
+            );
         }
     };
     const unsubscribe = bindArgs([handleEvent, wsEvents], off);
@@ -175,4 +214,6 @@ export const startUpload = (
             trigger
         )
     );
+
+    return uploadEvents;
 };

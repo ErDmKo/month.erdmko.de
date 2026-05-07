@@ -6,6 +6,7 @@ All browser globals are accessed through an explicit `ctx: Window` parameter,
 never called as free-standing identifiers.
 
 **Why:**
+
 - **Testability** — pass a mock or a jsdom instance in tests instead of relying
   on the real global `window`. Functions become pure with respect to the
   environment and can be unit-tested without a browser.
@@ -44,6 +45,7 @@ This mirrors the `observer` / `on` / `trigger` pattern from `@month/utils`
 and the `DOMStruct` tuple from `dom.ts`.
 
 **Why:**
+
 - **Tree-shaking / minimal bundle** — separate top-level functions are
   individually referenceable by the bundler. Only the functions actually
   called end up in the bundle. A class or an object literal with methods
@@ -57,15 +59,21 @@ and the `DOMStruct` tuple from `dom.ts`.
 // ✗ wrong — class
 class Counter {
     private value = 0;
-    increment() { this.value++; }
-    get() { return this.value; }
+    increment() {
+        this.value++;
+    }
+    get() {
+        return this.value;
+    }
 }
 
 // ✗ also wrong — object with methods
 const makeCounter = () => {
     let value = 0;
     return {
-        increment: () => { value++; },
+        increment: () => {
+            value++;
+        },
         get: () => value,
     };
 };
@@ -76,7 +84,7 @@ type CounterState = { n: number };
 // ✓ correct — named-index tuple + separate functions
 const COUNTER_VALUE = 0 as const;
 
-type CounterState = [value: number];   // tuple, index COUNTER_VALUE = 0
+type CounterState = [value: number]; // tuple, index COUNTER_VALUE = 0
 
 const counterIncrement = (state: CounterState): void => {
     state[COUNTER_VALUE]++;
@@ -133,13 +141,13 @@ A `Task<T>` is just a function `(resolve, reject) => void` — it does nothing
 until `taskFork` runs it. This keeps async logic lazy, composable, and
 free of implicit scheduling.
 
-| primitive | purpose |
-|---|---|
-| `taskOf(fn)` | lift a plain function into a Task |
-| `taskMap(fn)` | sync transform of the resolved value; errors pass through |
-| `taskChain(fn)` | async step — `fn` itself returns a Task |
-| `taskFork(resolve, reject)` | execute a Task, catches sync throws into reject |
-| `pipe(value, ...fns)` | pass a value through a left-to-right sequence of functions |
+| primitive                   | purpose                                                    |
+| --------------------------- | ---------------------------------------------------------- |
+| `taskOf(fn)`                | lift a plain function into a Task                          |
+| `taskMap(fn)`               | sync transform of the resolved value; errors pass through  |
+| `taskChain(fn)`             | async step — `fn` itself returns a Task                    |
+| `taskFork(resolve, reject)` | execute a Task, catches sync throws into reject            |
+| `pipe(value, ...fns)`       | pass a value through a left-to-right sequence of functions |
 
 **Example: read a File, then send over WebSocket**
 
@@ -229,11 +237,17 @@ const PENDING_HANDLERS = 0 as const;
 type WsState = [handlers: Map<string, () => void>];
 
 const wsStateCreate = (): WsState => [new Map()];
-const wsStateSet = (requestId: string, handler: () => void, state: WsState): void => {
+const wsStateSet = (
+    requestId: string,
+    handler: () => void,
+    state: WsState
+): void => {
     state[PENDING_HANDLERS].set(requestId, handler);
 };
-const wsStateGet = (requestId: string, state: WsState): (() => void) | undefined =>
-    state[PENDING_HANDLERS].get(requestId);
+const wsStateGet = (
+    requestId: string,
+    state: WsState
+): (() => void) | undefined => state[PENDING_HANDLERS].get(requestId);
 const wsStateDelete = (requestId: string, state: WsState): void => {
     state[PENDING_HANDLERS].delete(requestId);
 };
@@ -320,3 +334,64 @@ tags.forEach((el) => initTemplate(ctx, el));
 // ✓ also safe — when you are certain the signature will never grow
 ctx.Array.from(tags).forEach(bindArg(ctx, initTemplate));
 ```
+
+## Observer as Return Value
+
+When a function produces multiple kinds of outcomes (success, progress,
+error, etc.), return an `ObserverInstance` over a discriminated event tuple
+instead of accepting several callback parameters.
+
+**Why:**
+
+- **Symmetry** — callers subscribe with the same `on` / `trigger` pattern
+  used everywhere else. There is no special callback API to learn.
+- **Composability** — the returned observer can be passed to other
+  combinators (`combineLatestWith`, `pipe`, etc.) or re-subscribed later
+  without re-invoking the original function.
+- **Arity discipline** — a single `ObserverInstance<Event>` parameter is
+  unambiguous; three or four callback parameters force the caller to
+  supply all of them even when only one outcome is relevant.
+
+```ts
+// ✗ wrong — separate callbacks for each outcome
+export const startUpload = (
+    ctx: Window,
+    socket: ChatSocket,
+    requestId: string,
+    file: File,
+    onReady: (uploadId: number) => void,
+    onDone: (attachment: AttachmentMeta) => void,
+    onError: (code: string, message: string) => void
+): void => { ... };
+
+// usage is verbose and forces all three handlers every time
+startUpload(ctx, socket, id, file, handleReady, handleDone, handleError);
+
+// ✓ correct — discriminated event tuple + ObserverInstance return
+export const UPLOAD_READY = 0 as const;
+export const UPLOAD_DONE  = 1 as const;
+export const UPLOAD_ERROR = 2 as const;
+
+export type UploadEvent =
+    | readonly [type: typeof UPLOAD_READY, uploadId: number]
+    | readonly [type: typeof UPLOAD_DONE,  attachment: AttachmentMeta]
+    | readonly [type: typeof UPLOAD_ERROR, code: string, message: string];
+
+export const startUpload = (
+    ctx: Window,
+    socket: ChatSocket,
+    requestId: string,
+    file: File
+): ObserverInstance<UploadEvent> => { ... };
+
+// caller subscribes to only what it needs
+const upload = startUpload(ctx, socket, id, file);
+upload(bindArg((event: UploadEvent) => {
+    if (event[UPLOAD_EVENT_TYPE] === UPLOAD_DONE) {
+        renderAttachment(event[UPLOAD_DONE_ATTACHMENT]);
+    }
+}, on));
+```
+
+The same pattern applies to any operation that has more than one terminal
+state (download, long-running async task, WebSocket lifecycle, etc.).
