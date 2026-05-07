@@ -12,7 +12,6 @@ import {
     on,
     off,
 } from '../utils';
-import { encodeUploadChunk } from './attachments-proto';
 import {
     MAX_UPLOAD_SIZE,
     AttachmentMeta,
@@ -22,6 +21,7 @@ import {
     CHAT_SOCKET_INCOMING,
     UPLOAD_START_TYPE,
     UPLOAD_END_TYPE,
+    UPLOAD_CHUNK_TYPE,
     WS_EVENT_TYPE,
     WS_UPLOAD_READY,
     WS_UPLOAD_READY_REQUEST_ID,
@@ -39,7 +39,6 @@ export { MAX_UPLOAD_SIZE } from './protocol';
 
 declare global {
     interface Window {
-        JSON: typeof JSON;
         FileReader: typeof FileReader;
         Uint8Array: typeof Uint8Array;
     }
@@ -72,7 +71,7 @@ const readFileAsArrayBuffer =
 const sendChunks =
     (
         ctx: Window,
-        sendBinary: (data: ArrayBuffer) => void,
+        outgoing: ChatSocket[typeof CHAT_SOCKET_OUTGOING],
         uploadId: number,
         buffer: ArrayBuffer
     ): Task<void> =>
@@ -82,9 +81,11 @@ const sendChunks =
         let index = 0;
         while (offset < bytes.length) {
             const chunk = bytes.slice(offset, offset + CHUNK_SIZE);
-            sendBinary(
-                encodeUploadChunk(ctx, uploadId, index, chunk)
-                    .buffer as ArrayBuffer
+            outgoing(
+                bindArg(
+                    [UPLOAD_CHUNK_TYPE, uploadId, index, chunk] as const,
+                    trigger
+                )
             );
             offset += CHUNK_SIZE;
             index++;
@@ -116,7 +117,6 @@ const sendUploadEnd =
 export const startUpload = (
     ctx: Window,
     socket: ChatSocket,
-    sendBinary: (data: ArrayBuffer) => void,
     requestId: string,
     messageId: number,
     file: File
@@ -149,7 +149,7 @@ export const startUpload = (
             uploadEvents(bindArg([UPLOAD_READY, uploadId] as const, trigger));
             pipe(
                 readFileAsArrayBuffer(ctx, file),
-                taskChain(bindArgs([ctx, sendBinary, uploadId], sendChunks)),
+                taskChain(bindArgs([ctx, outgoing, uploadId], sendChunks)),
                 taskChain(
                     bindArgs([outgoing, requestId, uploadId], sendUploadEnd)
                 ),

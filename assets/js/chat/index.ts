@@ -74,12 +74,16 @@ const initSendObserver = (
                 setError(validationError);
                 return;
             }
-            const event = serializeCommand(command);
-            if (!event) {
+            const frame = serializeCommand(ctx, command);
+            if (!frame) {
                 setError('Unsupported event type.');
                 return;
             }
-            ws.send(ctx.JSON.stringify(event));
+            if (frame instanceof ArrayBuffer) {
+                ws.send(frame);
+            } else {
+                ws.send(ctx.JSON.stringify(frame));
+            }
         }, on)
     );
     return outgoing;

@@ -4,12 +4,14 @@ export const DELETE_TYPE = 2 as const;
 export const DOWNLOAD_REQUEST_TYPE = 3 as const;
 export const UPLOAD_START_TYPE = 4 as const;
 export const UPLOAD_END_TYPE = 5 as const;
+export const UPLOAD_CHUNK_TYPE = 6 as const;
 export const MAX_MESSAGE_LEN = 200;
 export const MAX_NICKNAME_LEN = 32;
 export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 
 import { ObserverInstance, ObserverState } from '../utils';
 import {
+    encodeUploadChunk,
     DecodedDownloadChunk,
     DOWNLOAD_CHUNK_ATTACHMENT_ID,
     DOWNLOAD_CHUNK_INDEX,
@@ -22,7 +24,8 @@ type OutgoingType =
     | typeof DELETE_TYPE
     | typeof DOWNLOAD_REQUEST_TYPE
     | typeof UPLOAD_START_TYPE
-    | typeof UPLOAD_END_TYPE;
+    | typeof UPLOAD_END_TYPE
+    | typeof UPLOAD_CHUNK_TYPE;
 
 // ── Outgoing commands (client → server) ───────────────────────────────────────
 
@@ -47,7 +50,17 @@ export type SendCommand =
           type: typeof UPLOAD_END_TYPE,
           requestId: string,
           uploadId: number,
+      ]
+    | readonly [
+          type: typeof UPLOAD_CHUNK_TYPE,
+          uploadId: number,
+          index: number,
+          data: Uint8Array,
       ];
+
+export const UPLOAD_CHUNK_UPLOAD_ID = 1 as const;
+export const UPLOAD_CHUNK_INDEX = 2 as const;
+export const UPLOAD_CHUNK_DATA = 3 as const;
 
 export type OutgoingWsEvent =
     | { type: 'join'; requestId: string; nickname: string }
@@ -286,13 +299,15 @@ const isAllowedType = (eventType: number): eventType is OutgoingType => {
         eventType === DELETE_TYPE ||
         eventType === DOWNLOAD_REQUEST_TYPE ||
         eventType === UPLOAD_START_TYPE ||
-        eventType === UPLOAD_END_TYPE
+        eventType === UPLOAD_END_TYPE ||
+        eventType === UPLOAD_CHUNK_TYPE
     );
 };
 
 export const serializeCommand = (
+    ctx: Window,
     command: SendCommand
-): OutgoingWsEvent | null => {
+): OutgoingWsEvent | ArrayBuffer | null => {
     const [type, requestId, payload] = command;
     if (!isAllowedType(type)) {
         return null;
@@ -334,6 +349,20 @@ export const serializeCommand = (
             requestId,
             uploadId: payload as number,
         };
+    }
+    if (type === UPLOAD_CHUNK_TYPE) {
+        const c = command as readonly [
+            typeof UPLOAD_CHUNK_TYPE,
+            number,
+            number,
+            Uint8Array,
+        ];
+        return encodeUploadChunk(
+            ctx,
+            c[UPLOAD_CHUNK_UPLOAD_ID],
+            c[UPLOAD_CHUNK_INDEX],
+            c[UPLOAD_CHUNK_DATA]
+        ).buffer as ArrayBuffer;
     }
     return { type: 'message', requestId, body: payload as string };
 };

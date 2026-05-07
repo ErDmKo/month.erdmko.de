@@ -5,13 +5,28 @@ import {
     JOIN_TYPE,
     MAX_MESSAGE_LEN,
     MESSAGE_TYPE,
+    OutgoingWsEvent,
     serializeCommand,
     validateOutgoingCommand,
 } from './protocol';
 
+const ctx = null as unknown as Window;
+
+const asJson = (
+    result: OutgoingWsEvent | ArrayBuffer | null
+): OutgoingWsEvent => {
+    assert.ok(result !== null, 'serialize result should not be null');
+    assert.ok(
+        !(result instanceof ArrayBuffer),
+        'expected JSON frame, got binary'
+    );
+    return result;
+};
+
 const run = () => {
-    const joinSerialized = serializeCommand([JOIN_TYPE, 'join-1', 'alice']);
-    assert.ok(joinSerialized !== null, 'join should serialize');
+    const joinSerialized = asJson(
+        serializeCommand(ctx, [JOIN_TYPE, 'join-1', 'alice'])
+    );
     assert.equal(joinSerialized.type, 'join', 'join type mismatch');
     assert.equal(joinSerialized.requestId, 'join-1', 'join requestId mismatch');
     if (joinSerialized.type !== 'join') {
@@ -19,12 +34,9 @@ const run = () => {
     }
     assert.equal(joinSerialized.nickname, 'alice', 'join nickname mismatch');
 
-    const messageSerialized = serializeCommand([
-        MESSAGE_TYPE,
-        'msg-1',
-        'hello',
-    ]);
-    assert.ok(messageSerialized !== null, 'message should serialize');
+    const messageSerialized = asJson(
+        serializeCommand(ctx, [MESSAGE_TYPE, 'msg-1', 'hello'])
+    );
     assert.equal(messageSerialized.type, 'message', 'message type mismatch');
     assert.equal(
         messageSerialized.requestId,
@@ -36,8 +48,9 @@ const run = () => {
     }
     assert.equal(messageSerialized.body, 'hello', 'message body mismatch');
 
-    const deleteSerialized = serializeCommand([DELETE_TYPE, 'del-1', 42]);
-    assert.ok(deleteSerialized !== null, 'delete should serialize');
+    const deleteSerialized = asJson(
+        serializeCommand(ctx, [DELETE_TYPE, 'del-1', 42])
+    );
     assert.equal(deleteSerialized.type, 'delete', 'delete type mismatch');
     if (deleteSerialized.type !== 'delete') {
         throw new Error('delete payload shape mismatch');
