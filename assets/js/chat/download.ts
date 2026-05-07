@@ -1,4 +1,4 @@
-import { ObserverState, on, off } from '../utils';
+import { ObserverState, on, off, bindArgs } from '../utils';
 import { decodeDownloadChunk } from './attachments-proto';
 import { DownloadStartPayload, IncomingWsEvent } from './protocol';
 
@@ -53,8 +53,6 @@ export const startDownload = (
     wsEvents: ObserverState<IncomingWsEvent>,
     binaryState: WsDownloadBinaryState
 ): void => {
-    const unsubscribe = () => off(handleEvent, wsEvents);
-
     const handleEvent = (event: IncomingWsEvent): void => {
         if (event.type === 'download_start' && event.requestId === requestId) {
             const meta: DownloadStartPayload = {
@@ -95,6 +93,7 @@ export const startDownload = (
             onError(event.code ?? 'UNKNOWN', event.message ?? '');
         }
     };
+    const unsubscribe = bindArgs([handleEvent, wsEvents], off);
 
     on(handleEvent, wsEvents);
 

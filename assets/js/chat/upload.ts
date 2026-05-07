@@ -79,8 +79,6 @@ export const startUpload = (
         return;
     }
 
-    const unsubscribe = () => off(handleEvent, wsEvents);
-
     const handleEvent = (event: IncomingWsEvent): void => {
         if (event.type === 'upload_ready' && event.requestId === requestId) {
             onReady(event.uploadId);
@@ -107,6 +105,7 @@ export const startUpload = (
             onError(event.code ?? 'UNKNOWN', event.message ?? '');
         }
     };
+    const unsubscribe = bindArgs([handleEvent, wsEvents], off);
 
     on(handleEvent, wsEvents);
 
