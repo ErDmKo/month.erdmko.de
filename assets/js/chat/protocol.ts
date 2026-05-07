@@ -36,13 +36,7 @@ export type UploadDonePayload = {
     attachment: AttachmentMeta;
 };
 
-export type DownloadStartPayload = {
-    attachmentId: number;
-    filename: string;
-    size: number;
-    mimeType: string;
-    totalChunks: number;
-};
+export type DownloadStartPayload = Omit<Extract<IncomingWsEvent, { type: 'download_start' }>, 'type' | 'requestId'>;
 
 export type IncomingWsEvent =
     | { type: 'joined'; requestId: string; self: { senderId: string } }

@@ -65,13 +65,7 @@ export const startDownload = (
 
     const handleEvent = (event: IncomingWsEvent): void => {
         if (event.type === 'download_start' && event.requestId === requestId) {
-            const meta: DownloadStartPayload = {
-                attachmentId: event.attachmentId,
-                filename: event.filename,
-                size: event.size,
-                mimeType: event.mimeType,
-                totalChunks: event.totalChunks,
-            };
+            const { type: _t, requestId: _r, ...meta } = event;
             const session: DownloadActiveSession = [meta, [], 0, downloadEvents];
             binaryState.set(attachmentId, session);
             downloadEvents(bindArg([DOWNLOAD_START, meta] as const, trigger));
