@@ -58,6 +58,32 @@ export type SendCommand =
           data: Uint8Array,
       ];
 
+// SendCommand field indices (shared slot 0 = type)
+export const SEND_TYPE = 0 as const;
+export const SEND_REQUEST_ID = 1 as const;
+
+// JOIN: [type, requestId, nickname]
+export const JOIN_NICKNAME = 2 as const;
+
+// MESSAGE: [type, requestId, body]
+export const MESSAGE_BODY = 2 as const;
+
+// DELETE: [type, requestId, messageId]
+export const DELETE_MESSAGE_ID = 2 as const;
+
+// DOWNLOAD_REQUEST: [type, requestId, attachmentId]
+export const DOWNLOAD_REQUEST_ATTACHMENT_ID = 2 as const;
+
+// UPLOAD_START: [type, requestId, messageId, filename, size, mimeType]
+export const UPLOAD_START_MESSAGE_ID = 2 as const;
+export const UPLOAD_START_FILENAME = 3 as const;
+export const UPLOAD_START_SIZE = 4 as const;
+export const UPLOAD_START_MIME_TYPE = 5 as const;
+
+// UPLOAD_END: [type, requestId, uploadId]
+export const UPLOAD_END_UPLOAD_ID = 2 as const;
+
+// UPLOAD_CHUNK: [type, uploadId, index, data]
 export const UPLOAD_CHUNK_UPLOAD_ID = 1 as const;
 export const UPLOAD_CHUNK_INDEX = 2 as const;
 export const UPLOAD_CHUNK_DATA = 3 as const;
@@ -308,63 +334,62 @@ export const serializeCommand = (
     ctx: Window,
     command: SendCommand
 ): OutgoingWsEvent | ArrayBuffer | null => {
-    const [type, requestId, payload] = command;
+    const type = command[SEND_TYPE];
     if (!isAllowedType(type)) {
         return null;
     }
     if (type === JOIN_TYPE) {
-        return { type: 'join', requestId, nickname: payload as string };
+        return {
+            type: 'join',
+            requestId: command[SEND_REQUEST_ID],
+            nickname: command[JOIN_NICKNAME],
+        };
+    }
+    if (type === MESSAGE_TYPE) {
+        return {
+            type: 'message',
+            requestId: command[SEND_REQUEST_ID],
+            body: command[MESSAGE_BODY],
+        };
     }
     if (type === DELETE_TYPE) {
-        return { type: 'delete', requestId, messageId: payload as number };
+        return {
+            type: 'delete',
+            requestId: command[SEND_REQUEST_ID],
+            messageId: command[DELETE_MESSAGE_ID],
+        };
     }
     if (type === DOWNLOAD_REQUEST_TYPE) {
         return {
             type: 'download_request',
-            requestId,
-            attachmentId: payload as number,
+            requestId: command[SEND_REQUEST_ID],
+            attachmentId: command[DOWNLOAD_REQUEST_ATTACHMENT_ID],
         };
     }
     if (type === UPLOAD_START_TYPE) {
-        const c = command as readonly [
-            typeof UPLOAD_START_TYPE,
-            string,
-            number,
-            string,
-            number,
-            string,
-        ];
         return {
             type: 'upload_start',
-            requestId,
-            messageId: c[2],
-            filename: c[3],
-            size: c[4],
-            mimeType: c[5],
+            requestId: command[SEND_REQUEST_ID],
+            messageId: command[UPLOAD_START_MESSAGE_ID],
+            filename: command[UPLOAD_START_FILENAME],
+            size: command[UPLOAD_START_SIZE],
+            mimeType: command[UPLOAD_START_MIME_TYPE],
         };
     }
     if (type === UPLOAD_END_TYPE) {
         return {
             type: 'upload_end',
-            requestId,
-            uploadId: payload as number,
+            requestId: command[SEND_REQUEST_ID],
+            uploadId: command[UPLOAD_END_UPLOAD_ID],
         };
     }
-    if (type === UPLOAD_CHUNK_TYPE) {
-        const c = command as readonly [
-            typeof UPLOAD_CHUNK_TYPE,
-            number,
-            number,
-            Uint8Array,
-        ];
-        return encodeUploadChunk(
-            ctx,
-            c[UPLOAD_CHUNK_UPLOAD_ID],
-            c[UPLOAD_CHUNK_INDEX],
-            c[UPLOAD_CHUNK_DATA]
-        ).buffer as ArrayBuffer;
-    }
-    return { type: 'message', requestId, body: payload as string };
+    // UPLOAD_CHUNK_TYPE
+    return encodeUploadChunk(
+        ctx,
+        command[UPLOAD_CHUNK_UPLOAD_ID],
+        command[UPLOAD_CHUNK_INDEX],
+        command[UPLOAD_CHUNK_DATA]
+    ).buffer as ArrayBuffer;
 };
 
 // ── Validation ────────────────────────────────────────────────────────────────
@@ -372,30 +397,36 @@ export const serializeCommand = (
 export const validateOutgoingCommand = (
     command: SendCommand
 ): string | null => {
-    const [type, _requestId, payload] = command;
+    const type = command[SEND_TYPE];
     if (type === JOIN_TYPE) {
-        const nickname = (payload as string).trim();
+        const nickname = command[JOIN_NICKNAME].trim();
         if (nickname.length === 0 || nickname.length > MAX_NICKNAME_LEN) {
             return `Nickname must be between 1 and ${MAX_NICKNAME_LEN} characters.`;
         }
         return null;
     }
     if (type === DELETE_TYPE) {
-        if (!Number.isInteger(payload) || (payload as number) <= 0) {
+        const messageId = command[DELETE_MESSAGE_ID];
+        if (!Number.isInteger(messageId) || messageId <= 0) {
             return 'Message id must be a positive integer.';
         }
         return null;
     }
     if (type === DOWNLOAD_REQUEST_TYPE) {
-        if (!Number.isInteger(payload) || (payload as number) <= 0) {
+        const attachmentId = command[DOWNLOAD_REQUEST_ATTACHMENT_ID];
+        if (!Number.isInteger(attachmentId) || attachmentId <= 0) {
             return 'Attachment id must be a positive integer.';
         }
         return null;
     }
-    if (type === UPLOAD_START_TYPE || type === UPLOAD_END_TYPE) {
+    if (
+        type === UPLOAD_START_TYPE ||
+        type === UPLOAD_END_TYPE ||
+        type === UPLOAD_CHUNK_TYPE
+    ) {
         return null;
     }
-    const body = (payload as string).trim();
+    const body = command[MESSAGE_BODY].trim();
     if (body.length === 0 || body.length > MAX_MESSAGE_LEN) {
         return `Message must be between 1 and ${MAX_MESSAGE_LEN} characters.`;
     }
