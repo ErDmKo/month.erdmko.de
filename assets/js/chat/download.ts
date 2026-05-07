@@ -1,5 +1,33 @@
-import { ObserverState, ObserverInstance, observer, on, off, bindArgs, bindArg, trigger } from '../utils';
-import { DownloadStartPayload, WsEvent, WS_DOWNLOAD_START, WS_DOWNLOAD_END, WS_DOWNLOAD_CHUNK, WS_ERROR } from './protocol';
+import {
+    ObserverState,
+    ObserverInstance,
+    observer,
+    on,
+    off,
+    bindArgs,
+    bindArg,
+    trigger,
+} from '../utils';
+import {
+    DownloadStartPayload,
+    WsEvent,
+    SendCommand,
+    DOWNLOAD_REQUEST_TYPE,
+    WS_EVENT_TYPE,
+    WS_DOWNLOAD_START,
+    WS_DOWNLOAD_START_REQUEST_ID,
+    WS_DOWNLOAD_START_META,
+    WS_DOWNLOAD_END,
+    WS_DOWNLOAD_END_REQUEST_ID,
+    WS_DOWNLOAD_CHUNK,
+    WS_DOWNLOAD_CHUNK_ATTACHMENT_ID,
+    WS_DOWNLOAD_CHUNK_INDEX,
+    WS_DOWNLOAD_CHUNK_DATA,
+    WS_ERROR,
+    WS_ERROR_REQUEST_ID,
+    WS_ERROR_CODE,
+    WS_ERROR_MESSAGE,
+} from './protocol';
 
 export type { DownloadStartPayload } from './protocol';
 
@@ -48,7 +76,7 @@ type DownloadActiveSession = [
  */
 export const startDownload = (
     ctx: Window,
-    ws: WebSocket,
+    outgoing: ObserverInstance<SendCommand>,
     requestId: string,
     attachmentId: number,
     wsEvents: ObserverState<WsEvent>
@@ -57,25 +85,41 @@ export const startDownload = (
     let session: DownloadActiveSession | null = null;
 
     const handleEvent = (event: WsEvent): void => {
-        if (event[0] === WS_DOWNLOAD_START && event[1] === requestId) {
-            const meta = event[2];
+        if (
+            event[WS_EVENT_TYPE] === WS_DOWNLOAD_START &&
+            event[WS_DOWNLOAD_START_REQUEST_ID] === requestId
+        ) {
+            const meta = event[WS_DOWNLOAD_START_META];
             session = [meta, [], 0, downloadEvents];
             downloadEvents(bindArg([DOWNLOAD_START, meta] as const, trigger));
             return;
         }
 
-        if (event[0] === WS_DOWNLOAD_CHUNK && event[1] === attachmentId) {
+        if (
+            event[WS_EVENT_TYPE] === WS_DOWNLOAD_CHUNK &&
+            event[WS_DOWNLOAD_CHUNK_ATTACHMENT_ID] === attachmentId
+        ) {
             if (!session) return;
-            session[ACTIVE_CHUNKS][event[2]] = event[3];
+            session[ACTIVE_CHUNKS][event[WS_DOWNLOAD_CHUNK_INDEX]] =
+                event[WS_DOWNLOAD_CHUNK_DATA];
             session[ACTIVE_RECEIVED]++;
-            session[ACTIVE_OBSERVER](bindArg(
-                [DOWNLOAD_PROGRESS, session[ACTIVE_RECEIVED], session[ACTIVE_META].totalChunks] as const,
-                trigger
-            ));
+            session[ACTIVE_OBSERVER](
+                bindArg(
+                    [
+                        DOWNLOAD_PROGRESS,
+                        session[ACTIVE_RECEIVED],
+                        session[ACTIVE_META].totalChunks,
+                    ] as const,
+                    trigger
+                )
+            );
             return;
         }
 
-        if (event[0] === WS_DOWNLOAD_END && event[1] === requestId) {
+        if (
+            event[WS_EVENT_TYPE] === WS_DOWNLOAD_END &&
+            event[WS_DOWNLOAD_END_REQUEST_ID] === requestId
+        ) {
             unsubscribe();
             if (!session) return;
 
@@ -87,26 +131,48 @@ export const startDownload = (
                 out.set(chunk, offset);
                 offset += chunk.length;
             }
-            const blob = new ctx.Blob([out], { type: session[ACTIVE_META].mimeType });
-            downloadEvents(bindArg([DOWNLOAD_DONE, blob, session[ACTIVE_META].filename] as const, trigger));
+            const blob = new ctx.Blob([out], {
+                type: session[ACTIVE_META].mimeType,
+            });
+            downloadEvents(
+                bindArg(
+                    [
+                        DOWNLOAD_DONE,
+                        blob,
+                        session[ACTIVE_META].filename,
+                    ] as const,
+                    trigger
+                )
+            );
             return;
         }
 
-        if (event[0] === WS_ERROR && event[1] === requestId) {
+        if (
+            event[WS_EVENT_TYPE] === WS_ERROR &&
+            event[WS_ERROR_REQUEST_ID] === requestId
+        ) {
             unsubscribe();
-            downloadEvents(bindArg([DOWNLOAD_ERROR, event[2], event[3]] as const, trigger));
+            downloadEvents(
+                bindArg(
+                    [
+                        DOWNLOAD_ERROR,
+                        event[WS_ERROR_CODE],
+                        event[WS_ERROR_MESSAGE],
+                    ] as const,
+                    trigger
+                )
+            );
         }
     };
     const unsubscribe = bindArgs([handleEvent, wsEvents], off);
 
     on(handleEvent, wsEvents);
 
-    ws.send(
-        ctx.JSON.stringify({
-            type: 'download_request',
-            requestId,
-            attachmentId,
-        })
+    outgoing(
+        bindArg(
+            [DOWNLOAD_REQUEST_TYPE, requestId, attachmentId] as const,
+            trigger
+        )
     );
 
     return downloadEvents;

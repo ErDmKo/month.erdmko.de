@@ -34,11 +34,17 @@ import {
     validateOutgoingCommand,
     parseTextFrame,
     parseBinaryFrame,
+    WS_EVENT_TYPE,
     WS_JOINED,
+    WS_JOINED_SENDER_ID,
     WS_HISTORY,
+    WS_HISTORY_ITEMS,
     WS_MESSAGE,
+    WS_MESSAGE_ITEM,
     WS_DELETED,
+    WS_DELETED_MESSAGE_ID,
     WS_ERROR,
+    WS_ERROR_MESSAGE,
 } from './protocol';
 import { decodeDownloadChunk } from './attachments-proto';
 
@@ -51,7 +57,11 @@ declare global {
 
 type WsEventBus = ReturnType<typeof observer<WsEvent>>;
 
-const initSendObserver = (ctx: Window, ws: WebSocket, setError: (text: string) => void) => {
+const initSendObserver = (
+    ctx: Window,
+    ws: WebSocket,
+    setError: (text: string) => void
+) => {
     const outgoing = observer<SendCommand>();
     outgoing(
         bindArg((command: SendCommand) => {
@@ -198,40 +208,52 @@ const initTemplate = (ctx: Window, root: Element) => {
     const wsEventBus = observer<WsEvent>();
     const sendObserver = initSendObserver(ctx, ws, setError);
 
-    wsEventBus(bindArg((event: WsEvent) => {
-        if (event[0] === WS_HISTORY) {
-            cleanHtml(refs[CHAT_REF_MESSAGES]);
-            event[1].forEach((item) => {
-                renderMessage(ctx, refs[CHAT_REF_MESSAGES], item, selfSenderId);
-            });
-            return;
-        }
-        if (event[0] === WS_MESSAGE) {
-            renderMessage(ctx, refs[CHAT_REF_MESSAGES], event[1], selfSenderId);
-            return;
-        }
-        if (event[0] === WS_DELETED) {
-            const target = refs[CHAT_REF_MESSAGES].querySelector(
-                `[data-message-id="${event[1]}"]`
-            );
-            if (target) target.remove();
-            return;
-        }
-        if (event[0] === WS_ERROR) {
-            joinInFlight = false;
-            setError(event[3] || 'Unknown error');
-            updateControls();
-            return;
-        }
-        if (event[0] === WS_JOINED) {
-            isJoined = true;
-            joinInFlight = false;
-            selfSenderId = event[2];
-            setError('');
-            showChat();
-            updateControls();
-        }
-    }, on));
+    wsEventBus(
+        bindArg((event: WsEvent) => {
+            if (event[WS_EVENT_TYPE] === WS_HISTORY) {
+                cleanHtml(refs[CHAT_REF_MESSAGES]);
+                event[WS_HISTORY_ITEMS].forEach((item) => {
+                    renderMessage(
+                        ctx,
+                        refs[CHAT_REF_MESSAGES],
+                        item,
+                        selfSenderId
+                    );
+                });
+                return;
+            }
+            if (event[WS_EVENT_TYPE] === WS_MESSAGE) {
+                renderMessage(
+                    ctx,
+                    refs[CHAT_REF_MESSAGES],
+                    event[WS_MESSAGE_ITEM],
+                    selfSenderId
+                );
+                return;
+            }
+            if (event[WS_EVENT_TYPE] === WS_DELETED) {
+                const target = refs[CHAT_REF_MESSAGES].querySelector(
+                    `[data-message-id="${event[WS_DELETED_MESSAGE_ID]}"]`
+                );
+                if (target) target.remove();
+                return;
+            }
+            if (event[WS_EVENT_TYPE] === WS_ERROR) {
+                joinInFlight = false;
+                setError(event[WS_ERROR_MESSAGE] || 'Unknown error');
+                updateControls();
+                return;
+            }
+            if (event[WS_EVENT_TYPE] === WS_JOINED) {
+                isJoined = true;
+                joinInFlight = false;
+                selfSenderId = event[WS_JOINED_SENDER_ID];
+                setError('');
+                showChat();
+                updateControls();
+            }
+        }, on)
+    );
 
     ws.onopen = () => {
         setStatus('online');
@@ -265,7 +287,11 @@ const initTemplate = (ctx: Window, root: Element) => {
             return;
         }
         event.data.arrayBuffer().then((buf: ArrayBuffer) => {
-            const wsEvent = parseBinaryFrame(new Uint8Array(buf), decodeDownloadChunk);
+            const wsEvent = parseBinaryFrame(
+                ctx,
+                new ctx.Uint8Array(buf),
+                decodeDownloadChunk
+            );
             if (wsEvent) wsEventBus(bindArg(wsEvent, trigger));
         });
     };

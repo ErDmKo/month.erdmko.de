@@ -1,8 +1,16 @@
 // TODO: replace with @bufbuild/protobuf when all binary messages migrate to proto
 
+declare global {
+    interface Window {
+        Uint8Array: typeof Uint8Array;
+        TextDecoder: typeof TextDecoder;
+        TextEncoder: typeof TextEncoder;
+    }
+}
+
 // ── Varint helpers ────────────────────────────────────────────────────────────
 
-const encodeVarint = (value: number): Uint8Array => {
+const encodeVarint = (ctx: Window, value: number): Uint8Array => {
     const bytes: number[] = [];
     let v = value >>> 0; // treat as uint32
     do {
@@ -10,13 +18,16 @@ const encodeVarint = (value: number): Uint8Array => {
         v >>>= 7;
         bytes.push(v !== 0 ? byte | 0x80 : byte);
     } while (v !== 0);
-    return new Uint8Array(bytes);
+    return new ctx.Uint8Array(bytes);
 };
+
+const VARINT_VALUE = 0 as const;
+const VARINT_BYTES_READ = 1 as const;
 
 const decodeVarint = (
     buf: Uint8Array,
     pos: number
-): { value: number; bytesRead: number } | null => {
+): readonly [value: number, bytesRead: number] | null => {
     let result = 0;
     let shift = 0;
     let bytesRead = 0;
@@ -26,7 +37,7 @@ const decodeVarint = (
         result |= (byte & 0x7f) << shift;
         shift += 7;
         if ((byte & 0x80) === 0) {
-            return { value: result >>> 0, bytesRead };
+            return [result >>> 0, bytesRead];
         }
         if (shift >= 32) return null;
     }
@@ -42,6 +53,7 @@ const decodeVarint = (
 // }
 
 export const encodeUploadChunk = (
+    ctx: Window,
     uploadId: number,
     index: number,
     data: Uint8Array
@@ -50,25 +62,25 @@ export const encodeUploadChunk = (
 
     // field 1: uint32 upload_id (tag = 1<<3|0 = 0x08)
     if (uploadId !== 0) {
-        parts.push(encodeVarint(0x08));
-        parts.push(encodeVarint(uploadId));
+        parts.push(encodeVarint(ctx, 0x08));
+        parts.push(encodeVarint(ctx, uploadId));
     }
 
     // field 2: uint32 index (tag = 2<<3|0 = 0x10)
     if (index !== 0) {
-        parts.push(encodeVarint(0x10));
-        parts.push(encodeVarint(index));
+        parts.push(encodeVarint(ctx, 0x10));
+        parts.push(encodeVarint(ctx, index));
     }
 
     // field 3: bytes data (tag = 3<<3|2 = 0x1a)
     if (data.length > 0) {
-        parts.push(encodeVarint(0x1a));
-        parts.push(encodeVarint(data.length));
+        parts.push(encodeVarint(ctx, 0x1a));
+        parts.push(encodeVarint(ctx, data.length));
         parts.push(data);
     }
 
     const totalLen = parts.reduce((sum, p) => sum + p.length, 0);
-    const out = new Uint8Array(totalLen);
+    const out = new ctx.Uint8Array(totalLen);
     let offset = 0;
     for (const part of parts) {
         out.set(part, offset);
@@ -85,24 +97,31 @@ export const encodeUploadChunk = (
 //   bytes  data          = 3;
 // }
 
-export type DownloadChunk = {
-    attachmentId: string;
-    index: number;
-    data: Uint8Array;
-};
+export const DOWNLOAD_CHUNK_ATTACHMENT_ID = 0 as const;
+export const DOWNLOAD_CHUNK_INDEX = 1 as const;
+export const DOWNLOAD_CHUNK_DATA = 2 as const;
 
-export const decodeDownloadChunk = (buf: Uint8Array): DownloadChunk | null => {
-    const decoder = new TextDecoder();
+export type DecodedDownloadChunk = readonly [
+    attachmentId: string,
+    index: number,
+    data: Uint8Array,
+];
+
+export const decodeDownloadChunk = (
+    ctx: Window,
+    buf: Uint8Array
+): DecodedDownloadChunk | null => {
+    const decoder = new ctx.TextDecoder();
     let attachmentId = '';
     let index = 0;
-    let data = new Uint8Array(0);
+    let data = new ctx.Uint8Array(0);
     let pos = 0;
 
     while (pos < buf.length) {
         const tagResult = decodeVarint(buf, pos);
         if (!tagResult) return null;
-        pos += tagResult.bytesRead;
-        const tag = tagResult.value;
+        pos += tagResult[VARINT_BYTES_READ];
+        const tag = tagResult[VARINT_VALUE];
         const field = tag >>> 3;
         const wire = tag & 0x7;
 
@@ -110,70 +129,71 @@ export const decodeDownloadChunk = (buf: Uint8Array): DownloadChunk | null => {
             // string attachment_id
             const lenResult = decodeVarint(buf, pos);
             if (!lenResult) return null;
-            pos += lenResult.bytesRead;
+            pos += lenResult[VARINT_BYTES_READ];
             attachmentId = decoder.decode(
-                buf.slice(pos, pos + lenResult.value)
+                buf.slice(pos, pos + lenResult[VARINT_VALUE])
             );
-            pos += lenResult.value;
+            pos += lenResult[VARINT_VALUE];
         } else if (field === 2 && wire === 0) {
             // uint32 index
             const v = decodeVarint(buf, pos);
             if (!v) return null;
-            index = v.value;
-            pos += v.bytesRead;
+            index = v[VARINT_VALUE];
+            pos += v[VARINT_BYTES_READ];
         } else if (field === 3 && wire === 2) {
             // bytes data
             const lenResult = decodeVarint(buf, pos);
             if (!lenResult) return null;
-            pos += lenResult.bytesRead;
-            data = buf.slice(pos, pos + lenResult.value);
-            pos += lenResult.value;
+            pos += lenResult[VARINT_BYTES_READ];
+            data = buf.slice(pos, pos + lenResult[VARINT_VALUE]);
+            pos += lenResult[VARINT_VALUE];
         } else if (wire === 0) {
             // skip unknown varint
             const v = decodeVarint(buf, pos);
             if (!v) return null;
-            pos += v.bytesRead;
+            pos += v[VARINT_BYTES_READ];
         } else if (wire === 2) {
             // skip unknown length-delimited
             const v = decodeVarint(buf, pos);
             if (!v) return null;
-            pos += v.bytesRead + v.value;
+            pos += v[VARINT_BYTES_READ] + v[VARINT_VALUE];
         } else {
             return null;
         }
     }
 
-    return { attachmentId, index, data };
+    return [attachmentId, index, data];
 };
 
 // ── Encode DownloadChunk (for testing the decoder) ────────────────────────────
 
 export const encodeDownloadChunk = (
+    ctx: Window,
     attachmentId: string,
     index: number,
     data: Uint8Array
 ): Uint8Array => {
-    const encoder = new TextEncoder();
+    const encoder = new ctx.TextEncoder();
     const idBytes = encoder.encode(attachmentId);
     const parts: Uint8Array[] = [];
 
     if (idBytes.length > 0) {
-        parts.push(encodeVarint(0x0a)); // tag=1, wire=2
-        parts.push(encodeVarint(idBytes.length));
+        parts.push(encodeVarint(ctx, 0x0a)); // tag=1, wire=2
+        parts.push(encodeVarint(ctx, idBytes.length));
         parts.push(idBytes);
     }
     if (index !== 0) {
-        parts.push(encodeVarint(0x10)); // tag=2, wire=0
-        parts.push(encodeVarint(index));
+        parts.push(encodeVarint(ctx, 0x10)); // tag=2, wire=0
+        parts.push(encodeVarint(ctx, index));
     }
     if (data.length > 0) {
-        parts.push(encodeVarint(0x1a)); // tag=3, wire=2
-        parts.push(encodeVarint(data.length));
+        parts.push(encodeVarint(ctx, 0x1a)); // tag=3, wire=2
+        parts.push(encodeVarint(ctx, data.length));
         parts.push(data);
     }
 
     const totalLen = parts.reduce((sum, p) => sum + p.length, 0);
-    const out = new Uint8Array(totalLen);
+    const out = new ctx.Uint8Array(totalLen);
     let offset = 0;
     for (const part of parts) {
         out.set(part, offset);

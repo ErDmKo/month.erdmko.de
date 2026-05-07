@@ -1,6 +1,6 @@
 # JavaScript / TypeScript Codestyle
 
-## 1. Explicit `ctx: Window`
+## Explicit Window Context
 
 All browser globals are accessed through an explicit `ctx: Window` parameter,
 never called as free-standing identifiers.
@@ -35,7 +35,7 @@ as its first argument. The module entry point always has the signature:
 export const initXxxEffect = (ctx: Window): void => { ... };
 ```
 
-## 2. No classes, no objects with methods — tuples + separate functions
+## Tuples and Separate Functions
 
 Avoid classes and objects that bundle state with methods. Represent state as
 a typed tuple (named-index array) and write separate top-level functions that
@@ -105,7 +105,7 @@ export const trigger = <T>(event: T, state: ObserverState<T>) => {
 };
 ```
 
-## 3. Reactivity via `observer` / `on` / `trigger`
+## Reactivity via Observer
 
 Use the `observer` / `on` / `trigger` primitives from `@month/utils` for
 all event-driven communication. Do not use `EventEmitter`, `Subject`, or
@@ -123,7 +123,7 @@ valueObserver(bindArg((v: number) => console.log(v), on));
 valueObserver(bindArg(42, trigger));
 ```
 
-## 4. Async code via `Task` primitives — no `async` / `await` / `Promise`
+## Async via Task Pipeline
 
 Asynchronous work is expressed as lazy **Tasks** composed with `taskOf`,
 `taskMap`, `taskChain`, `taskFork`, and `pipe` from `@month/utils`.
@@ -172,7 +172,7 @@ const sendBuffer =
 const sendFile = (ctx: Window, ws: WebSocket, file: File): void =>
     pipe(
         readFile(ctx, file),
-        taskChain(() => sendBuffer(ws)),
+        taskChain(bindArg(ws, sendBuffer)),
         taskFork(noop, console.error)
     );
 ```
@@ -196,7 +196,7 @@ pipe(
 );
 ```
 
-## 5. DOM via `genTagName` / `domCreator` / `domCreatorRef`
+## Declarative DOM
 
 Never call `document.createElement` directly. Build DOM declaratively with
 the helpers from `@month/utils` and materialise with `domCreator` /
@@ -212,12 +212,12 @@ root.appendChild(el);
 domCreator(ctx, root, genTagName('button', [genText('Click')]));
 ```
 
-## 6. No mutation of external objects
+## External State Registry
 
 Do not attach ad-hoc properties to objects you do not own (`WebSocket`,
 `HTMLElement`, etc.). If you need to associate state with a connection or
-element, create a separate state tuple (see rule 2) and a `Map` that keys
-it by the object reference.
+element, create a separate state tuple (see Tuples and Separate Functions)
+and a `Map` that keys it by the object reference.
 
 ```ts
 // ✗ wrong — mutating an object you don't own
@@ -239,7 +239,41 @@ const wsStateDelete = (requestId: string, state: WsState): void => {
 };
 ```
 
-## 7. No wrapper arrows — use `bindArg` / `bindArgs` instead
+## Named Tuple Indices
+
+Every tuple index must be accessed through a named constant, never through a
+bare numeric literal. This applies both to state tuples and to discriminated
+event tuples.
+
+**Why:** `state[0]` and `event[2]` are opaque — the reader has to trace back
+to the type declaration to understand what is being read. Named constants make
+the access site self-documenting and survive refactors that reorder fields.
+
+```ts
+// ✗ wrong — bare index literals
+if (event[0] === WS_UPLOAD_READY) {
+    doSomething(event[1], event[2]);
+}
+state[0].set(key, handler);
+
+// ✓ correct — named constants
+const EVENT_TYPE = 0 as const;
+const EVENT_REQUEST_ID = 1 as const;
+const EVENT_UPLOAD_ID = 2 as const;
+
+if (event[EVENT_TYPE] === WS_UPLOAD_READY) {
+    doSomething(event[EVENT_REQUEST_ID], event[EVENT_UPLOAD_ID]);
+}
+
+const PENDING_HANDLERS = 0 as const;
+state[PENDING_HANDLERS].set(key, handler);
+```
+
+The type tag constant at index 0 is always the `WS_*` / `DOWNLOAD_*` / etc.
+discriminant — it already has a name. Payload positions need their own
+per-tuple constants declared alongside the type definition.
+
+## Partial Application over Wrapper Arrows
 
 Avoid writing `() =>`, `(x) =>`, or `(x, y) =>` solely to pre-apply
 arguments to an existing function. Use `bindArg` (one argument) or
