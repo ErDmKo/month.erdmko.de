@@ -7,7 +7,7 @@ export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 
 type OutgoingType = typeof JOIN_TYPE | typeof MESSAGE_TYPE | typeof DELETE_TYPE;
 
-// ── Outgoing commands (client → server) ──────────────────────────────────────
+// ── Outgoing commands (client → server) ───────────────────────────────────────
 
 export type SendCommand =
     | readonly [type: typeof JOIN_TYPE, requestId: string, nickname: string]
@@ -22,7 +22,7 @@ export type OutgoingWsEvent =
     | { type: 'upload_end'; requestId: string; uploadId: number }
     | { type: 'download_request'; requestId: string; attachmentId: number };
 
-// ── Incoming server events (server → client) ──────────────────────────────────
+// ── Incoming wire types (server → client, JSON) ───────────────────────────────
 
 export type AttachmentMeta = {
     id: number;
@@ -32,13 +32,7 @@ export type AttachmentMeta = {
     mimeType: string;
 };
 
-export type UploadDonePayload = {
-    attachment: AttachmentMeta;
-};
-
-export type DownloadStartPayload = Omit<Extract<IncomingWsEvent, { type: 'download_start' }>, 'type' | 'requestId'>;
-
-export type IncomingWsEvent =
+type IncomingWsFrame =
     | { type: 'joined'; requestId: string; self: { senderId: string } }
     | { type: 'history'; items: { id: number; senderId?: string; senderName: string; body: string; createdAt?: string }[] }
     | { type: 'message'; item: { id: number; senderId?: string; senderName: string; body: string; createdAt?: string } }
@@ -48,6 +42,78 @@ export type IncomingWsEvent =
     | { type: 'upload_done'; requestId: string; attachment: AttachmentMeta }
     | { type: 'download_start'; requestId: string; attachmentId: number; filename: string; size: number; mimeType: string; totalChunks: number }
     | { type: 'download_end'; requestId: string };
+
+// ── Internal event tuples (WsEvent) ───────────────────────────────────────────
+
+export const WS_JOINED = 0 as const;
+export const WS_HISTORY = 1 as const;
+export const WS_MESSAGE = 2 as const;
+export const WS_DELETED = 3 as const;
+export const WS_ERROR = 4 as const;
+export const WS_UPLOAD_READY = 5 as const;
+export const WS_UPLOAD_DONE = 6 as const;
+export const WS_DOWNLOAD_START = 7 as const;
+export const WS_DOWNLOAD_END = 8 as const;
+export const WS_DOWNLOAD_CHUNK = 9 as const;
+
+export type WsMessageItem = { id: number; senderId?: string; senderName: string; body: string; createdAt?: string };
+export type DownloadStartPayload = Omit<Extract<IncomingWsFrame, { type: 'download_start' }>, 'type' | 'requestId'>;
+
+export type WsEvent =
+    | readonly [type: typeof WS_JOINED, requestId: string, senderId: string]
+    | readonly [type: typeof WS_HISTORY, items: WsMessageItem[]]
+    | readonly [type: typeof WS_MESSAGE, item: WsMessageItem]
+    | readonly [type: typeof WS_DELETED, messageId: number]
+    | readonly [type: typeof WS_ERROR, requestId: string | undefined, code: string, message: string]
+    | readonly [type: typeof WS_UPLOAD_READY, requestId: string, uploadId: number]
+    | readonly [type: typeof WS_UPLOAD_DONE, requestId: string, attachment: AttachmentMeta]
+    | readonly [type: typeof WS_DOWNLOAD_START, requestId: string, meta: DownloadStartPayload]
+    | readonly [type: typeof WS_DOWNLOAD_END, requestId: string]
+    | readonly [type: typeof WS_DOWNLOAD_CHUNK, attachmentId: number, index: number, data: Uint8Array];
+
+// ── Parsers ───────────────────────────────────────────────────────────────────
+
+export const parseTextFrame = (raw: string): WsEvent | null => {
+    let frame: IncomingWsFrame;
+    try {
+        frame = JSON.parse(raw);
+    } catch (_e) {
+        return null;
+    }
+    switch (frame.type) {
+        case 'joined':
+            return [WS_JOINED, frame.requestId, frame.self.senderId];
+        case 'history':
+            return [WS_HISTORY, frame.items];
+        case 'message':
+            return [WS_MESSAGE, frame.item];
+        case 'deleted':
+            return [WS_DELETED, frame.messageId];
+        case 'error':
+            return [WS_ERROR, frame.requestId, frame.code ?? 'UNKNOWN', frame.message ?? ''];
+        case 'upload_ready':
+            return [WS_UPLOAD_READY, frame.requestId, frame.uploadId];
+        case 'upload_done':
+            return [WS_UPLOAD_DONE, frame.requestId, frame.attachment];
+        case 'download_start': {
+            const { type: _t, requestId, ...meta } = frame;
+            return [WS_DOWNLOAD_START, requestId, meta];
+        }
+        case 'download_end':
+            return [WS_DOWNLOAD_END, frame.requestId];
+        default:
+            return null;
+    }
+};
+
+export const parseBinaryFrame = (
+    buf: Uint8Array,
+    decode: (buf: Uint8Array) => { attachmentId: string; index: number; data: Uint8Array } | null
+): WsEvent | null => {
+    const chunk = decode(buf);
+    if (!chunk) return null;
+    return [WS_DOWNLOAD_CHUNK, Number(chunk.attachmentId), chunk.index, chunk.data];
+};
 
 // ── Serialization ─────────────────────────────────────────────────────────────
 

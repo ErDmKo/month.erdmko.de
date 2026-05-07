@@ -1,15 +1,14 @@
 import { ObserverState, ObserverInstance, observer, on, off, bindArgs, bindArg, trigger } from '../utils';
-import { decodeDownloadChunk } from './attachments-proto';
-import { DownloadStartPayload, IncomingWsEvent } from './protocol';
+import { DownloadStartPayload, WsEvent, WS_DOWNLOAD_START, WS_DOWNLOAD_END, WS_DOWNLOAD_CHUNK, WS_ERROR } from './protocol';
 
 export type { DownloadStartPayload } from './protocol';
 
 declare global {
     interface Window {
-        JSON: typeof JSON;
         Blob: typeof Blob;
         Uint8Array: typeof Uint8Array;
         URL: typeof URL;
+        JSON: typeof JSON;
     }
 }
 
@@ -40,42 +39,44 @@ type DownloadActiveSession = [
     events: ObserverInstance<DownloadEvent>,
 ];
 
-// keyed by attachmentId, shared across all active downloads on a socket
-export type WsDownloadBinaryState = Map<number, DownloadActiveSession>;
-
-export const wsDownloadBinaryStateCreate = (): WsDownloadBinaryState =>
-    new Map();
-
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
  * Send a download_request and return an ObserverInstance for download events.
- * Subscribe to it to receive start / progress / done / error notifications.
- * Unsubscribes from the shared WS observer automatically on completion or error.
+ * Subscribes to the shared WsEvent observer for the lifetime of this download,
+ * including binary chunk events. Unsubscribes automatically on completion or error.
  */
 export const startDownload = (
     ctx: Window,
     ws: WebSocket,
     requestId: string,
     attachmentId: number,
-    wsEvents: ObserverState<IncomingWsEvent>,
-    binaryState: WsDownloadBinaryState
+    wsEvents: ObserverState<WsEvent>
 ): ObserverInstance<DownloadEvent> => {
     const downloadEvents = observer<DownloadEvent>();
+    let session: DownloadActiveSession | null = null;
 
-    const handleEvent = (event: IncomingWsEvent): void => {
-        if (event.type === 'download_start' && event.requestId === requestId) {
-            const { type: _t, requestId: _r, ...meta } = event;
-            const session: DownloadActiveSession = [meta, [], 0, downloadEvents];
-            binaryState.set(attachmentId, session);
+    const handleEvent = (event: WsEvent): void => {
+        if (event[0] === WS_DOWNLOAD_START && event[1] === requestId) {
+            const meta = event[2];
+            session = [meta, [], 0, downloadEvents];
             downloadEvents(bindArg([DOWNLOAD_START, meta] as const, trigger));
             return;
         }
 
-        if (event.type === 'download_end' && event.requestId === requestId) {
+        if (event[0] === WS_DOWNLOAD_CHUNK && event[1] === attachmentId) {
+            if (!session) return;
+            session[ACTIVE_CHUNKS][event[2]] = event[3];
+            session[ACTIVE_RECEIVED]++;
+            session[ACTIVE_OBSERVER](bindArg(
+                [DOWNLOAD_PROGRESS, session[ACTIVE_RECEIVED], session[ACTIVE_META].totalChunks] as const,
+                trigger
+            ));
+            return;
+        }
+
+        if (event[0] === WS_DOWNLOAD_END && event[1] === requestId) {
             unsubscribe();
-            const session = binaryState.get(attachmentId);
-            binaryState.delete(attachmentId);
             if (!session) return;
 
             const chunks = session[ACTIVE_CHUNKS];
@@ -91,10 +92,9 @@ export const startDownload = (
             return;
         }
 
-        if (event.type === 'error' && event.requestId === requestId) {
+        if (event[0] === WS_ERROR && event[1] === requestId) {
             unsubscribe();
-            binaryState.delete(attachmentId);
-            downloadEvents(bindArg([DOWNLOAD_ERROR, event.code ?? 'UNKNOWN', event.message ?? ''] as const, trigger));
+            downloadEvents(bindArg([DOWNLOAD_ERROR, event[2], event[3]] as const, trigger));
         }
     };
     const unsubscribe = bindArgs([handleEvent, wsEvents], off);
@@ -110,29 +110,6 @@ export const startDownload = (
     );
 
     return downloadEvents;
-};
-
-/**
- * Route an incoming binary WS frame to the active download session.
- */
-export const handleDownloadBinaryFrame = (
-    binaryState: WsDownloadBinaryState,
-    frame: ArrayBuffer
-): boolean => {
-    const chunk = decodeDownloadChunk(new Uint8Array(frame));
-    if (!chunk) return false;
-
-    const attachmentId = Number(chunk.attachmentId);
-    const session = binaryState.get(attachmentId);
-    if (!session) return false;
-
-    session[ACTIVE_CHUNKS][chunk.index] = chunk.data;
-    session[ACTIVE_RECEIVED]++;
-    session[ACTIVE_OBSERVER](bindArg(
-        [DOWNLOAD_PROGRESS, session[ACTIVE_RECEIVED], session[ACTIVE_META].totalChunks] as const,
-        trigger
-    ));
-    return true;
 };
 
 /**

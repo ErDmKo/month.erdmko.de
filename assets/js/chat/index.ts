@@ -29,22 +29,29 @@ import {
     MAX_NICKNAME_LEN,
     MESSAGE_TYPE,
     SendCommand,
+    WsEvent,
     serializeCommand,
     validateOutgoingCommand,
+    parseTextFrame,
+    parseBinaryFrame,
+    WS_JOINED,
+    WS_HISTORY,
+    WS_MESSAGE,
+    WS_DELETED,
+    WS_ERROR,
 } from './protocol';
+import { decodeDownloadChunk } from './attachments-proto';
 
 declare global {
     interface Window {
         WebSocket: typeof WebSocket;
+        JSON: typeof JSON;
     }
 }
 
-type WsPayload = {
-    type: string;
-    [key: string]: any;
-};
+type WsEventBus = ReturnType<typeof observer<WsEvent>>;
 
-const initSendObserver = (ws: WebSocket, setError: (text: string) => void) => {
+const initSendObserver = (ctx: Window, ws: WebSocket, setError: (text: string) => void) => {
     const outgoing = observer<SendCommand>();
     outgoing(
         bindArg((command: SendCommand) => {
@@ -62,7 +69,7 @@ const initSendObserver = (ws: WebSocket, setError: (text: string) => void) => {
                 setError('Unsupported event type.');
                 return;
             }
-            ws.send(JSON.stringify(event));
+            ws.send(ctx.JSON.stringify(event));
         }, on)
     );
     return outgoing;
@@ -186,8 +193,45 @@ const initTemplate = (ctx: Window, root: Element) => {
     isJoined = false;
     updateControls();
     refs[CHAT_REF_SEND].disabled = true;
+
     const ws = new ctx.WebSocket(toWsUrl(ctx, roomId));
-    const sendObserver = initSendObserver(ws, setError);
+    const wsEventBus = observer<WsEvent>();
+    const sendObserver = initSendObserver(ctx, ws, setError);
+
+    wsEventBus(bindArg((event: WsEvent) => {
+        if (event[0] === WS_HISTORY) {
+            cleanHtml(refs[CHAT_REF_MESSAGES]);
+            event[1].forEach((item) => {
+                renderMessage(ctx, refs[CHAT_REF_MESSAGES], item, selfSenderId);
+            });
+            return;
+        }
+        if (event[0] === WS_MESSAGE) {
+            renderMessage(ctx, refs[CHAT_REF_MESSAGES], event[1], selfSenderId);
+            return;
+        }
+        if (event[0] === WS_DELETED) {
+            const target = refs[CHAT_REF_MESSAGES].querySelector(
+                `[data-message-id="${event[1]}"]`
+            );
+            if (target) target.remove();
+            return;
+        }
+        if (event[0] === WS_ERROR) {
+            joinInFlight = false;
+            setError(event[3] || 'Unknown error');
+            updateControls();
+            return;
+        }
+        if (event[0] === WS_JOINED) {
+            isJoined = true;
+            joinInFlight = false;
+            selfSenderId = event[2];
+            setError('');
+            showChat();
+            updateControls();
+        }
+    }, on));
 
     ws.onopen = () => {
         setStatus('online');
@@ -215,57 +259,15 @@ const initTemplate = (ctx: Window, root: Element) => {
     };
 
     ws.onmessage = (event) => {
-        let payload: WsPayload | null = null;
-        try {
-            payload = JSON.parse(event.data);
-        } catch (_e) {
-            setError('Invalid server payload.');
+        if (typeof event.data === 'string') {
+            const wsEvent = parseTextFrame(event.data);
+            if (wsEvent) wsEventBus(bindArg(wsEvent, trigger));
             return;
         }
-        if (!payload) return;
-
-        if (payload.type === 'history' && Array.isArray(payload.items)) {
-            cleanHtml(refs[CHAT_REF_MESSAGES]);
-            payload.items.forEach((item) => {
-                renderMessage(ctx, refs[CHAT_REF_MESSAGES], item, selfSenderId);
-            });
-            return;
-        }
-
-        if (payload.type === 'message' && payload.item) {
-            renderMessage(
-                ctx,
-                refs[CHAT_REF_MESSAGES],
-                payload.item,
-                selfSenderId
-            );
-            return;
-        }
-        if (payload.type === 'deleted' && payload.messageId) {
-            const target = refs[CHAT_REF_MESSAGES].querySelector(
-                `[data-message-id="${payload.messageId}"]`
-            );
-            if (target) {
-                target.remove();
-            }
-            return;
-        }
-
-        if (payload.type === 'error') {
-            joinInFlight = false;
-            setError(payload.message || 'Unknown error');
-            updateControls();
-            return;
-        }
-
-        if (payload.type === 'joined') {
-            isJoined = true;
-            joinInFlight = false;
-            selfSenderId = payload.self?.senderId || null;
-            setError('');
-            showChat();
-            updateControls();
-        }
+        event.data.arrayBuffer().then((buf: ArrayBuffer) => {
+            const wsEvent = parseBinaryFrame(new Uint8Array(buf), decodeDownloadChunk);
+            if (wsEvent) wsEventBus(bindArg(wsEvent, trigger));
+        });
     };
 
     refs[CHAT_REF_NICKNAME].addEventListener('input', () => {
@@ -319,20 +321,15 @@ const initTemplate = (ctx: Window, root: Element) => {
         refs[CHAT_REF_MESSAGE].value = '';
         updateControls();
     });
+
     refs[CHAT_REF_MESSAGES].addEventListener('click', (event) => {
         const target = event.target as HTMLElement | null;
-        if (!target) {
-            return;
-        }
+        if (!target) return;
         const button = target.closest('[data-delete-id]') as HTMLElement | null;
-        if (!button) {
-            return;
-        }
+        if (!button) return;
         const rawId = button.getAttribute('data-delete-id');
         const messageId = rawId ? Number(rawId) : NaN;
-        if (!Number.isInteger(messageId) || messageId <= 0) {
-            return;
-        }
+        if (!Number.isInteger(messageId) || messageId <= 0) return;
         sendDelete(messageId);
     });
 };

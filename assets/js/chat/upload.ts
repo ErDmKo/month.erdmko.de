@@ -1,6 +1,6 @@
 import { pipe, taskChain, taskFork, noop, Task, bindArgs, ObserverState, on, off } from '../utils';
 import { encodeUploadChunk } from './attachments-proto';
-import { MAX_UPLOAD_SIZE, UploadDonePayload, IncomingWsEvent } from './protocol';
+import { MAX_UPLOAD_SIZE, AttachmentMeta, WsEvent, WS_UPLOAD_READY, WS_UPLOAD_DONE, WS_ERROR } from './protocol';
 
 export { MAX_UPLOAD_SIZE } from './protocol';
 
@@ -67,9 +67,9 @@ export const startUpload = (
     messageId: number,
     file: File,
     onReady: (uploadId: number) => void,
-    onDone: (payload: UploadDonePayload) => void,
+    onDone: (attachment: AttachmentMeta) => void,
     onError: (code: string, message: string) => void,
-    wsEvents: ObserverState<IncomingWsEvent>
+    wsEvents: ObserverState<WsEvent>
 ): void => {
     if (file.size === 0 || file.size > MAX_UPLOAD_SIZE) {
         onError(
@@ -79,13 +79,13 @@ export const startUpload = (
         return;
     }
 
-    const handleEvent = (event: IncomingWsEvent): void => {
-        if (event.type === 'upload_ready' && event.requestId === requestId) {
-            onReady(event.uploadId);
+    const handleEvent = (event: WsEvent): void => {
+        if (event[0] === WS_UPLOAD_READY && event[1] === requestId) {
+            onReady(event[2]);
             pipe(
                 readFileAsArrayBuffer(ctx, file),
-                taskChain(bindArgs([ws, event.uploadId], sendChunks)),
-                taskChain(bindArgs([ctx, ws, requestId, event.uploadId], sendUploadEnd)),
+                taskChain(bindArgs([ws, event[2]], sendChunks)),
+                taskChain(bindArgs([ctx, ws, requestId, event[2]], sendUploadEnd)),
                 taskFork(noop, (e) => {
                     unsubscribe();
                     onError('UPLOAD_FAILED', String(e));
@@ -94,15 +94,15 @@ export const startUpload = (
             return;
         }
 
-        if (event.type === 'upload_done' && event.requestId === requestId) {
+        if (event[0] === WS_UPLOAD_DONE && event[1] === requestId) {
             unsubscribe();
-            onDone({ attachment: event.attachment });
+            onDone(event[2]);
             return;
         }
 
-        if (event.type === 'error' && event.requestId === requestId) {
+        if (event[0] === WS_ERROR && event[1] === requestId) {
             unsubscribe();
-            onError(event.code ?? 'UNKNOWN', event.message ?? '');
+            onError(event[2], event[3]);
         }
     };
     const unsubscribe = bindArgs([handleEvent, wsEvents], off);
