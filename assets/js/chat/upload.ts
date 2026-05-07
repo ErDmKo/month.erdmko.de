@@ -79,6 +79,19 @@ const sendChunks =
         resolve();
     };
 
+const sendUploadEnd =
+    (
+        outgoing: ChatSocket[typeof CHAT_SOCKET_OUTGOING],
+        requestId: string,
+        uploadId: number
+    ): Task<void> =>
+    (resolve) => {
+        outgoing(
+            bindArg([UPLOAD_END_TYPE, requestId, uploadId] as const, trigger)
+        );
+        resolve();
+    };
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -117,15 +130,9 @@ export const startUpload = (
             pipe(
                 readFileAsArrayBuffer(ctx, file),
                 taskChain(bindArgs([ctx, sendBinary, uploadId], sendChunks)),
-                taskChain((_: void) => (resolve: (v: void) => void) => {
-                    outgoing(
-                        bindArg(
-                            [UPLOAD_END_TYPE, requestId, uploadId] as const,
-                            trigger
-                        )
-                    );
-                    resolve(undefined);
-                }),
+                taskChain(
+                    bindArgs([outgoing, requestId, uploadId], sendUploadEnd)
+                ),
                 taskFork(noop, (e) => {
                     unsubscribe();
                     onError('UPLOAD_FAILED', String(e));
