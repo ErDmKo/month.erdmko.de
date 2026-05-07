@@ -226,3 +226,37 @@ for that purpose.
 const pending = new ctx.Map<string, Handler>();
 pending.set(requestId, handler);
 ```
+
+## 7. No wrapper arrows — use `bindArg` / `bindArgs` instead
+
+Avoid writing `() =>`, `(x) =>`, or `(x, y) =>` solely to pre-apply
+arguments to an existing function. Use `bindArg` (one argument) or
+`bindArgs` (multiple arguments) from `@month/utils` instead.
+
+**Why:** wrapper arrows create an extra function allocation and hide the
+real callee from the reader. `bindArg(arg, fn)` makes partial application
+explicit and reads left-to-right without nesting.
+
+```ts
+import { bindArg, bindArgs } from '@month/utils';
+
+// ✗ wrong — wrapper arrow just to pass a pre-known argument
+tags.forEach((tag) => initTemplate(ctx, tag));
+taskChain(() => sendBuffer(ws));
+observer(bindArg((v) => handle(ctx, v), on));
+
+// ✓ correct — bindArg / bindArgs
+tags.forEach(bindArg(ctx, initTemplate));
+taskChain(bindArg(ws, sendBuffer));
+observer(bindArg(bindArg(ctx, handle), on));
+```
+
+`bindArgs` when more than one argument is pre-applied:
+
+```ts
+// ✗ wrong
+ctx.requestAnimationFrame(() => draw(ctx, field, canvas));
+
+// ✓ correct
+ctx.requestAnimationFrame(bindArgs([ctx, field, canvas], draw));
+```
