@@ -13,13 +13,18 @@ declare global {
     }
 }
 
-// ── Download event union ──────────────────────────────────────────────────────
+// ── Download event tuple ──────────────────────────────────────────────────────
+
+export const DOWNLOAD_START = 0 as const;
+export const DOWNLOAD_PROGRESS = 1 as const;
+export const DOWNLOAD_DONE = 2 as const;
+export const DOWNLOAD_ERROR = 3 as const;
 
 export type DownloadEvent =
-    | { type: 'start'; meta: DownloadStartPayload }
-    | { type: 'progress'; received: number; total: number }
-    | { type: 'done'; blob: Blob; filename: string }
-    | { type: 'error'; code: string; message: string };
+    | readonly [type: typeof DOWNLOAD_START, meta: DownloadStartPayload]
+    | readonly [type: typeof DOWNLOAD_PROGRESS, received: number, total: number]
+    | readonly [type: typeof DOWNLOAD_DONE, blob: Blob, filename: string]
+    | readonly [type: typeof DOWNLOAD_ERROR, code: string, message: string];
 
 // ── Active session tuple ──────────────────────────────────────────────────────
 
@@ -69,7 +74,7 @@ export const startDownload = (
             };
             const session: DownloadActiveSession = [meta, [], 0, downloadEvents];
             binaryState.set(attachmentId, session);
-            downloadEvents(bindArg({ type: 'start' as const, meta }, trigger));
+            downloadEvents(bindArg([DOWNLOAD_START, meta] as const, trigger));
             return;
         }
 
@@ -88,14 +93,14 @@ export const startDownload = (
                 offset += chunk.length;
             }
             const blob = new ctx.Blob([out], { type: session[ACTIVE_META].mimeType });
-            downloadEvents(bindArg({ type: 'done' as const, blob, filename: session[ACTIVE_META].filename }, trigger));
+            downloadEvents(bindArg([DOWNLOAD_DONE, blob, session[ACTIVE_META].filename] as const, trigger));
             return;
         }
 
         if (event.type === 'error' && event.requestId === requestId) {
             unsubscribe();
             binaryState.delete(attachmentId);
-            downloadEvents(bindArg({ type: 'error' as const, code: event.code ?? 'UNKNOWN', message: event.message ?? '' }, trigger));
+            downloadEvents(bindArg([DOWNLOAD_ERROR, event.code ?? 'UNKNOWN', event.message ?? ''] as const, trigger));
         }
     };
     const unsubscribe = bindArgs([handleEvent, wsEvents], off);
@@ -129,11 +134,10 @@ export const handleDownloadBinaryFrame = (
 
     session[ACTIVE_CHUNKS][chunk.index] = chunk.data;
     session[ACTIVE_RECEIVED]++;
-    session[ACTIVE_OBSERVER](bindArg({
-        type: 'progress' as const,
-        received: session[ACTIVE_RECEIVED],
-        total: session[ACTIVE_META].totalChunks,
-    }, trigger));
+    session[ACTIVE_OBSERVER](bindArg(
+        [DOWNLOAD_PROGRESS, session[ACTIVE_RECEIVED], session[ACTIVE_META].totalChunks] as const,
+        trigger
+    ));
     return true;
 };
 
