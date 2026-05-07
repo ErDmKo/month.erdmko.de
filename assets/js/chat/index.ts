@@ -3,6 +3,7 @@ import {
     cleanHtml,
     domCreatorRef,
     observer,
+    ObserverState,
     on,
     trigger,
 } from '@month/utils';
@@ -30,6 +31,7 @@ import {
     MESSAGE_TYPE,
     SendCommand,
     WsEvent,
+    ChatSocket,
     serializeCommand,
     validateOutgoingCommand,
     parseTextFrame,
@@ -54,8 +56,6 @@ declare global {
         JSON: typeof JSON;
     }
 }
-
-type WsEventBus = ReturnType<typeof observer<WsEvent>>;
 
 const initSendObserver = (
     ctx: Window,
@@ -205,8 +205,10 @@ const initTemplate = (ctx: Window, root: Element) => {
     refs[CHAT_REF_SEND].disabled = true;
 
     const ws = new ctx.WebSocket(toWsUrl(ctx, roomId));
-    const wsEventBus = observer<WsEvent>();
+    const wsEventState: ObserverState<WsEvent> = [];
+    const wsEventBus = observer<WsEvent>(wsEventState);
     const sendObserver = initSendObserver(ctx, ws, setError);
+    const socket: ChatSocket = [sendObserver, wsEventState];
 
     wsEventBus(
         bindArg((event: WsEvent) => {

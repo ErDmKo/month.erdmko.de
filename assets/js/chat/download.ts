@@ -1,5 +1,4 @@
 import {
-    ObserverState,
     ObserverInstance,
     observer,
     on,
@@ -12,6 +11,9 @@ import {
     DownloadStartPayload,
     WsEvent,
     SendCommand,
+    ChatSocket,
+    CHAT_SOCKET_OUTGOING,
+    CHAT_SOCKET_INCOMING,
     DOWNLOAD_REQUEST_TYPE,
     WS_EVENT_TYPE,
     WS_DOWNLOAD_START,
@@ -76,11 +78,12 @@ type DownloadActiveSession = [
  */
 export const startDownload = (
     ctx: Window,
-    outgoing: ObserverInstance<SendCommand>,
+    socket: ChatSocket,
     requestId: string,
-    attachmentId: number,
-    wsEvents: ObserverState<WsEvent>
+    attachmentId: number
 ): ObserverInstance<DownloadEvent> => {
+    const outgoing = socket[CHAT_SOCKET_OUTGOING];
+    const wsEvents = socket[CHAT_SOCKET_INCOMING];
     const downloadEvents = observer<DownloadEvent>();
     let session: DownloadActiveSession | null = null;
 

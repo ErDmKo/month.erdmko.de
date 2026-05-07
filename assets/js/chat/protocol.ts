@@ -2,10 +2,13 @@ export const JOIN_TYPE = 0 as const;
 export const MESSAGE_TYPE = 1 as const;
 export const DELETE_TYPE = 2 as const;
 export const DOWNLOAD_REQUEST_TYPE = 3 as const;
+export const UPLOAD_START_TYPE = 4 as const;
+export const UPLOAD_END_TYPE = 5 as const;
 export const MAX_MESSAGE_LEN = 200;
 export const MAX_NICKNAME_LEN = 32;
 export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 
+import { ObserverInstance, ObserverState } from '../utils';
 import {
     DecodedDownloadChunk,
     DOWNLOAD_CHUNK_ATTACHMENT_ID,
@@ -17,7 +20,9 @@ type OutgoingType =
     | typeof JOIN_TYPE
     | typeof MESSAGE_TYPE
     | typeof DELETE_TYPE
-    | typeof DOWNLOAD_REQUEST_TYPE;
+    | typeof DOWNLOAD_REQUEST_TYPE
+    | typeof UPLOAD_START_TYPE
+    | typeof UPLOAD_END_TYPE;
 
 // ── Outgoing commands (client → server) ───────────────────────────────────────
 
@@ -29,6 +34,19 @@ export type SendCommand =
           type: typeof DOWNLOAD_REQUEST_TYPE,
           requestId: string,
           attachmentId: number,
+      ]
+    | readonly [
+          type: typeof UPLOAD_START_TYPE,
+          requestId: string,
+          messageId: number,
+          filename: string,
+          size: number,
+          mimeType: string,
+      ]
+    | readonly [
+          type: typeof UPLOAD_END_TYPE,
+          requestId: string,
+          uploadId: number,
       ];
 
 export type OutgoingWsEvent =
@@ -194,6 +212,16 @@ export type WsEvent =
           data: Uint8Array,
       ];
 
+// ── Bidirectional socket handle ───────────────────────────────────────────────
+
+export const CHAT_SOCKET_OUTGOING = 0 as const;
+export const CHAT_SOCKET_INCOMING = 1 as const;
+
+export type ChatSocket = readonly [
+    outgoing: ObserverInstance<SendCommand>,
+    incoming: ObserverState<WsEvent>,
+];
+
 // ── Parsers ───────────────────────────────────────────────────────────────────
 
 export const parseTextFrame = (raw: string): WsEvent | null => {
@@ -256,7 +284,9 @@ const isAllowedType = (eventType: number): eventType is OutgoingType => {
         eventType === JOIN_TYPE ||
         eventType === MESSAGE_TYPE ||
         eventType === DELETE_TYPE ||
-        eventType === DOWNLOAD_REQUEST_TYPE
+        eventType === DOWNLOAD_REQUEST_TYPE ||
+        eventType === UPLOAD_START_TYPE ||
+        eventType === UPLOAD_END_TYPE
     );
 };
 
@@ -278,6 +308,31 @@ export const serializeCommand = (
             type: 'download_request',
             requestId,
             attachmentId: payload as number,
+        };
+    }
+    if (type === UPLOAD_START_TYPE) {
+        const c = command as readonly [
+            typeof UPLOAD_START_TYPE,
+            string,
+            number,
+            string,
+            number,
+            string,
+        ];
+        return {
+            type: 'upload_start',
+            requestId,
+            messageId: c[2],
+            filename: c[3],
+            size: c[4],
+            mimeType: c[5],
+        };
+    }
+    if (type === UPLOAD_END_TYPE) {
+        return {
+            type: 'upload_end',
+            requestId,
+            uploadId: payload as number,
         };
     }
     return { type: 'message', requestId, body: payload as string };
@@ -306,6 +361,9 @@ export const validateOutgoingCommand = (
         if (!Number.isInteger(payload) || (payload as number) <= 0) {
             return 'Attachment id must be a positive integer.';
         }
+        return null;
+    }
+    if (type === UPLOAD_START_TYPE || type === UPLOAD_END_TYPE) {
         return null;
     }
     const body = (payload as string).trim();

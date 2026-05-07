@@ -5,7 +5,8 @@ import {
     noop,
     Task,
     bindArgs,
-    ObserverState,
+    bindArg,
+    trigger,
     on,
     off,
 } from '../utils';
@@ -14,6 +15,11 @@ import {
     MAX_UPLOAD_SIZE,
     AttachmentMeta,
     WsEvent,
+    ChatSocket,
+    CHAT_SOCKET_OUTGOING,
+    CHAT_SOCKET_INCOMING,
+    UPLOAD_START_TYPE,
+    UPLOAD_END_TYPE,
     WS_EVENT_TYPE,
     WS_UPLOAD_READY,
     WS_UPLOAD_READY_REQUEST_ID,
@@ -53,7 +59,7 @@ const readFileAsArrayBuffer =
 const sendChunks =
     (
         ctx: Window,
-        ws: WebSocket,
+        sendBinary: (data: ArrayBuffer) => void,
         uploadId: number,
         buffer: ArrayBuffer
     ): Task<void> =>
@@ -63,31 +69,13 @@ const sendChunks =
         let index = 0;
         while (offset < bytes.length) {
             const chunk = bytes.slice(offset, offset + CHUNK_SIZE);
-            ws.send(
+            sendBinary(
                 encodeUploadChunk(ctx, uploadId, index, chunk)
                     .buffer as ArrayBuffer
             );
             offset += CHUNK_SIZE;
             index++;
         }
-        resolve();
-    };
-
-const sendUploadEnd =
-    (
-        ctx: Window,
-        ws: WebSocket,
-        requestId: string,
-        uploadId: number
-    ): Task<void> =>
-    (resolve) => {
-        ws.send(
-            ctx.JSON.stringify({
-                type: 'upload_end',
-                requestId,
-                uploadId,
-            })
-        );
         resolve();
     };
 
@@ -99,14 +87,14 @@ const sendUploadEnd =
  */
 export const startUpload = (
     ctx: Window,
-    ws: WebSocket,
+    socket: ChatSocket,
+    sendBinary: (data: ArrayBuffer) => void,
     requestId: string,
     messageId: number,
     file: File,
     onReady: (uploadId: number) => void,
     onDone: (attachment: AttachmentMeta) => void,
-    onError: (code: string, message: string) => void,
-    wsEvents: ObserverState<WsEvent>
+    onError: (code: string, message: string) => void
 ): void => {
     if (file.size === 0 || file.size > MAX_UPLOAD_SIZE) {
         onError(
@@ -116,26 +104,28 @@ export const startUpload = (
         return;
     }
 
+    const outgoing = socket[CHAT_SOCKET_OUTGOING];
+    const wsEvents = socket[CHAT_SOCKET_INCOMING];
+
     const handleEvent = (event: WsEvent): void => {
         if (
             event[WS_EVENT_TYPE] === WS_UPLOAD_READY &&
             event[WS_UPLOAD_READY_REQUEST_ID] === requestId
         ) {
-            onReady(event[WS_UPLOAD_READY_UPLOAD_ID]);
+            const uploadId = event[WS_UPLOAD_READY_UPLOAD_ID];
+            onReady(uploadId);
             pipe(
                 readFileAsArrayBuffer(ctx, file),
-                taskChain(
-                    bindArgs(
-                        [ctx, ws, event[WS_UPLOAD_READY_UPLOAD_ID]],
-                        sendChunks
-                    )
-                ),
-                taskChain(
-                    bindArgs(
-                        [ctx, ws, requestId, event[WS_UPLOAD_READY_UPLOAD_ID]],
-                        sendUploadEnd
-                    )
-                ),
+                taskChain(bindArgs([ctx, sendBinary, uploadId], sendChunks)),
+                taskChain((_: void) => (resolve: (v: void) => void) => {
+                    outgoing(
+                        bindArg(
+                            [UPLOAD_END_TYPE, requestId, uploadId] as const,
+                            trigger
+                        )
+                    );
+                    resolve(undefined);
+                }),
                 taskFork(noop, (e) => {
                     unsubscribe();
                     onError('UPLOAD_FAILED', String(e));
@@ -165,14 +155,17 @@ export const startUpload = (
 
     on(handleEvent, wsEvents);
 
-    ws.send(
-        ctx.JSON.stringify({
-            type: 'upload_start',
-            requestId,
-            messageId,
-            filename: file.name,
-            size: file.size,
-            mimeType: file.type || 'application/octet-stream',
-        })
+    outgoing(
+        bindArg(
+            [
+                UPLOAD_START_TYPE,
+                requestId,
+                messageId,
+                file.name,
+                file.size,
+                file.type || 'application/octet-stream',
+            ] as const,
+            trigger
+        )
     );
 };
