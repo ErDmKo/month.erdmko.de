@@ -3,7 +3,7 @@ import { bindArg } from './bind';
 
 export const noop = () => {};
 
-export const maybe =
+export const taskFork =
     (resolve: Function, reject: Function = noop) =>
     (fn: Function) => {
         try {
@@ -12,7 +12,8 @@ export const maybe =
             return reject(e);
         }
     };
-export const maybeOf =
+
+export const taskOf =
     (fn: Function) =>
     (...args: any[]) =>
         bindArg((resolve: Function) => resolve(fn(...args)), cont);
