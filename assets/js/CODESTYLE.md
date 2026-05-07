@@ -237,10 +237,6 @@ const wsStateGet = (requestId: string, state: WsState): (() => void) | undefined
 const wsStateDelete = (requestId: string, state: WsState): void => {
     state[PENDING_HANDLERS].delete(requestId);
 };
-
-// registry lives alongside the ws connection, passed explicitly
-const registry = new ctx.Map<WebSocket, WsState>();
-registry.set(ws, wsStateCreate());
 ```
 
 ## 7. No wrapper arrows — use `bindArg` / `bindArgs` instead
