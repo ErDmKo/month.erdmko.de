@@ -1,5 +1,6 @@
 export * from './bind';
 export * from './async';
+export * from './pipe';
 export * from './random';
 export * from './canvas';
 export * from './cont';
