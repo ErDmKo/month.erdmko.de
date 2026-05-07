@@ -1,5 +1,8 @@
 import { pipe, taskChain, taskFork, noop, Task, bindArgs } from '../utils';
 import { encodeUploadChunk } from './attachments-proto';
+import { MAX_UPLOAD_SIZE, UploadDonePayload, IncomingWsEvent } from './protocol';
+
+export { MAX_UPLOAD_SIZE } from './protocol';
 
 declare global {
     interface Window {
@@ -8,18 +11,7 @@ declare global {
     }
 }
 
-export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 const CHUNK_SIZE = 64 * 1024;
-
-export type UploadDonePayload = {
-    attachment: {
-        id: number;
-        messageId: number;
-        filename: string;
-        size: number;
-        mimeType: string;
-    };
-};
 
 // ── WsUploadState tuple ───────────────────────────────────────────────────────
 
@@ -173,34 +165,24 @@ export const startUpload = (
  */
 export const handleUploadServerEvent = (
     state: WsUploadState,
-    payload: {
-        type: string;
-        requestId?: string;
-        uploadId?: number;
-        attachment?: UploadDonePayload['attachment'];
-        code?: string;
-        message?: string;
-    }
+    payload: IncomingWsEvent
 ): boolean => {
-    const requestId = payload.requestId;
-    if (!requestId) return false;
-
-    if (payload.type === 'upload_ready' && payload.uploadId !== undefined) {
-        const handler = state[UPLOAD_ON_READY].get(requestId);
+    if (payload.type === 'upload_ready') {
+        const handler = state[UPLOAD_ON_READY].get(payload.requestId);
         if (handler) {
             handler(payload.uploadId);
             return true;
         }
     }
-    if (payload.type === 'upload_done' && payload.attachment) {
-        const handler = state[UPLOAD_ON_DONE].get(requestId);
+    if (payload.type === 'upload_done') {
+        const handler = state[UPLOAD_ON_DONE].get(payload.requestId);
         if (handler) {
             handler({ attachment: payload.attachment });
             return true;
         }
     }
-    if (payload.type === 'error') {
-        const handler = state[UPLOAD_ON_ERROR].get(requestId);
+    if (payload.type === 'error' && payload.requestId) {
+        const handler = state[UPLOAD_ON_ERROR].get(payload.requestId);
         if (handler) {
             handler(payload.code ?? 'UNKNOWN', payload.message ?? '');
             return true;

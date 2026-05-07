@@ -3,8 +3,11 @@ export const MESSAGE_TYPE = 1 as const;
 export const DELETE_TYPE = 2 as const;
 export const MAX_MESSAGE_LEN = 200;
 export const MAX_NICKNAME_LEN = 32;
+export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 
 type OutgoingType = typeof JOIN_TYPE | typeof MESSAGE_TYPE | typeof DELETE_TYPE;
+
+// ── Outgoing commands (client → server) ──────────────────────────────────────
 
 export type SendCommand =
     | readonly [type: typeof JOIN_TYPE, requestId: string, nickname: string]
@@ -14,7 +17,45 @@ export type SendCommand =
 export type OutgoingWsEvent =
     | { type: 'join'; requestId: string; nickname: string }
     | { type: 'message'; requestId: string; body: string }
-    | { type: 'delete'; requestId: string; messageId: number };
+    | { type: 'delete'; requestId: string; messageId: number }
+    | { type: 'upload_start'; requestId: string; messageId: number; filename: string; size: number; mimeType: string }
+    | { type: 'upload_end'; requestId: string; uploadId: number }
+    | { type: 'download_request'; requestId: string; attachmentId: number };
+
+// ── Incoming server events (server → client) ──────────────────────────────────
+
+export type AttachmentMeta = {
+    id: number;
+    messageId: number;
+    filename: string;
+    size: number;
+    mimeType: string;
+};
+
+export type UploadDonePayload = {
+    attachment: AttachmentMeta;
+};
+
+export type DownloadStartPayload = {
+    attachmentId: number;
+    filename: string;
+    size: number;
+    mimeType: string;
+    totalChunks: number;
+};
+
+export type IncomingWsEvent =
+    | { type: 'joined'; requestId: string; self: { senderId: string } }
+    | { type: 'history'; items: { id: number; senderId?: string; senderName: string; body: string; createdAt?: string }[] }
+    | { type: 'message'; item: { id: number; senderId?: string; senderName: string; body: string; createdAt?: string } }
+    | { type: 'deleted'; messageId: number }
+    | { type: 'error'; requestId?: string; code?: string; message?: string }
+    | { type: 'upload_ready'; requestId: string; uploadId: number }
+    | { type: 'upload_done'; requestId: string; attachment: AttachmentMeta }
+    | { type: 'download_start'; requestId: string; attachmentId: number; filename: string; size: number; mimeType: string; totalChunks: number }
+    | { type: 'download_end'; requestId: string };
+
+// ── Serialization ─────────────────────────────────────────────────────────────
 
 const isAllowedType = (eventType: number): eventType is OutgoingType => {
     return (
@@ -39,6 +80,8 @@ export const serializeCommand = (
     }
     return { type: 'message', requestId, body: payload };
 };
+
+// ── Validation ────────────────────────────────────────────────────────────────
 
 export const validateOutgoingCommand = (
     command: SendCommand

@@ -1,4 +1,7 @@
 import { decodeDownloadChunk } from './attachments-proto';
+import { DownloadStartPayload, IncomingWsEvent } from './protocol';
+
+export type { DownloadStartPayload } from './protocol';
 
 declare global {
     interface Window {
@@ -8,14 +11,6 @@ declare global {
         URL: typeof URL;
     }
 }
-
-export type DownloadStartPayload = {
-    attachmentId: number;
-    filename: string;
-    size: number;
-    mimeType: string;
-    totalChunks: number;
-};
 
 // ── WsDownloadState tuple ─────────────────────────────────────────────────────
 
@@ -156,43 +151,30 @@ export const startDownload = (
  */
 export const handleDownloadServerEvent = (
     state: WsDownloadState,
-    payload: {
-        type: string;
-        requestId?: string;
-        attachmentId?: number;
-        filename?: string;
-        size?: number;
-        mimeType?: string;
-        totalChunks?: number;
-        code?: string;
-        message?: string;
-    }
+    payload: IncomingWsEvent
 ): boolean => {
-    const requestId = payload.requestId;
-    if (!requestId) return false;
-
     if (payload.type === 'download_start') {
-        const handler = state[DOWNLOAD_ON_START].get(requestId);
+        const handler = state[DOWNLOAD_ON_START].get(payload.requestId);
         if (handler) {
             handler({
-                attachmentId: payload.attachmentId!,
-                filename: payload.filename!,
-                size: payload.size!,
-                mimeType: payload.mimeType!,
-                totalChunks: payload.totalChunks!,
+                attachmentId: payload.attachmentId,
+                filename: payload.filename,
+                size: payload.size,
+                mimeType: payload.mimeType,
+                totalChunks: payload.totalChunks,
             });
             return true;
         }
     }
     if (payload.type === 'download_end') {
-        const handler = state[DOWNLOAD_ON_END].get(requestId);
+        const handler = state[DOWNLOAD_ON_END].get(payload.requestId);
         if (handler) {
             handler();
             return true;
         }
     }
-    if (payload.type === 'error') {
-        const handler = state[DOWNLOAD_ON_ERROR].get(requestId);
+    if (payload.type === 'error' && payload.requestId) {
+        const handler = state[DOWNLOAD_ON_ERROR].get(payload.requestId);
         if (handler) {
             handler(payload.code ?? 'UNKNOWN', payload.message ?? '');
             return true;
