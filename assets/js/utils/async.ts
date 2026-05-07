@@ -38,12 +38,18 @@ export const taskOf =
 // ── Combinators ───────────────────────────────────────────────────────────────
 
 // Transform the resolved value of a Task (sync, no new Task returned).
-// Errors pass through unchanged.
+// Errors pass through unchanged. Synchronous throws in mapFn land in reject.
 export const taskMap =
     <A, B>(mapFn: (a: A) => B) =>
     (fn: Task<A>): Task<B> =>
         (resolve, reject) =>
-            fn((result) => resolve(mapFn(result)), reject);
+            fn((result) => {
+                try {
+                    resolve(mapFn(result));
+                } catch (e) {
+                    reject(e);
+                }
+            }, reject);
 
 // Chain a Task-returning function onto an existing Task (for async steps).
 // Use instead of taskMap when the next step is itself asynchronous.

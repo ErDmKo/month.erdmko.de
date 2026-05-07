@@ -1,6 +1,6 @@
 import {
     pipe,
-    taskChain,
+    taskMap,
     taskFork,
     noop,
     Task,
@@ -74,8 +74,7 @@ const sendChunks =
         outgoing: ChatSocket[typeof CHAT_SOCKET_OUTGOING],
         uploadId: number,
         buffer: ArrayBuffer
-    ): Task<void> =>
-    (resolve) => {
+    ): void => {
         const bytes = new ctx.Uint8Array(buffer);
         let offset = 0;
         let index = 0;
@@ -90,7 +89,6 @@ const sendChunks =
             offset += CHUNK_SIZE;
             index++;
         }
-        resolve();
     };
 
 const sendUploadEnd =
@@ -98,12 +96,10 @@ const sendUploadEnd =
         outgoing: ChatSocket[typeof CHAT_SOCKET_OUTGOING],
         requestId: string,
         uploadId: number
-    ): Task<void> =>
-    (resolve) => {
+    ): void => {
         outgoing(
             bindArg([UPLOAD_END_TYPE, requestId, uploadId] as const, trigger)
         );
-        resolve();
     };
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -149,8 +145,8 @@ export const startUpload = (
             uploadEvents(bindArg([UPLOAD_READY, uploadId] as const, trigger));
             pipe(
                 readFileAsArrayBuffer(ctx, file),
-                taskChain(bindArgs([ctx, outgoing, uploadId], sendChunks)),
-                taskChain(
+                taskMap(bindArgs([ctx, outgoing, uploadId], sendChunks)),
+                taskMap(
                     bindArgs([outgoing, requestId, uploadId], sendUploadEnd)
                 ),
                 taskFork(noop, (e) => {
