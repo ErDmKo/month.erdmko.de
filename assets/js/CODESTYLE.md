@@ -215,16 +215,32 @@ domCreator(ctx, root, genTagName('button', [genText('Click')]));
 ## 6. No mutation of external objects
 
 Do not attach ad-hoc properties to objects you do not own (`WebSocket`,
-`HTMLElement`, etc.). Keep state in closures or plain objects created
-for that purpose.
+`HTMLElement`, etc.). If you need to associate state with a connection or
+element, create a separate state tuple (see rule 2) and a `Map` that keys
+it by the object reference.
 
 ```ts
-// ✗ wrong
+// ✗ wrong — mutating an object you don't own
 (ws as any).__pendingUpload = handler;
+(ws as any)[`__upload_ready_${requestId}`] = onReady;
 
-// ✓ correct
-const pending = new ctx.Map<string, Handler>();
-pending.set(requestId, handler);
+// ✓ correct — external registry: Map<WebSocket, StateTuple>
+const PENDING_HANDLERS = 0 as const;
+type WsState = [handlers: Map<string, () => void>];
+
+const wsStateCreate = (): WsState => [new Map()];
+const wsStateSet = (requestId: string, handler: () => void, state: WsState): void => {
+    state[PENDING_HANDLERS].set(requestId, handler);
+};
+const wsStateGet = (requestId: string, state: WsState): (() => void) | undefined =>
+    state[PENDING_HANDLERS].get(requestId);
+const wsStateDelete = (requestId: string, state: WsState): void => {
+    state[PENDING_HANDLERS].delete(requestId);
+};
+
+// registry lives alongside the ws connection, passed explicitly
+const registry = new ctx.Map<WebSocket, WsState>();
+registry.set(ws, wsStateCreate());
 ```
 
 ## 7. No wrapper arrows — use `bindArg` / `bindArgs` instead
