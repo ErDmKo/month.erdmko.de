@@ -30,23 +30,57 @@ as its first argument. The module entry point always has the signature:
 export const initXxxEffect = (ctx: Window): void => { ... };
 ```
 
-## 2. No classes — functions and closures only
+## 2. No classes, no objects with methods — state + separate functions
 
-State lives in plain objects or closure variables, never in class instances.
+Avoid classes and objects that bundle state with methods. Instead, represent
+state as a plain primitive (array, number, `Map`, tuple) and write separate
+top-level functions that accept the state as their last argument.
+This mirrors the `observer` / `on` / `trigger` pattern from `@month/utils`.
 
 ```ts
-// ✗ wrong
-class MyThing {
+// ✗ wrong — class
+class Counter {
     private value = 0;
     increment() { this.value++; }
+    get() { return this.value; }
 }
 
-// ✓ correct
-const makeMyThing = () => {
+// ✗ also wrong — object with methods
+const makeCounter = () => {
     let value = 0;
     return {
         increment: () => { value++; },
+        get: () => value,
     };
+};
+
+// ✓ correct — plain state + separate functions
+type CounterState = { n: number };         // or just `number` if possible
+
+const counterIncrement = (state: CounterState): void => {
+    state.n++;
+};
+
+const counterGet = (state: CounterState): number => state.n;
+
+// usage
+const counter: CounterState = { n: 0 };
+counterIncrement(counter);
+counterGet(counter); // 1
+```
+
+When the state is a single mutable collection, pass it directly:
+
+```ts
+// from @month/utils — the canonical example
+export type ObserverState<T> = ((e: T) => void)[];
+
+export const on = <T>(callback: (e: T) => void, state: ObserverState<T>) => {
+    state.push(callback);
+};
+
+export const trigger = <T>(event: T, state: ObserverState<T>) => {
+    for (const callback of state) callback(event);
 };
 ```
 
