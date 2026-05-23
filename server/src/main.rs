@@ -17,6 +17,7 @@ pub mod app;
 pub mod attachments;
 pub mod chat;
 pub mod db;
+pub mod generated;
 pub mod pages;
 
 static TEMPLATES_GLOB: &str = "templates/**/*";

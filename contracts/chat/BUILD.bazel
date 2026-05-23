@@ -4,11 +4,11 @@ load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
 package(default_visibility = ["//visibility:public"])
 
 proto_library(
-    name = "assets_proto",
-    srcs = ["assets.proto"],
+    name = "chat_proto",
+    srcs = ["chat.proto"],
 )
 
 rust_prost_library(
-    name = "assets_rs",
-    proto = ":assets_proto",
+    name = "chat_rs",
+    proto = ":chat_proto",
 )

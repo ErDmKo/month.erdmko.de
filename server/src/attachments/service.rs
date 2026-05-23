@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use actix_web::web;
-use serde_json::json;
-
 use crate::app::AppCtx;
 use crate::attachments::db::{
     AttachmentMeta, enforce_attachments_storage_limit, get_attachment_data, insert_attachment,
@@ -12,7 +10,7 @@ use crate::attachments::{
     ATTACHMENT_CHUNK_SIZE, MAX_ATTACHMENTS_STORAGE_BYTES, MAX_PENDING_UPLOADS_PER_SESSION,
     PENDING_UPLOAD_TTL,
 };
-use crate::chat::service::now_iso;
+
 
 // ── Pending upload state ──────────────────────────────────────────────────────
 
@@ -141,86 +139,51 @@ impl UploadSessionState {
     }
 }
 
-// ── Payload builders ──────────────────────────────────────────────────────────
+// ── Payload builders — delegate to chat::service (protobuf) ──────────────────
 
-pub fn upload_ready_payload(request_id: Option<&str>, upload_id: u32) -> String {
-    json!({
-        "type": "upload_ready",
-        "requestId": request_id,
-        "uploadId": upload_id,
-        "ts": now_iso(),
-    })
-    .to_string()
+pub fn upload_ready_payload(request_id: Option<&str>, upload_id: u32) -> Vec<u8> {
+    crate::chat::service::upload_ready_payload(request_id, upload_id)
 }
 
 pub fn upload_done_payload(
     request_id: Option<&str>,
-    upload_id: u32,
+    _upload_id: u32,
     meta: &AttachmentMeta,
-) -> String {
-    json!({
-        "type": "upload_done",
-        "requestId": request_id,
-        "uploadId": upload_id,
-        "attachment": {
-            "id": meta.id,
-            "messageId": meta.message_id,
-            "filename": meta.filename,
-            "size": meta.size,
-            "mimeType": meta.mime_type,
-        },
-        "ts": now_iso(),
-    })
-    .to_string()
+) -> Vec<u8> {
+    crate::chat::service::upload_done_payload(
+        request_id,
+        meta.id,
+        &meta.filename,
+        meta.size,
+        &meta.mime_type,
+        meta.message_id,
+    )
 }
 
 pub fn download_start_payload(
     request_id: Option<&str>,
     meta: &AttachmentMeta,
     total_chunks: usize,
-) -> String {
-    json!({
-        "type": "download_start",
-        "requestId": request_id,
-        "attachmentId": meta.id,
-        "filename": meta.filename,
-        "size": meta.size,
-        "mimeType": meta.mime_type,
-        "totalChunks": total_chunks,
-        "ts": now_iso(),
-    })
-    .to_string()
+) -> Vec<u8> {
+    crate::chat::service::download_start_payload(
+        request_id,
+        meta.id,
+        &meta.filename,
+        meta.size,
+        &meta.mime_type,
+        total_chunks as u32,
+    )
 }
 
-pub fn download_end_payload(request_id: Option<&str>, attachment_id: i64) -> String {
-    json!({
-        "type": "download_end",
-        "requestId": request_id,
-        "attachmentId": attachment_id,
-        "ts": now_iso(),
-    })
-    .to_string()
+pub fn download_end_payload(request_id: Option<&str>, attachment_id: i64) -> Vec<u8> {
+    crate::chat::service::download_end_payload(request_id, attachment_id)
 }
 
 // ── Protobuf encode/decode ────────────────────────────────────────────────────
 
-use assets_proto::assets::{DownloadChunk, UploadChunk};
-use prost::Message;
-
-/// Encode a `DownloadChunk` to protobuf binary.
+/// Encode a `DownloadChunk` wrapped in ServerFrame to protobuf binary.
 pub fn encode_download_chunk(attachment_id: i64, index: u32, data: &[u8]) -> Vec<u8> {
-    DownloadChunk {
-        attachment_id: attachment_id.to_string(),
-        index,
-        data: data.to_vec(),
-    }
-    .encode_to_vec()
-}
-
-/// Decode an `UploadChunk` from protobuf binary.
-pub fn decode_upload_chunk(buf: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
-    let msg = UploadChunk::decode(buf).ok()?;
-    Some((msg.upload_id, msg.index, msg.data))
+    crate::chat::service::download_chunk_payload(attachment_id, index, data.to_vec())
 }
 
 // ── DB-level upload/download ops ──────────────────────────────────────────────
@@ -347,37 +310,20 @@ mod tests {
     }
 
     #[test]
-    fn encode_decode_upload_chunk_roundtrip() {
-        use assets_proto::assets::UploadChunk;
-        use prost::Message;
-
-        let upload_id: u32 = 42;
-        let index: u32 = 7;
-        let data = b"hello proto";
-
-        let buf = UploadChunk {
-            upload_id,
-            index,
-            data: data.to_vec(),
-        }
-        .encode_to_vec();
-
-        let (got_id, got_index, got_data) = decode_upload_chunk(&buf).unwrap();
-        assert_eq!(got_id, upload_id);
-        assert_eq!(got_index, index);
-        assert_eq!(got_data, data);
-    }
-
-    #[test]
     fn encode_download_chunk_produces_valid_proto() {
-        use assets_proto::assets::DownloadChunk;
+        use crate::generated::chat::{server_frame, ServerFrame, DownloadChunk};
         use prost::Message;
 
         let encoded = encode_download_chunk(99, 3, b"world");
-        let decoded = DownloadChunk::decode(encoded.as_slice()).unwrap();
-        assert_eq!(decoded.attachment_id, "99");
-        assert_eq!(decoded.index, 3);
-        assert_eq!(decoded.data, b"world");
+        let frame = ServerFrame::decode(encoded.as_slice()).unwrap();
+        match frame.payload.unwrap() {
+            server_frame::Payload::DownloadChunk(chunk) => {
+                assert_eq!(chunk.attachment_id, 99);
+                assert_eq!(chunk.index, 3);
+                assert_eq!(chunk.data, b"world");
+            }
+            _ => panic!("expected DownloadChunk variant"),
+        }
     }
 
     #[test]

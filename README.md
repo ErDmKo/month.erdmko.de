@@ -38,6 +38,23 @@ bazel test //tools/format:format_test
 bazel build //assets/css
 ```
 
+### Code generation
+
+The chat WebSocket protocol is defined in `contracts/chat/chat.proto`. After editing the `.proto` file, regenerate both the Rust and TypeScript outputs.
+
+**Rust** (via `prost`, runs automatically as part of the server build):
+
+```bash
+bazel build //contracts/chat:chat_rs
+```
+
+**TypeScript** (generate then copy into the source tree):
+
+```bash
+bazel build //assets/js/tools:gen_chat_proto
+cp bazel-bin/assets/js/tools/chat.ts assets/js/chat/generated/chat.ts
+```
+
 ### Run tests
 
 Run all tests:

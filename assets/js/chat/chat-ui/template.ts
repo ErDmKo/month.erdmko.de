@@ -20,6 +20,9 @@ export const CHAT_REF_MESSAGE_FORM = 8 as const;
 export const CHAT_REF_MESSAGE = 9 as const;
 export const CHAT_REF_COUNTER = 10 as const;
 export const CHAT_REF_SEND = 11 as const;
+export const CHAT_REF_ATTACH_BUTTON = 12 as const;
+export const CHAT_REF_FILE_INPUT = 13 as const;
+export const CHAT_REF_UPLOAD_PREVIEW = 14 as const;
 
 export type ChatUiRefs = {
     [CHAT_REF_STATUS]: HTMLElement;
@@ -34,6 +37,9 @@ export type ChatUiRefs = {
     [CHAT_REF_MESSAGE]: HTMLTextAreaElement;
     [CHAT_REF_COUNTER]: HTMLSpanElement;
     [CHAT_REF_SEND]: HTMLButtonElement;
+    [CHAT_REF_ATTACH_BUTTON]: HTMLButtonElement;
+    [CHAT_REF_FILE_INPUT]: HTMLInputElement;
+    [CHAT_REF_UPLOAD_PREVIEW]: HTMLDivElement;
 };
 
 export const chatUiTemplate = (maxMessageLen: number) =>
@@ -109,6 +115,11 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                         'form',
                         [genClass('chat__form'), genRef(CHAT_REF_MESSAGE_FORM)],
                         [
+                            genTagName('div', [
+                                genClass('chat__upload-preview'),
+                                genRef(CHAT_REF_UPLOAD_PREVIEW),
+                                genAttr('hidden', 'hidden'),
+                            ]),
                             genTagName(
                                 'label',
                                 [genClass('chat__label')],
@@ -137,6 +148,17 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                                     ]),
                                     genTagName('button', [
                                         genClass('chat__button'),
+                                        genRef(CHAT_REF_ATTACH_BUTTON),
+                                        genAttr('type', 'button'),
+                                        genText('Attach'),
+                                    ]),
+                                    genTagName('input', [
+                                        genRef(CHAT_REF_FILE_INPUT),
+                                        genAttr('type', 'file'),
+                                        genAttr('hidden', 'hidden'),
+                                    ]),
+                                    genTagName('button', [
+                                        genClass('chat__button'),
                                         genRef(CHAT_REF_SEND),
                                         genAttr('type', 'submit'),
                                         genText('Send'),
@@ -147,46 +169,6 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                     ),
                 ]
             ),
-        ]
-    );
-
-export const chatMessageTemplate = (
-    id: number,
-    senderName: string,
-    body: string,
-    createdAt?: string,
-    isOwn: boolean = false
-) =>
-    genTagName(
-        'li',
-        [
-            genClass(
-                isOwn ? 'chat__message chat__message--own' : 'chat__message'
-            ),
-            genAttr('data-message-id', id),
-        ],
-        [
-            genTagName(
-                'div',
-                [genClass('chat__message-head')],
-                [
-                    genTagName('span', [
-                        genClass('chat__message-meta'),
-                        genText(
-                            `${senderName}${createdAt ? ` • ${createdAt}` : ''}`
-                        ),
-                    ]),
-                    genTagName('button', [
-                        genClass('chat__delete'),
-                        genAttr('type', 'button'),
-                        genAttr('data-delete-id', id),
-                        genAttr('aria-label', 'Delete message'),
-                        genAttr('title', 'Delete message'),
-                        genText('×'),
-                    ]),
-                ]
-            ),
-            genTagName('div', [genClass('chat__message-body'), genText(body)]),
         ]
     );
 

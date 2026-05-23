@@ -33,9 +33,12 @@ impl ChatWs {
             );
             return;
         }
-        match self.uploads.start_upload(message_id, filename, size, mime_type) {
+        match self
+            .uploads
+            .start_upload(message_id, filename, size, mime_type)
+        {
             Ok(upload_id) => {
-                ctx.text(upload_ready_payload(request_id.as_deref(), upload_id));
+                ctx.binary(upload_ready_payload(request_id.as_deref(), upload_id));
             }
             Err(code) => {
                 Self::send_error(

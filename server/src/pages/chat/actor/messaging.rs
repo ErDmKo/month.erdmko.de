@@ -30,22 +30,27 @@ impl ChatWs {
         let app_ctx = self.app_ctx.clone();
         let addr = ctx.address();
         actix_web::rt::spawn(async move {
-            let history_items =
-                match chat_service::join_room_and_get_history(&app_ctx, &room_id).await {
-                    Ok(items) => items,
-                    Err(err) => {
-                        warn!(
-                            "event=chat_error room_id={} sender_id={} code={} request_id={} error={:?} details={:?}",
-                            room_id, sender_id, err.code(),
-                            request_id.as_deref().unwrap_or("null"), err, err.details()
-                        );
-                        addr.do_send(PushEvent(chat_service::error_payload_from_error(
-                            request_id.as_deref(),
-                            &err,
-                        )));
-                        return;
-                    }
-                };
+            let history_items = match chat_service::join_room_and_get_history(&app_ctx, &room_id)
+                .await
+            {
+                Ok(items) => items,
+                Err(err) => {
+                    warn!(
+                        "event=chat_error room_id={} sender_id={} code={} request_id={} error={:?} details={:?}",
+                        room_id,
+                        sender_id,
+                        err.code(),
+                        request_id.as_deref().unwrap_or("null"),
+                        err,
+                        err.details()
+                    );
+                    addr.do_send(PushEvent(chat_service::error_payload_from_error(
+                        request_id.as_deref(),
+                        &err,
+                    )));
+                    return;
+                }
+            };
             info!(
                 "event=chat_join room_id={} sender_id={} nickname={}",
                 room_id, sender_id, valid_nickname
@@ -102,13 +107,20 @@ impl ChatWs {
                         sender_id,
                         item.body.chars().count()
                     );
-                    ChatWs::broadcast_to_room(&room_id, chat_service::message_payload(&item));
+                    ChatWs::broadcast_to_room(
+                        &room_id,
+                        chat_service::message_payload(&item, request_id.as_deref()),
+                    );
                 }
                 Err(err) => {
                     warn!(
                         "event=chat_error room_id={} sender_id={} code={} request_id={} error={:?} details={:?}",
-                        room_id, sender_id, err.code(),
-                        request_id.as_deref().unwrap_or("null"), err, err.details()
+                        room_id,
+                        sender_id,
+                        err.code(),
+                        request_id.as_deref().unwrap_or("null"),
+                        err,
+                        err.details()
                     );
                     addr.do_send(PushEvent(chat_service::error_payload_from_error(
                         request_id.as_deref(),
@@ -154,8 +166,12 @@ impl ChatWs {
                 Err(err) => {
                     warn!(
                         "event=chat_error room_id={} sender_id={} code={} request_id={} error={:?} details={:?}",
-                        room_id, sender_id, err.code(),
-                        request_id.as_deref().unwrap_or("null"), err, err.details()
+                        room_id,
+                        sender_id,
+                        err.code(),
+                        request_id.as_deref().unwrap_or("null"),
+                        err,
+                        err.details()
                     );
                     addr.do_send(PushEvent(chat_service::error_payload_from_error(
                         request_id.as_deref(),

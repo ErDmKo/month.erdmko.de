@@ -1,0 +1,39 @@
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_run_binary")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_config", "ts_project")
+
+package(default_visibility = ["//visibility:public"])
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+)
+
+# ── Compile gen-proto tool ────────────────────────────────────────────────────
+
+ts_project(
+    name = "gen_proto_lib",
+    srcs = ["gen-proto.ts"],
+    declaration = True,
+    tsconfig = ":tsconfig",
+    deps = ["//:node_modules/@types/node"],
+)
+
+js_binary(
+    name = "gen_proto_bin",
+    entry_point = "gen-proto.js",
+    data = [
+        ":gen_proto_lib",
+        "package.json",
+    ],
+)
+
+# ── Run gen-proto for contracts/chat ─────────────────────────────────────────
+
+genrule(
+    name = "gen_chat_proto",
+    srcs = ["//server:chat_descriptor_json"],
+    outs = ["chat.ts"],
+    cmd = "BAZEL_BINDIR=$(BINDIR) $(execpath :gen_proto_bin) $$PWD/$(location //server:chat_descriptor_json) $$PWD/$@ ../../utils/proto-utils",
+    tools = [":gen_proto_bin"],
+    tags = ["local"],
+)

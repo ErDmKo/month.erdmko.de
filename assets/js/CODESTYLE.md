@@ -395,3 +395,57 @@ upload(bindArg((event: UploadEvent) => {
 
 The same pattern applies to any operation that has more than one terminal
 state (download, long-running async task, WebSocket lifecycle, etc.).
+
+## Feature Initialisation Pipeline
+
+Complex UI features that depend on each other are wired together with a
+`pipe` + `taskChain` chain. Each `init*` function returns a `Task` that
+resolves with its own observer. Downstream features receive the upstream
+observer as a dependency and subscribe to only the events they need.
+
+**Why:**
+
+- **No race conditions** — a feature only starts wiring after its dependency
+  has fully mounted and emitted its first event. No shared mutable flags or
+  `setTimeout` hacks needed.
+- **Lazy** — nothing executes until `taskFork` runs the chain.
+- **Layered error handling** — a native fallback catches failures before any
+  DOM is available; once the first feature is up its observer can display
+  errors to the user.
+
+```ts
+// ✓ correct — linear init chain
+pipe(
+    initChatUi(ctx, root, wsEvents),
+    taskFork(
+        (chatUiObs) => pipe(
+            initMessages(ctx, wsEvents, chatUiObs),
+            taskChain(([chatUiObs, msgsObs]) =>
+                initAttachments(ctx, wsEvents, chatUiObs, msgsObs)
+            ),
+            taskFork(
+                noop,
+                (err) => chatUiObs(bindArg([CHAT_UI_ERROR, String(err)], trigger))
+            )
+        ),
+        (err) => ctx.console.error('Chat UI failed to mount', err)
+    )
+)
+```
+
+Inside each `init*` the race condition between mounting and subscribing is
+resolved by calling `resolve()` before `trigger(INIT_EVENT)`:
+
+```ts
+export const initChatUi = (ctx, root, wsEvents): Task<ChatUiObs> =>
+    (resolve) => {
+        const chatUiObs = observer<ChatUiEvent>()
+        // ... wire own handlers ...
+        resolve(chatUiObs)                                    // downstream subscribes first
+        chatUiObs(bindArg([CHAT_UI_INIT, refs], trigger))    // then event fires — no miss
+    }
+```
+
+Each feature exposes only the refs / state it owns via its observer events.
+Other features subscribe lazily at the moment they are initialised — they
+never read refs synchronously from a foreign module.

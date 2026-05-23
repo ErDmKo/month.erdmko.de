@@ -97,3 +97,14 @@ export const combineLatestWith = <First, Second>(
     );
     return newObserver;
 };
+
+export const createStore = <S>(initial: S) => {
+    let state = initial;
+    const storeObs = observer<S>();
+    const getState = () => state;
+    const setState = (next: S) => {
+        state = next;
+        storeObs(bindArg(next, trigger));
+    };
+    return [getState, setState, storeObs] as const;
+};

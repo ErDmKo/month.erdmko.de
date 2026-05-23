@@ -1,10 +1,16 @@
 load("@crate_index//:defs.bzl", "aliases", "all_crate_deps")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("//:variables.bzl", "api_token")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["build.rs"])
+
+copy_to_bin(
+    name = "chat_descriptor_json",
+    srcs = ["src/generated/chat.descriptor.json"],
+)
 
 rust_binary(
     name = "server",
@@ -28,7 +34,7 @@ rust_binary(
         "DOMAIN": "erdmko.dev",
         "API_TOKEN": api_token,
     },
-    deps = all_crate_deps(normal = True) + ["//contracts/assets:assets_rs"],
+    deps = all_crate_deps(normal = True) + ["//contracts/chat:chat_rs"],
 )
 
 rust_test(
@@ -36,5 +42,5 @@ rust_test(
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
     proc_macro_deps = all_crate_deps(proc_macro = True),
-    deps = all_crate_deps(normal = True) + ["//contracts/assets:assets_rs"],
+    deps = all_crate_deps(normal = True) + ["//contracts/chat:chat_rs"],
 )

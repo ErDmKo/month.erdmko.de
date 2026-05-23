@@ -16,7 +16,7 @@ pub(super) static CHAT_ROOMS: LazyLock<RoomRegistry<ChatWs>> = LazyLock::new(Roo
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub(super) struct PushEvent(pub(super) String);
+pub(super) struct PushEvent(pub(super) Vec<u8>);
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -49,7 +49,7 @@ impl ChatWs {
             code,
             request_id.unwrap_or("null"),
         );
-        ctx.text(chat_service::error_payload(request_id, code, message));
+        ctx.binary(chat_service::error_payload(request_id, code, message));
     }
 
     pub(super) fn register_connection(room_id: &str, addr: Addr<Self>) -> bool {
@@ -60,7 +60,7 @@ impl ChatWs {
         CHAT_ROOMS.cleanup_room(room_id);
     }
 
-    pub(super) fn broadcast_to_room(room_id: &str, payload: String) {
+    pub(super) fn broadcast_to_room(room_id: &str, payload: Vec<u8>) {
         let recipients: Vec<Addr<Self>> = CHAT_ROOMS.connected_recipients(room_id);
         for addr in recipients {
             addr.do_send(PushEvent(payload.clone()));
@@ -86,7 +86,7 @@ impl Actor for ChatWs {
             "event=chat_error room_id={} sender_id={} code=CONNECTION_LIMIT_EXCEEDED request_id=null",
             self.room_id, self.sender_id
         );
-        ctx.text(chat_service::error_payload(
+        ctx.binary(chat_service::error_payload(
             None,
             "CONNECTION_LIMIT_EXCEEDED",
             "Too many open chat connections. Try again later.",
@@ -113,7 +113,7 @@ impl Actor for ChatWs {
 impl Handler<PushEvent> for ChatWs {
     type Result = ();
     fn handle(&mut self, msg: PushEvent, ctx: &mut Self::Context) -> Self::Result {
-        ctx.text(msg.0);
+        ctx.binary(msg.0);
     }
 }
 
@@ -130,7 +130,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         match msg {
             Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
-            Ok(ws::Message::Text(text)) => self.on_text(text.as_ref(), ctx),
             Ok(ws::Message::Binary(bytes)) => self.on_binary(&bytes, ctx),
             Ok(ws::Message::Close(reason)) => ctx.close(reason),
             _ => {}

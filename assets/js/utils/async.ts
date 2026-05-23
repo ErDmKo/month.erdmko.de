@@ -42,25 +42,25 @@ export const taskOf =
 export const taskMap =
     <A, B>(mapFn: (a: A) => B) =>
     (fn: Task<A>): Task<B> =>
-        (resolve, reject) =>
-            fn((result) => {
-                try {
-                    resolve(mapFn(result));
-                } catch (e) {
-                    reject(e);
-                }
-            }, reject);
+    (resolve, reject) =>
+        fn((result) => {
+            try {
+                resolve(mapFn(result));
+            } catch (e) {
+                reject(e);
+            }
+        }, reject);
 
 // Chain a Task-returning function onto an existing Task (for async steps).
 // Use instead of taskMap when the next step is itself asynchronous.
 export const taskChain =
     <A, B>(chainFn: (a: A) => Task<B>) =>
     (fn: Task<A>): Task<B> =>
-        (resolve, reject) =>
-            fn((result) => {
-                try {
-                    chainFn(result)(resolve, reject);
-                } catch (e) {
-                    reject(e);
-                }
-            }, reject);
+    (resolve, reject) =>
+        fn((result) => {
+            try {
+                chainFn(result)(resolve, reject);
+            } catch (e) {
+                reject(e);
+            }
+        }, reject);

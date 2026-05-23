@@ -1,0 +1,45 @@
+{
+  "messages": [
+    {
+      "fields": [
+        {
+          "name": "upload_id",
+          "number": 1,
+          "type": "uint32"
+        },
+        {
+          "name": "index",
+          "number": 2,
+          "type": "uint32"
+        },
+        {
+          "name": "data",
+          "number": 3,
+          "type": "bytes"
+        }
+      ],
+      "name": "UploadChunk"
+    },
+    {
+      "fields": [
+        {
+          "name": "attachment_id",
+          "number": 1,
+          "type": "string"
+        },
+        {
+          "name": "index",
+          "number": 2,
+          "type": "uint32"
+        },
+        {
+          "name": "data",
+          "number": 3,
+          "type": "bytes"
+        }
+      ],
+      "name": "DownloadChunk"
+    }
+  ],
+  "package": "assets"
+}
