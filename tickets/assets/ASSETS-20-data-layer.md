@@ -9,7 +9,7 @@
 ## Scope
 
 ### Schema
-Новая таблица `attachments` в `server/src/attachments/db.rs`:
+Таблица `attachments` в `server/src/attachments/db.rs`:
 ```sql
 CREATE TABLE IF NOT EXISTS attachments (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -29,11 +29,20 @@ CREATE INDEX IF NOT EXISTS idx_attachments_message_id
 - `FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE` — удаление сообщения автоматически удаляет все вложения.
 - `data BLOB` — сырые байты файла, без обработки.
 
+### Constants (`server/src/attachments/mod.rs`)
+- `MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024` (5 MB)
+- `MAX_ATTACHMENTS_STORAGE_BYTES = 1024 * 1024 * 1024` (1 GB)
+- `ATTACHMENT_CHUNK_SIZE = 64 * 1024` (64 KB)
+- `MAX_ATTACHMENTS_PER_MESSAGE = 10` (объявлена, не enforced)
+- `MAX_PENDING_UPLOADS_PER_SESSION = 3`
+- `PENDING_UPLOAD_TTL = Duration::from_secs(300)`
+
 ### Data access functions
-- `insert_attachment(message_id, filename, size, mime_type, data) -> Attachment`
-- `get_attachments_for_message(message_id) -> Vec<AttachmentMeta>` — возвращает метаданные без `data`
-- `get_attachment_data(attachment_id, room_slug) -> Option<(AttachmentMeta, Vec<u8>)>` — проверяет принадлежность к комнате
-- `get_attachments_for_messages(message_ids) -> HashMap<i64, Vec<AttachmentMeta>>` — батч-запрос для history
+- `insert_attachment(conn, message_id, filename, size, mime_type, data) -> rusqlite::Result<Attachment>` — вставляет blob, возвращает `Attachment { meta, data }` через re-query по `last_insert_rowid()`
+- `get_attachments_for_message(conn, message_id) -> rusqlite::Result<Vec<AttachmentMeta>>` — метаданные без `data`, ORDER BY id ASC
+- `get_attachment_data(conn, attachment_id, room_slug) -> rusqlite::Result<Option<(AttachmentMeta, Vec<u8>)>>` — JOIN через messages → rooms по slug; `QueryReturnedNoRows` → `Ok(None)`
+- `get_attachments_for_messages(conn, message_ids) -> rusqlite::Result<HashMap<i64, Vec<AttachmentMeta>>>` — батч IN-запрос, группирует по message_id; пустой слайс → пустая HashMap без запроса
+- `enforce_attachments_storage_limit(conn, max_bytes) -> rusqlite::Result<()>` — loop: SUM(size) > max_bytes → DELETE oldest (ORDER BY created_at ASC, id ASC LIMIT 1)
 
 ### Models
 ```rust
@@ -45,28 +54,42 @@ pub struct AttachmentMeta {
     pub mime_type:  String,
     pub created_at: String,
 }
+
+// Внутренний тип — используется только при загрузке blob для download
+pub struct Attachment {
+    pub meta: AttachmentMeta,
+    pub data: Vec<u8>,
+}
 ```
 
-### Storage limit
-`enforce_attachments_storage_limit(conn, max_bytes)` — удаляет самые старые вложения (по `created_at ASC, id ASC`) пока суммарный `size` превышает `MAX_ATTACHMENTS_STORAGE_BYTES` (1 GB).
+### Schema initialization
+Отдельная функция `init_attachments_schema(conn)` в `db.rs`. Вызывается из `main.rs` после `init_chat_schema`.
 
 ### Message model extension
-`get_recent_messages()` в `server/src/chat/db.rs` расширяется: после получения списка сообщений делает батч-запрос вложений и добавляет `attachments: Vec<AttachmentMeta>` к каждому `ChatMessage`.
+`ChatMessage` в `server/src/chat/db.rs` расширен полем `attachments: Vec<AttachmentMeta>`.
+`get_recent_messages()` после загрузки сообщений делает батч-запрос `get_attachments_for_messages` и заполняет `attachments` для каждого `ChatMessage`.
 
 ## Deliverables
-- `server/src/attachments/db.rs` с таблицей, индексом и функциями доступа.
-- Обновлённый `ChatMessage` с полем `attachments`.
-- Обновлённый `init_chat_schema()` или отдельный `init_attachments_schema()`.
+- [x] `server/src/attachments/db.rs` — таблица, индекс, все функции доступа, inline tests.
+- [x] `server/src/attachments/mod.rs` — все константы.
+- [x] `server/src/attachments/error.rs` — `ChatErrorKind` enum (Validation, BadPayload, Internal), `ChatError` struct (пока не используется в db.rs — ошибки propagate как `rusqlite::Error`).
+- [x] Обновлённый `ChatMessage` с полем `attachments: Vec<AttachmentMeta>`.
+- [x] `get_recent_messages()` с батч-запросом вложений.
+- [x] `init_attachments_schema()` вызывается при старте.
 
-## Tests
-- Migration test: таблица и индекс создаются успешно.
-- Insert test: `insert_attachment` сохраняет все поля корректно.
-- Fetch test: `get_attachments_for_message` возвращает метаданные без `data`.
-- Data test: `get_attachment_data` возвращает blob и проверяет room scope.
-- Cascade test: удаление сообщения удаляет его вложения.
-- Room scope test: `get_attachment_data` не возвращает вложение из другой комнаты.
-- Storage limit test: при превышении 1 GB удаляются самые старые вложения.
-- Batch test: `get_attachments_for_messages` корректно группирует по `message_id`.
+## Tests (все реализованы, `#[cfg(test)]` в `db.rs`)
+- [x] Migration: таблица и индекс `idx_attachments_message_id` создаются.
+- [x] Insert: `insert_attachment` сохраняет все поля корректно, `id > 0`.
+- [x] Fetch: `get_attachments_for_message` возвращает 2 записи, `data` не экспонируется.
+- [x] Data: `get_attachment_data` возвращает blob для правильной комнаты.
+- [x] Cascade: удаление `messages` строки → `attachments` удаляются (PRAGMA foreign_keys = ON).
+- [x] Room scope: `get_attachment_data` возвращает `None` для неправильной комнаты.
+- [x] Storage limit: 3×10 bytes, limit=15 → два старых удаляются, новый остаётся.
+- [x] Batch: `get_attachments_for_messages` группирует по `message_id`.
+
+## Notes
+- `MAX_ATTACHMENTS_PER_MESSAGE = 10` объявлена в `mod.rs` но нигде не enforced — `insert_attachment` не проверяет количество вложений у сообщения.
+- `error.rs` содержит `ChatError` / `ChatErrorKind` но в db-функциях не используется — ошибки propagate как `rusqlite::Error` напрямую.
 
 ## Acceptance
 - Вложения хранятся как opaque blobs — никакой обработки содержимого.
