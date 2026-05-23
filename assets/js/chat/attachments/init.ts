@@ -36,12 +36,18 @@ import {
 import type { MsgsObs, MsgsInitPayload, MsgsEvent } from '../messages/handler';
 import {
     MAX_UPLOAD_SIZE,
+    UPLOAD_READY,
+    UPLOAD_PROGRESS,
+    UPLOAD_DONE,
+    UPLOAD_ERROR,
     renderAttachmentFromUploadDone,
     getUploadDoneMessageId,
     startUpload,
     uploadPreviewTemplate,
     UPLOAD_PREVIEW_REF_REMOVE,
+    UPLOAD_PREVIEW_REF_PROGRESS,
 } from './handler';
+import type { UploadEvent } from './handler';
 import {
     CHAT_UI_EVENT_TYPE,
     CHAT_UI_INIT,
@@ -73,6 +79,7 @@ export const initAttachments = (
         const outgoing = socket[CHAT_SOCKET_OUTGOING];
         const incoming = socket[CHAT_SOCKET_INCOMING];
         let pendingFile: File | null = null;
+        let pendingProgressEl: HTMLSpanElement | null = null;
         let waitForMessageId: ((requestId: string) => Task<number>) | null = null;
         let clearUploadPreview: (() => void) | null = null;
 
@@ -85,6 +92,7 @@ export const initAttachments = (
 
                 clearUploadPreview = () => {
                     pendingFile = null;
+                    pendingProgressEl = null;
                     refs[CHAT_REF_UPLOAD_PREVIEW].hidden = true;
                     cleanHtml(refs[CHAT_REF_UPLOAD_PREVIEW]);
                     refs[CHAT_REF_FILE_INPUT].value = '';
@@ -96,12 +104,13 @@ export const initAttachments = (
                         ctx,
                         refs[CHAT_REF_UPLOAD_PREVIEW],
                         uploadPreviewTemplate(file.name, file.size)
-                    ) as unknown as { [UPLOAD_PREVIEW_REF_REMOVE]: HTMLButtonElement };
+                    ) as unknown as { [UPLOAD_PREVIEW_REF_REMOVE]: HTMLButtonElement; [UPLOAD_PREVIEW_REF_PROGRESS]: HTMLSpanElement };
                     refs[CHAT_REF_UPLOAD_PREVIEW].hidden = false;
                     previewRefs[UPLOAD_PREVIEW_REF_REMOVE].addEventListener(
                         'click',
                         clearUploadPreview!
                     );
+                    return previewRefs[UPLOAD_PREVIEW_REF_PROGRESS];
                 };
 
                 // WS_UPLOAD_DONE — attach new attachment to existing message
@@ -144,7 +153,7 @@ export const initAttachments = (
                         }
                         chatUiObs(bindArg([CHAT_UI_ERROR, ''] as const, trigger));
                         pendingFile = file;
-                        showUploadPreview(file);
+                        pendingProgressEl = showUploadPreview(file);
                     }, on)
                 );
             }, on)
@@ -157,12 +166,37 @@ export const initAttachments = (
                 if (command[CLIENT_FRAME_PAYLOAD_VARIANT] !== CLIENT_FRAME_MESSAGE) return;
                 const msgRequestId = command[CLIENT_FRAME_PAYLOAD_VALUE][CLIENT_MESSAGE_REQUEST_ID];
                 const fileToUpload = pendingFile;
-                if (clearUploadPreview) clearUploadPreview();
-                if (!fileToUpload || !waitForMessageId) return;
+                const progressEl = pendingProgressEl;
+                pendingFile = null;
+                pendingProgressEl = null;
+                if (!fileToUpload || !waitForMessageId) {
+                    if (clearUploadPreview) clearUploadPreview();
+                    return;
+                }
+                // Keep the preview container visible for upload progress;
+                // reset only the file input so the user can select a new file.
+                // The preview will be cleared on UPLOAD_DONE or UPLOAD_ERROR.
                 pipe(
                     waitForMessageId(msgRequestId),
                     taskMap((messageId: number) => {
-                        startUpload(ctx, socket, `upload-${Date.now()}`, messageId, fileToUpload);
+                        const uploadObs = startUpload(ctx, socket, `upload-${Date.now()}`, messageId, fileToUpload);
+                        uploadObs(
+                            bindArg((event: UploadEvent) => {
+                                if (!progressEl) return;
+                                if (event[0] === UPLOAD_READY) {
+                                    progressEl.hidden = false;
+                                    progressEl.textContent = '0 chunks sent';
+                                } else if (event[0] === UPLOAD_PROGRESS) {
+                                    progressEl.hidden = false;
+                                    progressEl.textContent = `${event[1]} / ${event[2]} chunks sent`;
+                                } else if (event[0] === UPLOAD_DONE) {
+                                    if (clearUploadPreview) clearUploadPreview();
+                                } else if (event[0] === UPLOAD_ERROR) {
+                                    progressEl.hidden = false;
+                                    progressEl.textContent = 'Upload error';
+                                }
+                            }, on)
+                        );
                     }),
                     taskFork(noop, (e) =>
                         chatUiObs(bindArg([CHAT_UI_ERROR, String(e)] as const, trigger))

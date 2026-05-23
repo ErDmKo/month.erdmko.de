@@ -80,11 +80,13 @@ declare global {
 // ── Upload event tuple ────────────────────────────────────────────────────────
 
 export const UPLOAD_READY = 0 as const;
-export const UPLOAD_DONE = 1 as const;
-export const UPLOAD_ERROR = 2 as const;
+export const UPLOAD_PROGRESS = 1 as const;
+export const UPLOAD_DONE = 2 as const;
+export const UPLOAD_ERROR = 3 as const;
 
 export type UploadEvent =
     | readonly [type: typeof UPLOAD_READY, uploadId: number]
+    | readonly [type: typeof UPLOAD_PROGRESS, sent: number, total: number]
     | readonly [type: typeof UPLOAD_DONE, uploadDone: ServerUploadDone]
     | readonly [type: typeof UPLOAD_ERROR, code: string, message: string];
 
@@ -118,9 +120,11 @@ const sendChunks = (
     ctx: Window,
     outgoing: BaseChatSocket[typeof CHAT_SOCKET_OUTGOING],
     uploadId: number,
-    buffer: ArrayBuffer
+    buffer: ArrayBuffer,
+    uploadEvents: ObserverInstance<UploadEvent>
 ): void => {
     const bytes = new ctx.Uint8Array(buffer);
+    const total = Math.ceil(bytes.length / CHUNK_SIZE) || 1;
     let offset = 0;
     let index = 0;
     while (offset < bytes.length) {
@@ -128,6 +132,7 @@ const sendChunks = (
         outgoing(bindArg([CLIENT_FRAME_UPLOAD_CHUNK, [uploadId, index, chunk]] as const, trigger));
         offset += CHUNK_SIZE;
         index++;
+        uploadEvents(bindArg([UPLOAD_PROGRESS, index, total] as const, trigger));
     }
 };
 
@@ -170,7 +175,7 @@ export const startUpload = (
             uploadEvents(bindArg([UPLOAD_READY, uploadId] as const, trigger));
             pipe(
                 readFileAsArrayBuffer(ctx, file),
-                taskMap(bindArgs([ctx, outgoing, uploadId], sendChunks)),
+                taskMap((buffer: ArrayBuffer) => sendChunks(ctx, outgoing, uploadId, buffer, uploadEvents)),
                 taskMap(bindArgs([outgoing, requestId, uploadId], sendUploadEnd)),
                 taskFork(noop, (e) => {
                     unsubscribe();
