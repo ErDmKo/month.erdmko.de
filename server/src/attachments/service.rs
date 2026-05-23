@@ -70,6 +70,12 @@ impl UploadSessionState {
         }
     }
 
+    /// Returns the upload_ids of all currently pending (in-memory) uploads.
+    /// Used for logging cancelled uploads on disconnect.
+    pub fn pending_upload_ids(&self) -> Vec<u32> {
+        self.pending.keys().copied().collect()
+    }
+
     fn purge_expired(&mut self) {
         self.pending.retain(|_, v| !v.is_expired());
     }

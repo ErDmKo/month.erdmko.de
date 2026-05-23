@@ -24,6 +24,7 @@ impl ChatWs {
                     "event=chat_error room_id={} sender_id={} code={} request_id=null error={:?} details={:?}",
                     self.room_id, self.sender_id, err.code(), err, err.details()
                 );
+                // Send error back to client but keep connection alive — per spec.
                 Self::send_error(&self.room_id, &self.sender_id, ctx, None, err.code(), err.message());
                 return;
             }
@@ -42,6 +43,10 @@ impl ChatWs {
             }
             UploadChunk { upload_id, index, data } => {
                 if let Err(code) = self.uploads.add_chunk(upload_id, index, data) {
+                    warn!(
+                        "event=attachment_error code={} sender_id={} upload_id={}",
+                        code, self.sender_id, upload_id,
+                    );
                     Self::send_error(&self.room_id, &self.sender_id, ctx, None, code, "Chunk rejected.");
                 }
             }

@@ -23,6 +23,12 @@ impl ChatWs {
         use crate::attachments::service::upload_ready_payload;
 
         if size == 0 || size > MAX_ATTACHMENT_SIZE_BYTES {
+            warn!(
+                "event=attachment_error code=UPLOAD_TOO_LARGE sender_id={} request_id={} size={}",
+                self.sender_id,
+                request_id.as_deref().unwrap_or("null"),
+                size,
+            );
             Self::send_error(
                 &self.room_id,
                 &self.sender_id,
@@ -35,12 +41,22 @@ impl ChatWs {
         }
         match self
             .uploads
-            .start_upload(message_id, filename, size, mime_type)
+            .start_upload(message_id, filename.clone(), size, mime_type.clone())
         {
             Ok(upload_id) => {
+                info!(
+                    "event=attachment_upload_start upload_id={} message_id={} filename={:?} size={} mime_type={:?} sender_id={}",
+                    upload_id, message_id, filename, size, mime_type, self.sender_id,
+                );
                 ctx.binary(upload_ready_payload(request_id.as_deref(), upload_id));
             }
             Err(code) => {
+                warn!(
+                    "event=attachment_error code={} sender_id={} request_id={}",
+                    code,
+                    self.sender_id,
+                    request_id.as_deref().unwrap_or("null"),
+                );
                 Self::send_error(
                     &self.room_id,
                     &self.sender_id,
@@ -69,8 +85,8 @@ impl ChatWs {
                     match persist_upload(&app_ctx, pending).await {
                         Ok(meta) => {
                             info!(
-                                "event=upload_done room_id={} sender_id={} attachment_id={}",
-                                room_id, sender_id, meta.id
+                                "event=attachment_upload_done attachment_id={} sender_id={} room_id={}",
+                                meta.id, sender_id, room_id,
                             );
                             ChatWs::broadcast_to_room(
                                 &room_id,
@@ -92,6 +108,13 @@ impl ChatWs {
                 });
             }
             Err(code) => {
+                warn!(
+                    "event=attachment_error code={} sender_id={} upload_id={} request_id={}",
+                    code,
+                    self.sender_id,
+                    upload_id,
+                    request_id.as_deref().unwrap_or("null"),
+                );
                 Self::send_error(
                     &self.room_id,
                     &self.sender_id,
@@ -128,6 +151,10 @@ impl ChatWs {
                 Ok(Some((meta, data))) => {
                     let chunks = split_into_chunks(&data);
                     let total = chunks.len();
+                    info!(
+                        "event=attachment_download_start attachment_id={} sender_id={} total_chunks={}",
+                        attachment_id, sender_id, total,
+                    );
                     addr.do_send(PushEvent(download_start_payload(
                         request_id.as_deref(),
                         &meta,
@@ -144,11 +171,15 @@ impl ChatWs {
                         request_id.as_deref(),
                         attachment_id,
                     )));
+                    info!(
+                        "event=attachment_download_done attachment_id={} sender_id={}",
+                        attachment_id, sender_id,
+                    );
                 }
                 Ok(None) => {
                     warn!(
-                        "event=chat_error room_id={} sender_id={} code=ATTACHMENT_NOT_FOUND",
-                        room_id, sender_id
+                        "event=attachment_error code=ATTACHMENT_NOT_FOUND attachment_id={} sender_id={} request_id={}",
+                        attachment_id, sender_id, request_id.as_deref().unwrap_or("null"),
                     );
                     addr.do_send(PushEvent(chat_service::error_payload(
                         request_id.as_deref(),
@@ -158,8 +189,8 @@ impl ChatWs {
                 }
                 Err(err) => {
                     warn!(
-                        "event=chat_error room_id={} sender_id={} code=INTERNAL error={:?}",
-                        room_id, sender_id, err
+                        "event=attachment_error code=INTERNAL attachment_id={} sender_id={} request_id={} error={:?}",
+                        attachment_id, sender_id, request_id.as_deref().unwrap_or("null"), err,
                     );
                     addr.do_send(PushEvent(chat_service::error_payload(
                         request_id.as_deref(),

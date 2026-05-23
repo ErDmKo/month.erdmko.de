@@ -29,35 +29,68 @@
 - Один и тот же `attachment_id` запрошенный дважды одновременно — сервер обрабатывает оба независимо.
 
 ### Structured logging
-Новые log events (key=value формат):
-- `event=attachment_upload_start attachment_id=? message_id=? filename=? size=? sender_id=?`
-- `event=attachment_upload_done attachment_id=? sender_id=? room_id=?`
-- `event=attachment_upload_cancelled upload_id=? sender_id=? reason=disconnect`
-- `event=attachment_download_start attachment_id=? sender_id=?`
-- `event=attachment_download_done attachment_id=? sender_id=?`
-- `event=attachment_error code=? sender_id=? upload_id=? request_id=?`
+Log events (key=value формат) — реализовано в `server/src/pages/chat/actor/`:
+
+| event | level | поля |
+|---|---|---|
+| `attachment_upload_start` | info | `upload_id`, `message_id`, `filename`, `size`, `mime_type`, `sender_id` |
+| `attachment_upload_done` | info | `attachment_id`, `sender_id`, `room_id` |
+| `attachment_upload_cancelled` | info | `upload_id`, `sender_id`, `reason=disconnect` |
+| `attachment_download_start` | info | `attachment_id`, `sender_id`, `total_chunks` |
+| `attachment_download_done` | info | `attachment_id`, `sender_id` |
+| `attachment_error` | warn | `code`, `sender_id`, `upload_id`/`attachment_id`/`request_id` (context-dependent) |
+
+Примечание: `attachment_upload_start` логирует `upload_id` (не `attachment_id` — DB-id появляется позже в `attachment_upload_done`).
 
 ### Protobuf decode errors
-- Бинарный фрейм который не декодируется как `UploadChunk` → `error BAD_PAYLOAD`, соединение не падает.
+- Бинарный фрейм который не декодируется → `error BAD_PAYLOAD`, соединение не падает.
+- Реализовано в `dispatch.rs`: `parse_client_event` возвращает `ChatError::bad_payload`, `on_binary` отправляет ошибку клиенту и `return` без закрытия соединения.
 
 ### Filename safety
 - `filename` хранится as-is, никакой нормализации пути (нет `../`, нет исполнения).
 - При download: `Content-Disposition` не используется (скачивание через blob URL на клиенте) — filename применяется только в браузерном download через JS.
 
+## Implementation notes
+
+### Already implemented (inherited from earlier tickets)
+- Per-file size check in `on_upload_start` (`attachments.rs`) — `size == 0 || size > MAX_ATTACHMENT_SIZE_BYTES` → `UPLOAD_TOO_LARGE`
+- Chunk accumulation size check in `UploadSessionState::add_chunk` (`attachments/service.rs`) — `accumulated + chunk.len() > declared_size` → `UPLOAD_TOO_LARGE`
+- `enforce_attachments_storage_limit()` called in `persist_upload()` after `insert_attachment()`
+- Session isolation: `UploadSessionState` lives in `ChatWs` actor, dropped on disconnect without DB write
+- `MAX_PENDING_UPLOADS_PER_SESSION = 3` enforced in `start_upload()`
+- `PENDING_UPLOAD_TTL = 300s` enforced via `purge_expired()` called on every operation
+- `UPLOAD_NOT_FOUND` / `UPLOAD_EXPIRED` / `UPLOAD_LIMIT_EXCEEDED` error codes wired end-to-end
+- `BAD_PAYLOAD` already sent on empty frame, oversized frame, and protobuf decode failure
+- Concurrent downloads: each `download_request` spawns an independent async task
+
+### Implemented in this ticket (ASSETS-50)
+- Full structured logging for all attachment lifecycle events (`attachments.rs`, `dispatch.rs`)
+- `attachment_upload_cancelled` log on disconnect: `stopped()` in `mod.rs` iterates `uploads.pending_upload_ids()` and logs each
+- `UploadSessionState::pending_upload_ids()` method added to `attachments/service.rs`
+- `attachment_error` log added for UploadChunk errors in `dispatch.rs`
+- Comment added in `dispatch.rs` explaining BAD_PAYLOAD keeps connection alive
+
 ## Tests
-- Size cap on upload_start: `size = 5MB + 1` → `UPLOAD_TOO_LARGE`, upload не создаётся.
-- Size cap on chunk: суммарные данные чанков превышают `declared_size` → `UPLOAD_TOO_LARGE`.
-- Storage limit: после вставки вложений превышающих 1 GB старые удаляются.
-- Session isolation: `UploadChunk` с `upload_id` из другой сессии → `UPLOAD_NOT_FOUND`.
-- Session limit: 4-й `upload_start` при 3 активных → `UPLOAD_LIMIT_EXCEEDED`.
-- TTL expiry: `UploadChunk` или `upload_end` после 5 мин неактивности → `UPLOAD_EXPIRED`.
-- TTL cleanup: просроченные uploads не накапливаются в памяти сессии.
-- Disconnect cleanup: pending upload не появляется в БД после дисконнекта.
-- Bad proto frame: невалидный бинарный фрейм → `BAD_PAYLOAD`, соединение выживает.
-- Logging: события upload/download фиксируются в логах.
+- [ ] Size cap on upload_start: `size = 5MB + 1` → `UPLOAD_TOO_LARGE`, upload не создаётся.
+- [ ] Size cap on chunk: суммарные данные чанков превышают `declared_size` → `UPLOAD_TOO_LARGE`.
+- [ ] Storage limit: после вставки вложений превышающих 1 GB старые удаляются.
+- [ ] Session isolation: `UploadChunk` с `upload_id` из другой сессии → `UPLOAD_NOT_FOUND`.
+- [ ] Session limit: 4-й `upload_start` при 3 активных → `UPLOAD_LIMIT_EXCEEDED`.
+- [ ] TTL expiry: `UploadChunk` или `upload_end` после 5 мин неактивности → `UPLOAD_EXPIRED`.
+- [ ] TTL cleanup: просроченные uploads не накапливаются в памяти сессии.
+- [ ] Disconnect cleanup: pending upload не появляется в БД после дисконнекта.
+- [ ] Bad proto frame: невалидный бинарный фрейм → `BAD_PAYLOAD`, соединение выживает.
+- [ ] Logging: события upload/download фиксируются в логах.
 
 ## Acceptance
 - Файл >5 MB не может быть загружен ни через `upload_start`, ни через накопление чанков.
 - Суммарное хранилище вложений не превышает 1 GB.
 - Незавершённые uploads не оставляют мусора в БД.
 - Невалидные бинарные фреймы не ломают WS соединение.
+
+## TODO
+- [x] Structured logging: attachment_upload_start, upload_done, upload_cancelled, download_start, download_done, attachment_error
+- [x] Log pending upload cancellations on disconnect
+- [x] Verify/document BAD_PAYLOAD flow (connection survival)
+- [ ] Написать тесты (список выше)
+

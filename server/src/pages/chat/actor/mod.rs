@@ -101,6 +101,13 @@ impl Actor for ChatWs {
         if self.is_registered {
             Self::cleanup_room(&self.room_id);
         }
+        // Log any pending uploads that are being cancelled due to disconnect.
+        for upload_id in self.uploads.pending_upload_ids() {
+            info!(
+                "event=attachment_upload_cancelled upload_id={} sender_id={} reason=disconnect",
+                upload_id, self.sender_id,
+            );
+        }
         info!(
             "event=chat_disconnect room_id={} sender_id={}",
             self.room_id, self.sender_id
