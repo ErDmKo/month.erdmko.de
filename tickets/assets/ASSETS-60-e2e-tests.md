@@ -16,10 +16,11 @@
 - `tsconfig.json` — `module: CommonJS`, `target: ES2020`, `strict: true`.
 - `jest.config.ts` — `testEnvironment: node`, `testTimeout: 30000`, `globalSetup` / `globalTeardown` для сборки и запуска сервера.
 - Вспомогательный скрипт `helpers/server.ts`:
-  - Сборка `cargo build --bin server` (debug).
-  - Запуск на случайном порту (`--port <n>`) с временным SQLite-файлом.
-  - Ожидание readiness по HTTP `GET /health` или первому успешному TCP-connect.
-  - `stop()` — `SIGTERM` + дрейн.
+  - Сборка `bazel build //server:server` (не `cargo build` — см. ниже).
+  - Запуск на случайном порту через env-переменные `HOST` и `PORT`.
+  - Изоляция БД: создаётся tmp-`BASE_PATH` с симлинками на read-only `templates/` и `assets/` из runfiles плюс свежий `server/db/`.
+  - Ожидание readiness по первому успешному TCP-connect.
+  - `stop()` — `SIGTERM` + удаление tmp-`BASE_PATH`.
 - `helpers/ws-client.ts` — обёртка над `ws` для отправки JSON-команд и чтения text/binary фреймов с timeout.
 - `helpers/proto.ts` — `encodeUploadChunk(uploadId, index, data)` и `extractDownloadChunk(buf)` (портированы из `server/src/pages/chat/tests/helpers.rs`).
 
@@ -53,7 +54,7 @@
 - Скрипт `tests/e2e/run.sh`:
   ```sh
   cd $(git rev-parse --show-toplevel)
-  cargo build --bin server 2>&1
+  bazel build //server:server
   cd tests/e2e && npm ci && npx jest "$@"
   ```
 - В README добавить секцию `## E2E tests`.
@@ -77,7 +78,9 @@ tests/e2e/
 ```
 
 ## Key decisions
-- Сервер используется как реальный бинарник (`cargo build --bin server`), не in-process — это настоящий e2e, не просто integration.
+- **`bazel build //server:server`, не `cargo build`** — бинарник компилируется с `option_env!("BAZEL_STATIC") = Some("server")`, что меняет логику поиска статики и шаблонов. `cargo build` даёт бинарник с `BAZEL_STATIC = None`, который ищет `static/` вместо `assets/` и не найдёт Tera-шаблоны. Кроме того, `//contracts/chat:chat_rs` — это Bazel-generated prost-крейт; `cargo` не может его собрать.
+- **DB isolation через tmp BASE_PATH** — сервер игнорирует гипотетический `DB_PATH` env var; путь к БД захардкожен как `{BASE_PATH}/server/db/main.db`. Решение: создаём temp-директорию с симлинками на read-only `templates/` и `assets/` из runfiles и свежим `server/db/`. Очищается при `stop()`.
+- Сервер используется как реальный бинарник из `bazel-bin/server/server`, не in-process — это настоящий e2e, не просто integration.
 - WS-client тесты (`chat.test.ts`, `attachments.test.ts`) не требуют браузера — быстрее и стабильнее.
 - Puppeteer тест (`attachments-ui.test.ts`) тестирует именно браузерный JS, включая progress-индикатор и download-flow через `URL.createObjectURL`.
 - `page.setInputFiles` используется вместо эмуляции клика на `<input>` — надёжнее в headless-окружении.
