@@ -1,10 +1,4 @@
-import {
-    bindArg,
-    observer,
-    on,
-    trigger,
-    Task,
-} from '../../utils';
+import { bindArg, observer, on, trigger, Task } from '../../utils';
 import {
     SERVER_FRAME_JOINED,
     SERVER_FRAME_ERROR,
@@ -13,16 +7,19 @@ import {
     SERVER_JOINED_SENDER_ID,
     SERVER_ERROR_REQUEST_ID,
     SERVER_ERROR_MESSAGE,
-} from '../generated/chat';
+} from '@month/gen/chat';
 import {
     CHAT_SOCKET_OUTGOING,
     CHAT_SOCKET_INCOMING,
     parseBinaryFrame,
 } from '../protocol/incoming';
 import type { ChatSocket } from '../protocol/incoming';
-import { serializeCommand, validateOutgoingCommand } from '../protocol/outgoing';
+import {
+    serializeCommand,
+    validateOutgoingCommand,
+} from '../protocol/outgoing';
 import { MAX_NICKNAME_LEN } from './join-form-handler';
-import type { ServerFramePayload, ClientFramePayload } from '../generated/chat';
+import type { ServerFramePayload, ClientFramePayload } from '@month/gen/chat';
 import {
     CHAT_REF_STATUS,
     CHAT_REF_ERROR,
@@ -75,11 +72,8 @@ import type { ChatUiEvent, ChatUiObs } from './events';
 
 // ── initChatUi ────────────────────────────────────────────────────────────────
 
-export const initChatUi = (
-    ctx: Window,
-    root: Element,
-    socket: ChatSocket
-): Task<ChatUiObs> =>
+export const initChatUi =
+    (ctx: Window, root: Element, socket: ChatSocket): Task<ChatUiObs> =>
     (resolve) => {
         const htmlRoot = root as HTMLDivElement;
         const roomId = htmlRoot.dataset.roomId || 'general';
@@ -109,12 +103,16 @@ export const initChatUi = (
         };
         const updateControls = (messageLen: number) => {
             const nickname = refs[CHAT_REF_NICKNAME].value.trim();
-            const isValidNickname = nickname.length > 0 && nickname.length <= MAX_NICKNAME_LEN;
+            const isValidNickname =
+                nickname.length > 0 && nickname.length <= MAX_NICKNAME_LEN;
             refs[CHAT_REF_COUNTER].textContent = `${messageLen}/200`;
-            refs[CHAT_REF_SEND].disabled = !state[CHAT_UI_STATE_IS_JOINED] || messageLen === 0;
+            refs[CHAT_REF_SEND].disabled =
+                !state[CHAT_UI_STATE_IS_JOINED] || messageLen === 0;
             refs[CHAT_REF_JOIN_BUTTON].disabled =
-                state[CHAT_UI_STATE_IS_JOINED] || state[CHAT_UI_STATE_JOIN_IN_FLIGHT] ||
-                !state[CHAT_UI_STATE_IS_ONLINE] || !isValidNickname;
+                state[CHAT_UI_STATE_IS_JOINED] ||
+                state[CHAT_UI_STATE_JOIN_IN_FLIGHT] ||
+                !state[CHAT_UI_STATE_IS_ONLINE] ||
+                !isValidNickname;
         };
 
         // ── WebSocket setup ───────────────────────────────────────────────────
@@ -147,10 +145,7 @@ export const initChatUi = (
         // wire ws.onmessage → incoming (all frames are binary)
         ws.onmessage = (msg) => {
             msg.data.arrayBuffer().then((buf: ArrayBuffer) => {
-                const wsEvent = parseBinaryFrame(
-                    ctx,
-                    new ctx.Uint8Array(buf),
-                );
+                const wsEvent = parseBinaryFrame(ctx, new ctx.Uint8Array(buf));
                 if (wsEvent) trigger(wsEvent, incoming);
             });
         };
@@ -190,7 +185,10 @@ export const initChatUi = (
                 !event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_REQUEST_ID]
             ) {
                 state[CHAT_UI_STATE_JOIN_IN_FLIGHT] = false;
-                setError(event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_MESSAGE] || 'Unknown error');
+                setError(
+                    event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_MESSAGE] ||
+                        'Unknown error'
+                );
                 updateControls(refs[CHAT_REF_MESSAGE].value.length);
                 return;
             }
@@ -201,7 +199,15 @@ export const initChatUi = (
                 showChat();
                 updateControls(refs[CHAT_REF_MESSAGE].value.length);
                 chatUiObs(
-                    bindArg([CHAT_UI_JOINED, event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_JOINED_SENDER_ID]] as const, trigger)
+                    bindArg(
+                        [
+                            CHAT_UI_JOINED,
+                            event[SERVER_FRAME_PAYLOAD_VALUE][
+                                SERVER_JOINED_SENDER_ID
+                            ],
+                        ] as const,
+                        trigger
+                    )
                 );
             }
         }, incoming);
@@ -228,12 +234,7 @@ export const initChatUi = (
             updateControls
         );
 
-        mountMessageFormHandler(
-            refs,
-            outgoing,
-            chatUiObs,
-            state
-        );
+        mountMessageFormHandler(refs, outgoing, chatUiObs, state);
 
         // ── Initial UI state ──────────────────────────────────────────────────
 

@@ -5,10 +5,10 @@
 <section>
     <h1 id="header">Online string slugifier</h1>
     {% if result %}
-    <div class="result">
+    <div class="{{ css.result }}">
       <h3>Result</h3> 
       <h2>"<span id="result">{{ result }}</span>"</h2>
-      <div class="">
+      <div>
         <button id="copycat">Copy</button>
       </div>
     </div>
@@ -20,9 +20,9 @@
       type="text"
       value="{{ query }}"
       name="query"
-      class="big_input"
+      class="{{ css.big_input }}"
       placeholder="Put here string to slugify"/>
-    <div class="buttons">
+    <div class="{{ css.buttons }}">
       <button>Slugify</button>
     </div>
   </form>

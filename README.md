@@ -55,7 +55,7 @@ bazel build //assets/js/tools:gen_chat_proto
 cp bazel-bin/assets/js/tools/chat.ts assets/js/chat/generated/chat.ts
 ```
 
-### Run tests
+### Run Bazel tests
 
 Run all tests:
 
@@ -63,11 +63,39 @@ Run all tests:
 bazel test //...
 ```
 
-Run chat frontend protocol test (Node.js via Bazel toolchain):
+Run all frontend tests (any `*.test.ts` under `assets/js/`):
 
 ```bash
-bazel test //assets/js:chat-protocol-test
+bazel test //assets/js:all
 ```
+
+Run a specific frontend test:
+
+```bash
+bazel test //assets/js:chat/protocol.test
+bazel test //assets/js:chat/attachments-proto.test
+```
+
+Run all suites (builds server automatically):
+
+```bash
+./tests/e2e/run.sh
+```
+
+Run a specific suite:
+
+```bash
+./tests/e2e/run.sh suites/chat
+./tests/e2e/run.sh suites/attachments.test
+```
+
+Or directly via npm (server must already be built):
+
+```bash
+cd tests/e2e && npm ci && npx jest
+```
+
+
 
 ### Run rust server
 

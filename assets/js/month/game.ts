@@ -12,6 +12,7 @@ import {
     next,
     subscribe,
 } from '@month/utils';
+import { $month, $month__item } from '@month/gen/styles';
 import { GAME_DURATION_SECONDS } from './const';
 
 const genMonth = (ctx: Window) => {
@@ -33,18 +34,18 @@ const report = (_ctx: Window, totalScore: ScoreLog[]) => {
         genTagName('h4', [genText(`Итоговый результат игры: ${totalResult}`)]),
         genTagName(
             'ul',
-            [genClass('month')],
+            [genClass($month)],
             [
                 genTagName('li', [
-                    genClass('month__item'),
+                    genClass($month__item),
                     genText(`Ошибки: ${errors}`),
                 ]),
                 genTagName('li', [
-                    genClass('month__item'),
+                    genClass($month__item),
                     genText(`Верные ответы: ${correct}`),
                 ]),
                 genTagName('li', [
-                    genClass('month__item'),
+                    genClass($month__item),
                     genText(`Всего вопросов: ${totalScore.length}`),
                 ]),
             ]

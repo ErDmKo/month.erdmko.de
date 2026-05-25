@@ -7,6 +7,18 @@ import {
     genTagName,
     genText,
 } from '@month/utils';
+import {
+    $chat__meta,
+    $chat__error,
+    $chat__form,
+    $chat__label,
+    $chat__input,
+    $chat__textarea,
+    $chat__controls,
+    $chat__button,
+    $chat__messages,
+    $chat__counter,
+} from '@month/gen/styles';
 
 export const CHAT_REF_STATUS = 0 as const;
 export const CHAT_REF_ERROR = 1 as const;
@@ -49,7 +61,7 @@ export const chatUiTemplate = (maxMessageLen: number) =>
         [
             genTagName(
                 'div',
-                [genClass('chat__meta')],
+                [genClass($chat__meta)],
                 [
                     genTagName('span', [genText('Status: ')]),
                     genTagName('strong', [
@@ -59,7 +71,7 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                 ]
             ),
             genTagName('p', [
-                genClass('chat__error'),
+                genClass($chat__error),
                 genRef(CHAT_REF_ERROR),
                 genAttr('aria-live', 'polite'),
             ]),
@@ -69,15 +81,15 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                 [
                     genTagName(
                         'form',
-                        [genClass('chat__form'), genRef(CHAT_REF_JOIN_FORM)],
+                        [genClass($chat__form), genRef(CHAT_REF_JOIN_FORM)],
                         [
                             genTagName(
                                 'label',
-                                [genClass('chat__label')],
+                                [genClass($chat__label)],
                                 [
                                     genTagName('span', [genText('Nickname')]),
                                     genTagName('input', [
-                                        genClass('chat__input'),
+                                        genClass($chat__input),
                                         genRef(CHAT_REF_NICKNAME),
                                         genAttr('type', 'text'),
                                         genAttr('maxlength', 32),
@@ -88,10 +100,10 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                             ),
                             genTagName(
                                 'div',
-                                [genClass('chat__controls')],
+                                [genClass($chat__controls)],
                                 [
                                     genTagName('button', [
-                                        genClass('chat__button'),
+                                        genClass($chat__button),
                                         genRef(CHAT_REF_JOIN_BUTTON),
                                         genAttr('type', 'submit'),
                                         genText('Join room'),
@@ -107,13 +119,13 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                 [genRef(CHAT_REF_CHAT_SCREEN), genAttr('hidden', 'hidden')],
                 [
                     genTagName('ul', [
-                        genClass('chat__messages'),
+                        genClass($chat__messages),
                         genRef(CHAT_REF_MESSAGES),
                         genAttr('aria-live', 'polite'),
                     ]),
                     genTagName(
                         'form',
-                        [genClass('chat__form'), genRef(CHAT_REF_MESSAGE_FORM)],
+                        [genClass($chat__form), genRef(CHAT_REF_MESSAGE_FORM)],
                         [
                             genTagName('div', [
                                 genClass('chat__upload-preview'),
@@ -122,11 +134,11 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                             ]),
                             genTagName(
                                 'label',
-                                [genClass('chat__label')],
+                                [genClass($chat__label)],
                                 [
                                     genTagName('span', [genText('Message')]),
                                     genTagName('textarea', [
-                                        genClass('chat__input chat__textarea'),
+                                        genClass(`${$chat__input} ${$chat__textarea}`),
                                         genRef(CHAT_REF_MESSAGE),
                                         genAttr('maxlength', maxMessageLen),
                                         genAttr(
@@ -139,15 +151,15 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                             ),
                             genTagName(
                                 'div',
-                                [genClass('chat__controls')],
+                                [genClass($chat__controls)],
                                 [
                                     genTagName('span', [
-                                        genClass('chat__counter'),
+                                        genClass($chat__counter),
                                         genRef(CHAT_REF_COUNTER),
                                         genText(`0/${maxMessageLen}`),
                                     ]),
                                     genTagName('button', [
-                                        genClass('chat__button'),
+                                        genClass($chat__button),
                                         genRef(CHAT_REF_ATTACH_BUTTON),
                                         genAttr('type', 'button'),
                                         genText('Attach'),
@@ -158,7 +170,7 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                                         genAttr('hidden', 'hidden'),
                                     ]),
                                     genTagName('button', [
-                                        genClass('chat__button'),
+                                        genClass($chat__button),
                                         genRef(CHAT_REF_SEND),
                                         genAttr('type', 'submit'),
                                         genText('Send'),

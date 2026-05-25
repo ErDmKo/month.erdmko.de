@@ -1,7 +1,15 @@
 import { genAttr, genClass, genRef, genTagName, genText } from '@month/utils';
-import type { AttachmentItem } from '../generated/chat';
+import {
+    $chat__message,
+    $chat__message__own,
+    $chat__message_head,
+    $chat__message_meta,
+    $chat__delete,
+    $chat__message_body,
+} from '@month/gen/styles';
+import type { AttachmentItem } from '@month/gen/chat';
 
-export type { AttachmentItem } from '../generated/chat';
+export type { AttachmentItem } from '@month/gen/chat';
 
 export const MESSAGE_REF_ATTACHMENTS = 0 as const;
 
@@ -21,23 +29,25 @@ export const chatMessageTemplate = (
         'li',
         [
             genClass(
-                isOwn ? 'chat__message chat__message--own' : 'chat__message'
+                isOwn
+                    ? `${$chat__message} ${$chat__message__own}`
+                    : $chat__message
             ),
             genAttr('data-message-id', id),
         ],
         [
             genTagName(
                 'div',
-                [genClass('chat__message-head')],
+                [genClass($chat__message_head)],
                 [
                     genTagName('span', [
-                        genClass('chat__message-meta'),
+                        genClass($chat__message_meta),
                         genText(
                             `${senderName}${createdAt ? ` • ${createdAt}` : ''}`
                         ),
                     ]),
                     genTagName('button', [
-                        genClass('chat__delete'),
+                        genClass($chat__delete),
                         genAttr('type', 'button'),
                         genAttr('data-delete-id', id),
                         genAttr('aria-label', 'Delete message'),
@@ -46,7 +56,7 @@ export const chatMessageTemplate = (
                     ]),
                 ]
             ),
-            genTagName('div', [genClass('chat__message-body'), genText(body)]),
+            genTagName('div', [genClass($chat__message_body), genText(body)]),
             ...(attachments.length > 0
                 ? [
                       genTagName('ul', [

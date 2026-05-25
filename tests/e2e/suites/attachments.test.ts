@@ -19,20 +19,25 @@ async function uploadFile(
     nickname: string,
     filename: string,
     mimeType: string,
-    data: Buffer,
-): Promise<{ ws: ReturnType<typeof joinRoom> extends Promise<infer T> ? T : never; attachmentId: number }> {
+    data: Buffer
+): Promise<{
+    ws: ReturnType<typeof joinRoom> extends Promise<infer T> ? T : never;
+    attachmentId: number;
+}> {
     const ws = await joinRoom(port, roomId, nickname);
 
     ws.sendText({
         type: 'upload_start',
         requestId: 'req-1',
-        messageId: 1,          // message must exist; for these tests we rely on
-        filename,               // the server returning UPLOAD_DONE even if message_id
-        size: data.length,      // is synthetic (server validates existence)
+        messageId: 1, // message must exist; for these tests we rely on
+        filename, // the server returning UPLOAD_DONE even if message_id
+        size: data.length, // is synthetic (server validates existence)
         mimeType,
     });
 
-    const ready = await ws.findText((v) => v.type === 'upload_ready' || v.type === 'error');
+    const ready = await ws.findText(
+        (v) => v.type === 'upload_ready' || v.type === 'error'
+    );
     if (!ready || ready.type !== 'upload_ready') {
         throw new Error(`Expected upload_ready, got: ${JSON.stringify(ready)}`);
     }
@@ -43,7 +48,9 @@ async function uploadFile(
 
     ws.sendText({ type: 'upload_end', requestId: 'req-1', uploadId });
 
-    const done = await ws.findText((v) => v.type === 'upload_done' || v.type === 'error');
+    const done = await ws.findText(
+        (v) => v.type === 'upload_done' || v.type === 'error'
+    );
     if (!done || done.type !== 'upload_done') {
         throw new Error(`Expected upload_done, got: ${JSON.stringify(done)}`);
     }
@@ -83,8 +90,12 @@ describe('attachments upload', () => {
 
         const done = await ws.findText((v) => v.type === 'upload_done');
         expect(done).not.toBeNull();
-        expect((done as { attachment: { filename: string } }).attachment.filename).toBe('hello.txt');
-        expect((done as { attachment: { id: number } }).attachment.id).toBeGreaterThan(0);
+        expect(
+            (done as { attachment: { filename: string } }).attachment.filename
+        ).toBe('hello.txt');
+        expect(
+            (done as { attachment: { id: number } }).attachment.id
+        ).toBeGreaterThan(0);
 
         ws.close();
     });
@@ -100,8 +111,12 @@ describe('attachments upload', () => {
 
         const fileData = Buffer.from('broadcast bytes');
         alice.sendText({
-            type: 'upload_start', requestId: 'up-bc', messageId,
-            filename: 'bc.bin', size: fileData.length, mimeType: 'application/octet-stream',
+            type: 'upload_start',
+            requestId: 'up-bc',
+            messageId,
+            filename: 'bc.bin',
+            size: fileData.length,
+            mimeType: 'application/octet-stream',
         });
         const ready = await alice.findText((v) => v.type === 'upload_ready');
         const uploadId = (ready as { uploadId: number }).uploadId;
@@ -113,8 +128,9 @@ describe('attachments upload', () => {
 
         expect(aliceDone).not.toBeNull();
         expect(bobDone).not.toBeNull();
-        expect((aliceDone as { attachment: { id: number } }).attachment.id)
-            .toBe((bobDone as { attachment: { id: number } }).attachment.id);
+        expect(
+            (aliceDone as { attachment: { id: number } }).attachment.id
+        ).toBe((bobDone as { attachment: { id: number } }).attachment.id);
 
         alice.close();
         bob.close();
@@ -125,8 +141,12 @@ describe('attachments upload', () => {
         const ws = await joinRoom(PORT(), r, 'alice');
 
         ws.sendText({
-            type: 'upload_start', requestId: 'up-big', messageId: 1,
-            filename: 'big.bin', size: 5 * 1024 * 1024 + 1, mimeType: 'application/octet-stream',
+            type: 'upload_start',
+            requestId: 'up-big',
+            messageId: 1,
+            filename: 'big.bin',
+            size: 5 * 1024 * 1024 + 1,
+            mimeType: 'application/octet-stream',
         });
 
         const err = await ws.findText((v) => v.type === 'error');
@@ -146,16 +166,24 @@ describe('attachments upload', () => {
 
         for (let i = 0; i < 3; i++) {
             ws.sendText({
-                type: 'upload_start', requestId: `up-${i}`, messageId,
-                filename: 'f.bin', size: 5, mimeType: 'application/octet-stream',
+                type: 'upload_start',
+                requestId: `up-${i}`,
+                messageId,
+                filename: 'f.bin',
+                size: 5,
+                mimeType: 'application/octet-stream',
             });
             const r2 = await ws.findText((v) => v.type === 'upload_ready');
             expect(r2).not.toBeNull();
         }
 
         ws.sendText({
-            type: 'upload_start', requestId: 'up-limit', messageId,
-            filename: 'f.bin', size: 5, mimeType: 'application/octet-stream',
+            type: 'upload_start',
+            requestId: 'up-limit',
+            messageId,
+            filename: 'f.bin',
+            size: 5,
+            mimeType: 'application/octet-stream',
         });
 
         const err = await ws.findText((v) => v.type === 'error');
@@ -174,8 +202,12 @@ describe('attachments upload', () => {
         const messageId = (msgEvent as { id: number }).id;
 
         ws.sendText({
-            type: 'upload_start', requestId: 'up-oo', messageId,
-            filename: 'f.bin', size: 10, mimeType: 'application/octet-stream',
+            type: 'upload_start',
+            requestId: 'up-oo',
+            messageId,
+            filename: 'f.bin',
+            size: 10,
+            mimeType: 'application/octet-stream',
         });
         const ready = await ws.findText((v) => v.type === 'upload_ready');
         const uploadId = (ready as { uploadId: number }).uploadId;
@@ -184,7 +216,9 @@ describe('attachments upload', () => {
 
         const err = await ws.findText((v) => v.type === 'error');
         expect(err).not.toBeNull();
-        expect((err as { code: string }).code).toBe('UPLOAD_CHUNK_OUT_OF_ORDER');
+        expect((err as { code: string }).code).toBe(
+            'UPLOAD_CHUNK_OUT_OF_ORDER'
+        );
 
         ws.close();
     });
@@ -200,20 +234,31 @@ describe('attachments download', () => {
         const msgEvent = await alice.findText((v) => v.type === 'message');
         const messageId = (msgEvent as { id: number }).id;
 
-        const fileData = Buffer.from(Array.from({ length: 200 }, (_, i) => i % 256));
+        const fileData = Buffer.from(
+            Array.from({ length: 200 }, (_, i) => i % 256)
+        );
         alice.sendText({
-            type: 'upload_start', requestId: 'up-dl', messageId,
-            filename: 'dl.bin', size: fileData.length, mimeType: 'application/octet-stream',
+            type: 'upload_start',
+            requestId: 'up-dl',
+            messageId,
+            filename: 'dl.bin',
+            size: fileData.length,
+            mimeType: 'application/octet-stream',
         });
         const ready = await alice.findText((v) => v.type === 'upload_ready');
         const uploadId = (ready as { uploadId: number }).uploadId;
         alice.sendBinary(encodeUploadChunk(uploadId, 0, fileData));
         alice.sendText({ type: 'upload_end', requestId: 'up-dl', uploadId });
         const done = await alice.findText((v) => v.type === 'upload_done');
-        const attachmentId = (done as { attachment: { id: number } }).attachment.id;
+        const attachmentId = (done as { attachment: { id: number } }).attachment
+            .id;
 
         // Now download it
-        alice.sendText({ type: 'download_request', requestId: 'dl-1', attachmentId });
+        alice.sendText({
+            type: 'download_request',
+            requestId: 'dl-1',
+            attachmentId,
+        });
 
         const start = await alice.findText((v) => v.type === 'download_start');
         expect(start).not.toBeNull();
@@ -247,18 +292,27 @@ describe('attachments download', () => {
 
         const fileData = Buffer.from('secret');
         alice.sendText({
-            type: 'upload_start', requestId: 'up-scope', messageId,
-            filename: 'secret.txt', size: fileData.length, mimeType: 'text/plain',
+            type: 'upload_start',
+            requestId: 'up-scope',
+            messageId,
+            filename: 'secret.txt',
+            size: fileData.length,
+            mimeType: 'text/plain',
         });
         const ready = await alice.findText((v) => v.type === 'upload_ready');
         const uploadId = (ready as { uploadId: number }).uploadId;
         alice.sendBinary(encodeUploadChunk(uploadId, 0, fileData));
         alice.sendText({ type: 'upload_end', requestId: 'up-scope', uploadId });
         const done = await alice.findText((v) => v.type === 'upload_done');
-        const attachmentId = (done as { attachment: { id: number } }).attachment.id;
+        const attachmentId = (done as { attachment: { id: number } }).attachment
+            .id;
 
         // Bob tries to download from r2
-        bob.sendText({ type: 'download_request', requestId: 'dl-scope', attachmentId });
+        bob.sendText({
+            type: 'download_request',
+            requestId: 'dl-scope',
+            attachmentId,
+        });
         const err = await bob.findText((v) => v.type === 'error');
         expect(err).not.toBeNull();
         expect((err as { code: string }).code).toBe('ATTACHMENT_NOT_FOUND');

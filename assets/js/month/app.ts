@@ -8,6 +8,7 @@ import {
     genTagName,
     genText,
 } from '@month/utils';
+import { $month } from '@month/gen/styles';
 import { CONTROL_BUTTON } from './const';
 import { render } from './game';
 
@@ -19,7 +20,7 @@ export const init = (ctx: Window, root: HTMLElement) => {
     });
 
     for (const parentElem of baseHTML) {
-        if (!parentElem.classList.contains('month')) {
+        if (!parentElem.classList.contains($month)) {
             continue;
         }
         for (const childElem of parentElem.children) {

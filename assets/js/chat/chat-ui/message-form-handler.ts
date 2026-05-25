@@ -1,8 +1,6 @@
 import { bindArg, trigger } from '../../utils';
 import type { ObserverInstance } from '../../utils';
-import {
-    CLIENT_FRAME_MESSAGE,
-} from '../generated/chat';
+import { CLIENT_FRAME_MESSAGE } from '@month/gen/chat';
 
 export const MAX_MESSAGE_LEN = 200;
 import {
@@ -14,16 +12,11 @@ import {
     CHAT_REF_FILE_INPUT,
 } from './template';
 import type { ChatUiRefs } from './template';
-import {
-    CHAT_UI_ERROR,
-    CHAT_UI_FILE_SELECTED,
-} from './events';
+import { CHAT_UI_ERROR, CHAT_UI_FILE_SELECTED } from './events';
 import type { ChatUiObs } from './events';
-import {
-    CHAT_UI_STATE_IS_JOINED,
-} from './state';
+import { CHAT_UI_STATE_IS_JOINED } from './state';
 import type { ChatUiState } from './state';
-import type { ClientFramePayload } from '../generated/chat';
+import type { ClientFramePayload } from '@month/gen/chat';
 
 export const mountMessageFormHandler = (
     refs: ChatUiRefs,
@@ -34,7 +27,10 @@ export const mountMessageFormHandler = (
     refs[CHAT_REF_MESSAGE].addEventListener('input', () => {
         const len = refs[CHAT_REF_MESSAGE].value.length;
         refs[CHAT_REF_COUNTER].textContent = `${len}/${MAX_MESSAGE_LEN}`;
-        refs[CHAT_REF_SEND].disabled = !state[CHAT_UI_STATE_IS_JOINED] || len === 0 || len > MAX_MESSAGE_LEN;
+        refs[CHAT_REF_SEND].disabled =
+            !state[CHAT_UI_STATE_IS_JOINED] ||
+            len === 0 ||
+            len > MAX_MESSAGE_LEN;
     });
 
     refs[CHAT_REF_MESSAGE].addEventListener('keydown', (e: KeyboardEvent) => {
@@ -50,14 +46,22 @@ export const mountMessageFormHandler = (
         if (body.length === 0 || body.length > MAX_MESSAGE_LEN) {
             chatUiObs(
                 bindArg(
-                    [CHAT_UI_ERROR, `Message must be between 1 and ${MAX_MESSAGE_LEN} characters.`] as const,
+                    [
+                        CHAT_UI_ERROR,
+                        `Message must be between 1 and ${MAX_MESSAGE_LEN} characters.`,
+                    ] as const,
                     trigger
                 )
             );
             return;
         }
         const msgRequestId = `msg-${Date.now()}`;
-        outgoing(bindArg([CLIENT_FRAME_MESSAGE, [msgRequestId, body]] as const, trigger));
+        outgoing(
+            bindArg(
+                [CLIENT_FRAME_MESSAGE, [msgRequestId, body]] as const,
+                trigger
+            )
+        );
         refs[CHAT_REF_MESSAGE].value = '';
         refs[CHAT_REF_COUNTER].textContent = `0/${MAX_MESSAGE_LEN}`;
         refs[CHAT_REF_SEND].disabled = true;
@@ -70,8 +74,6 @@ export const mountMessageFormHandler = (
     refs[CHAT_REF_FILE_INPUT].addEventListener('change', () => {
         const file = refs[CHAT_REF_FILE_INPUT].files?.[0] ?? null;
         if (!file) return;
-        chatUiObs(
-            bindArg([CHAT_UI_FILE_SELECTED, file] as const, trigger)
-        );
+        chatUiObs(bindArg([CHAT_UI_FILE_SELECTED, file] as const, trigger));
     });
 };

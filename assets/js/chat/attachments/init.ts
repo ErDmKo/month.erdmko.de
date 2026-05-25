@@ -14,7 +14,7 @@ import {
     Task,
 } from '../../utils';
 import type { ChatSocket } from '../protocol/incoming';
-import type { ServerFramePayload, ClientFramePayload } from '../generated/chat';
+import type { ServerFramePayload, ClientFramePayload } from '@month/gen/chat';
 import {
     SERVER_FRAME_PAYLOAD_VARIANT,
     SERVER_FRAME_PAYLOAD_VALUE,
@@ -23,7 +23,7 @@ import {
     CLIENT_FRAME_PAYLOAD_VALUE,
     CLIENT_FRAME_MESSAGE,
     CLIENT_MESSAGE_REQUEST_ID,
-} from '../generated/chat';
+} from '@month/gen/chat';
 import {
     CHAT_SOCKET_INCOMING,
     CHAT_SOCKET_OUTGOING,
@@ -69,18 +69,20 @@ const UPLOAD_DONE_UL_REF = 0 as const;
 
 // ── initAttachments ───────────────────────────────────────────────────────────
 
-export const initAttachments = (
-    ctx: Window,
-    socket: ChatSocket,
-    chatUiObs: ChatUiObs,
-    msgsObs: MsgsObs
-): Task<void> =>
+export const initAttachments =
+    (
+        ctx: Window,
+        socket: ChatSocket,
+        chatUiObs: ChatUiObs,
+        msgsObs: MsgsObs
+    ): Task<void> =>
     (resolve) => {
         const outgoing = socket[CHAT_SOCKET_OUTGOING];
         const incoming = socket[CHAT_SOCKET_INCOMING];
         let pendingFile: File | null = null;
         let pendingProgressEl: HTMLSpanElement | null = null;
-        let waitForMessageId: ((requestId: string) => Task<number>) | null = null;
+        let waitForMessageId: ((requestId: string) => Task<number>) | null =
+            null;
         let clearUploadPreview: (() => void) | null = null;
 
         // ── chatUiObs: INIT → wire DOM refs and file-selected ─────────────────
@@ -104,7 +106,10 @@ export const initAttachments = (
                         ctx,
                         refs[CHAT_REF_UPLOAD_PREVIEW],
                         uploadPreviewTemplate(file.name, file.size)
-                    ) as unknown as { [UPLOAD_PREVIEW_REF_REMOVE]: HTMLButtonElement; [UPLOAD_PREVIEW_REF_PROGRESS]: HTMLSpanElement };
+                    ) as unknown as {
+                        [UPLOAD_PREVIEW_REF_REMOVE]: HTMLButtonElement;
+                        [UPLOAD_PREVIEW_REF_PROGRESS]: HTMLSpanElement;
+                    };
                     refs[CHAT_REF_UPLOAD_PREVIEW].hidden = false;
                     previewRefs[UPLOAD_PREVIEW_REF_REMOVE].addEventListener(
                         'click',
@@ -115,14 +120,20 @@ export const initAttachments = (
 
                 // WS_UPLOAD_DONE — attach new attachment to existing message
                 on((wsEvent: ServerFramePayload) => {
-                    if (wsEvent[SERVER_FRAME_PAYLOAD_VARIANT] !== SERVER_FRAME_UPLOAD_DONE) return;
+                    if (
+                        wsEvent[SERVER_FRAME_PAYLOAD_VARIANT] !==
+                        SERVER_FRAME_UPLOAD_DONE
+                    )
+                        return;
                     const uploadDone = wsEvent[SERVER_FRAME_PAYLOAD_VALUE];
                     const messageId = getUploadDoneMessageId(uploadDone);
                     const msgEl = refs[CHAT_REF_MESSAGES].querySelector(
                         `[data-message-id="${messageId}"]`
                     );
                     if (!msgEl) return;
-                    let ulEl = msgEl.querySelector('.chat__attachments') as HTMLUListElement | null;
+                    let ulEl = msgEl.querySelector(
+                        '.chat__attachments'
+                    ) as HTMLUListElement | null;
                     if (!ulEl) {
                         const ulRefs = domCreatorRef(
                             ctx,
@@ -131,27 +142,43 @@ export const initAttachments = (
                                 genClass('chat__attachments'),
                                 genRef(UPLOAD_DONE_UL_REF),
                             ])
-                        ) as unknown as { [UPLOAD_DONE_UL_REF]: HTMLUListElement };
+                        ) as unknown as {
+                            [UPLOAD_DONE_UL_REF]: HTMLUListElement;
+                        };
                         ulEl = ulRefs[UPLOAD_DONE_UL_REF];
                     }
-                    renderAttachmentFromUploadDone(ctx, socket, ulEl, uploadDone);
+                    renderAttachmentFromUploadDone(
+                        ctx,
+                        socket,
+                        ulEl,
+                        uploadDone
+                    );
                 }, incoming);
 
                 // CHAT_UI_FILE_SELECTED — show upload preview
                 chatUiObs(
                     bindArg((fileEvent: ChatUiEvent) => {
-                        if (fileEvent[CHAT_UI_EVENT_TYPE] !== CHAT_UI_FILE_SELECTED) return;
+                        if (
+                            fileEvent[CHAT_UI_EVENT_TYPE] !==
+                            CHAT_UI_FILE_SELECTED
+                        )
+                            return;
                         const file = fileEvent[CHAT_UI_FILE_SELECTED_FILE];
                         if (file.size === 0 || file.size > MAX_UPLOAD_SIZE) {
                             chatUiObs(
                                 bindArg(
-                                    [CHAT_UI_ERROR, `File must be between 1 byte and ${MAX_UPLOAD_SIZE} bytes.`] as const,
+                                    [
+                                        CHAT_UI_ERROR,
+                                        `File must be between 1 byte and ${MAX_UPLOAD_SIZE} bytes.`,
+                                    ] as const,
                                     trigger
                                 )
                             );
                             return;
                         }
-                        chatUiObs(bindArg([CHAT_UI_ERROR, ''] as const, trigger));
+                        chatUiObs(
+                            bindArg([CHAT_UI_ERROR, ''] as const, trigger)
+                        );
                         pendingFile = file;
                         pendingProgressEl = showUploadPreview(file);
                     }, on)
@@ -163,8 +190,15 @@ export const initAttachments = (
 
         outgoing(
             bindArg((command: ClientFramePayload) => {
-                if (command[CLIENT_FRAME_PAYLOAD_VARIANT] !== CLIENT_FRAME_MESSAGE) return;
-                const msgRequestId = command[CLIENT_FRAME_PAYLOAD_VALUE][CLIENT_MESSAGE_REQUEST_ID];
+                if (
+                    command[CLIENT_FRAME_PAYLOAD_VARIANT] !==
+                    CLIENT_FRAME_MESSAGE
+                )
+                    return;
+                const msgRequestId =
+                    command[CLIENT_FRAME_PAYLOAD_VALUE][
+                        CLIENT_MESSAGE_REQUEST_ID
+                    ];
                 const fileToUpload = pendingFile;
                 const progressEl = pendingProgressEl;
                 pendingFile = null;
@@ -179,7 +213,13 @@ export const initAttachments = (
                 pipe(
                     waitForMessageId(msgRequestId),
                     taskMap((messageId: number) => {
-                        const uploadObs = startUpload(ctx, socket, `upload-${Date.now()}`, messageId, fileToUpload);
+                        const uploadObs = startUpload(
+                            ctx,
+                            socket,
+                            `upload-${Date.now()}`,
+                            messageId,
+                            fileToUpload
+                        );
                         uploadObs(
                             bindArg((event: UploadEvent) => {
                                 if (!progressEl) return;
@@ -190,7 +230,8 @@ export const initAttachments = (
                                     progressEl.hidden = false;
                                     progressEl.textContent = `${event[1]} / ${event[2]} chunks sent`;
                                 } else if (event[0] === UPLOAD_DONE) {
-                                    if (clearUploadPreview) clearUploadPreview();
+                                    if (clearUploadPreview)
+                                        clearUploadPreview();
                                 } else if (event[0] === UPLOAD_ERROR) {
                                     progressEl.hidden = false;
                                     progressEl.textContent = 'Upload error';
@@ -199,7 +240,12 @@ export const initAttachments = (
                         );
                     }),
                     taskFork(noop, (e) =>
-                        chatUiObs(bindArg([CHAT_UI_ERROR, String(e)] as const, trigger))
+                        chatUiObs(
+                            bindArg(
+                                [CHAT_UI_ERROR, String(e)] as const,
+                                trigger
+                            )
+                        )
                     )
                 );
             }, on)

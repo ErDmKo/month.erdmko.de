@@ -12,7 +12,7 @@ declare global {
 // ── Wire types ────────────────────────────────────────────────────────────────
 
 export const WIRE_VARINT = 0 as const;
-export const WIRE_LEN    = 2 as const;
+export const WIRE_LEN = 2 as const;
 
 // ── Tag helpers ───────────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ export const makeTag = (fieldNumber: number, wireType: number): number =>
 
 // ── Varint ────────────────────────────────────────────────────────────────────
 
-export const VARINT_VALUE      = 0 as const;
+export const VARINT_VALUE = 0 as const;
 export const VARINT_BYTES_READ = 1 as const;
 
 export const encodeVarint = (ctx: Window, value: number): Uint8Array => {
@@ -37,7 +37,7 @@ export const encodeVarint = (ctx: Window, value: number): Uint8Array => {
 
 export const decodeVarint = (
     buf: Uint8Array,
-    pos: number,
+    pos: number
 ): readonly [value: number, bytesRead: number] | null => {
     let result = 0;
     let shift = 0;
@@ -72,17 +72,20 @@ export const concatBytes = (ctx: Window, parts: Uint8Array[]): Uint8Array => {
 export const encodeUint32Field = (
     ctx: Window,
     fieldNumber: number,
-    value: number,
+    value: number
 ): Uint8Array[] => {
     if (value === 0) return [];
-    return [encodeVarint(ctx, makeTag(fieldNumber, WIRE_VARINT)), encodeVarint(ctx, value)];
+    return [
+        encodeVarint(ctx, makeTag(fieldNumber, WIRE_VARINT)),
+        encodeVarint(ctx, value),
+    ];
 };
 
 // string field (wire type 2)
 export const encodeStringField = (
     ctx: Window,
     fieldNumber: number,
-    value: string,
+    value: string
 ): Uint8Array[] => {
     const bytes = new ctx.TextEncoder().encode(value);
     if (bytes.length === 0) return [];
@@ -97,7 +100,7 @@ export const encodeStringField = (
 export const encodeBytesField = (
     ctx: Window,
     fieldNumber: number,
-    value: Uint8Array,
+    value: Uint8Array
 ): Uint8Array[] => {
     if (value.length === 0) return [];
     return [
@@ -112,7 +115,7 @@ export const encodeMessageField = <T extends readonly unknown[]>(
     ctx: Window,
     fieldNumber: number,
     value: T | null,
-    encoder: (ctx: Window, ...args: any[]) => Uint8Array,
+    encoder: (ctx: Window, ...args: any[]) => Uint8Array
 ): Uint8Array => {
     if (value === null) return new ctx.Uint8Array(0);
     const encoded = encoder(ctx, ...value);
@@ -129,7 +132,7 @@ export const encodeRepeatedMessage = <T extends readonly unknown[]>(
     ctx: Window,
     fieldNumber: number,
     values: readonly T[],
-    encoder: (ctx: Window, ...args: any[]) => Uint8Array,
+    encoder: (ctx: Window, ...args: any[]) => Uint8Array
 ): Uint8Array[] => {
     const out: Uint8Array[] = [];
     for (const value of values) {
@@ -145,7 +148,7 @@ export const encodeRepeatedMessage = <T extends readonly unknown[]>(
 export const skipField = (
     buf: Uint8Array,
     pos: number,
-    wire: number,
+    wire: number
 ): number | null => {
     if (wire === WIRE_VARINT) {
         const v = decodeVarint(buf, pos);
@@ -160,16 +163,27 @@ export const skipField = (
 
 // ── Reader ────────────────────────────────────────────────────────────────────
 
-export const READER_BUF     = 0 as const;
-export const READER_POS     = 1 as const;
-export const READER_WIRE    = 2 as const;
+export const READER_BUF = 0 as const;
+export const READER_POS = 1 as const;
+export const READER_WIRE = 2 as const;
 export const READER_DECODER = 3 as const;
 
-export type Reader = [buf: Uint8Array, pos: number, wire: number, decoder: TextDecoder];
+export type Reader = [
+    buf: Uint8Array,
+    pos: number,
+    wire: number,
+    decoder: TextDecoder,
+];
 
-export const readerCreate = (ctx: Window, buf: Uint8Array): Reader => [buf, 0, 0, new ctx.TextDecoder()];
+export const readerCreate = (ctx: Window, buf: Uint8Array): Reader => [
+    buf,
+    0,
+    0,
+    new ctx.TextDecoder(),
+];
 
-export const readerAtEnd = (r: Reader): boolean => r[READER_POS] >= r[READER_BUF].length;
+export const readerAtEnd = (r: Reader): boolean =>
+    r[READER_POS] >= r[READER_BUF].length;
 
 // Reads the next tag, stores wire type in r[READER_WIRE], returns field number.
 // Returns 0 on error.
@@ -194,7 +208,7 @@ export const readerString = (r: Reader): string => {
     const len = decodeVarint(r[READER_BUF], r[READER_POS]);
     if (!len) return '';
     const start = r[READER_POS] + len[VARINT_BYTES_READ];
-    const end   = start + len[VARINT_VALUE];
+    const end = start + len[VARINT_VALUE];
     r[READER_POS] = end;
     return r[READER_DECODER].decode(r[READER_BUF].slice(start, end));
 };
@@ -204,7 +218,7 @@ export const readerBytes = (r: Reader): Uint8Array => {
     const len = decodeVarint(r[READER_BUF], r[READER_POS]);
     if (!len) return r[READER_BUF].slice(0, 0);
     const start = r[READER_POS] + len[VARINT_BYTES_READ];
-    const end   = start + len[VARINT_VALUE];
+    const end = start + len[VARINT_VALUE];
     r[READER_POS] = end;
     return r[READER_BUF].slice(start, end);
 };
@@ -213,12 +227,12 @@ export const readerBytes = (r: Reader): Uint8Array => {
 export const readerMessage = <T>(
     ctx: Window,
     r: Reader,
-    decode: (ctx: Window, buf: Uint8Array) => T | null,
+    decode: (ctx: Window, buf: Uint8Array) => T | null
 ): T | null => {
     const len = decodeVarint(r[READER_BUF], r[READER_POS]);
     if (!len) return null;
     const start = r[READER_POS] + len[VARINT_BYTES_READ];
-    const end   = start + len[VARINT_VALUE];
+    const end = start + len[VARINT_VALUE];
     r[READER_POS] = end;
     return decode(ctx, r[READER_BUF].slice(start, end));
 };
@@ -238,7 +252,13 @@ export const readerSkip = (r: Reader): boolean => {
 export const decodeOneofFrame = (
     ctx: Window,
     buf: Uint8Array,
-    decoders: ReadonlyArray<readonly [variant: number, decode: (ctx: Window, slice: Uint8Array) => unknown] | undefined>,
+    decoders: ReadonlyArray<
+        | readonly [
+              variant: number,
+              decode: (ctx: Window, slice: Uint8Array) => unknown,
+          ]
+        | undefined
+    >
 ): readonly [number, unknown] | null => {
     const r = readerCreate(ctx, buf);
     while (!readerAtEnd(r)) {
@@ -250,7 +270,11 @@ export const decodeOneofFrame = (
         }
         const entry = decoders[field];
         if (entry) {
-            const value = readerMessage(ctx, r, entry[1] as (ctx: Window, buf: Uint8Array) => unknown);
+            const value = readerMessage(
+                ctx,
+                r,
+                entry[1] as (ctx: Window, buf: Uint8Array) => unknown
+            );
             if (!value) return null;
             return [entry[0], value];
         }

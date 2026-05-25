@@ -2,7 +2,7 @@ import WebSocket from 'ws';
 
 export interface WsFrame {
     type: 'text' | 'binary';
-    data: unknown;         // parsed JSON for text, Buffer for binary
+    data: unknown; // parsed JSON for text, Buffer for binary
     raw: string | Buffer;
 }
 
@@ -23,7 +23,11 @@ export class WsClient {
         ws.on('message', (data, isBinary) => {
             let frame: WsFrame;
             if (isBinary) {
-                frame = { type: 'binary', data: data as Buffer, raw: data as Buffer };
+                frame = {
+                    type: 'binary',
+                    data: data as Buffer,
+                    raw: data as Buffer,
+                };
             } else {
                 const str = data.toString();
                 frame = { type: 'text', data: JSON.parse(str), raw: str };
@@ -34,10 +38,15 @@ export class WsClient {
                 this.queue.push(frame);
             }
         });
-        ws.on('close', () => { this.closed = true; });
+        ws.on('close', () => {
+            this.closed = true;
+        });
     }
 
-    static connect(url: string, origin = 'http://localhost:8080'): Promise<WsClient> {
+    static connect(
+        url: string,
+        origin = 'http://localhost:8080'
+    ): Promise<WsClient> {
         return new Promise((resolve, reject) => {
             const ws = new WebSocket(url, { headers: { Origin: origin } });
             ws.once('open', () => resolve(new WsClient(ws)));
@@ -60,7 +69,11 @@ export class WsClient {
             const timer = setTimeout(() => {
                 const idx = this.waiters.indexOf(resolve);
                 if (idx !== -1) this.waiters.splice(idx, 1);
-                reject(new Error(`WsClient.nextFrame timed out after ${timeoutMs}ms`));
+                reject(
+                    new Error(
+                        `WsClient.nextFrame timed out after ${timeoutMs}ms`
+                    )
+                );
             }, timeoutMs);
             this.waiters.push((frame) => {
                 clearTimeout(timer);
@@ -73,7 +86,8 @@ export class WsClient {
     async nextText(timeoutMs = 5000): Promise<Record<string, unknown>> {
         while (true) {
             const frame = await this.nextFrame(timeoutMs);
-            if (frame.type === 'text') return frame.data as Record<string, unknown>;
+            if (frame.type === 'text')
+                return frame.data as Record<string, unknown>;
         }
     }
 
@@ -84,7 +98,7 @@ export class WsClient {
     async findText(
         pred: (v: Record<string, unknown>) => boolean,
         max = 10,
-        timeoutMs = 5000,
+        timeoutMs = 5000
     ): Promise<Record<string, unknown> | null> {
         for (let i = 0; i < max; i++) {
             let frame: WsFrame;
@@ -93,7 +107,10 @@ export class WsClient {
             } catch {
                 return null;
             }
-            if (frame.type === 'text' && pred(frame.data as Record<string, unknown>)) {
+            if (
+                frame.type === 'text' &&
+                pred(frame.data as Record<string, unknown>)
+            ) {
                 return frame.data as Record<string, unknown>;
             }
         }
@@ -120,7 +137,7 @@ export class WsClient {
 export async function joinRoom(
     port: number,
     room: string,
-    nickname: string,
+    nickname: string
 ): Promise<WsClient> {
     const ws = await WsClient.connect(`ws://127.0.0.1:${port}/ws/chat/${room}`);
     ws.sendText({ type: 'join', nickname });

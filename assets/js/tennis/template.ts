@@ -6,6 +6,7 @@ import {
     genTagName,
     genText,
 } from '@month/utils';
+import { $wrapper, $pOneL, $score, $pOneR, $voice, $time } from '@month/gen/styles';
 import {
     GameState,
     SERVE,
@@ -37,7 +38,7 @@ export const gameStateRender = (
         return genTagDiv(
             [],
             [
-                genTagDiv([genClass('time'), genText(time)]),
+                genTagDiv([genClass($time), genText(time)]),
                 genTagDiv([genText(stateString)]),
             ]
         );
@@ -56,26 +57,26 @@ export const template = (ctx: Window, root: HTMLElement) => {
         ctx,
         root,
         genTagDiv(
-            [genClass('wrapper'), genRef()],
+            [genClass($wrapper), genRef()],
             [
                 genTagName('button', [
-                    genClass('pOneL'),
+                    genClass($pOneL),
                     genText(`+1 ${TEAM_LEFT_NAME}`),
                     genRef(),
                 ]),
-                genTagName('span', [genClass('score'), genRef()]),
+                genTagName('span', [genClass($score), genRef()]),
                 genTagName('button', [
-                    genClass('pOneR'),
+                    genClass($pOneR),
                     genText(`+1 ${TEAM_RIGHT_NAME}`),
                     genRef(),
                 ]),
                 genTagName('button', [
-                    genClass('voice'),
+                    genClass($voice),
                     genText('Voice control disabled'),
                     genRef(),
                 ]),
                 genTagName('button', [
-                    genClass('voice'),
+                    genClass($voice),
                     genText('Back'),
                     genRef(),
                 ]),

@@ -10,9 +10,8 @@ pub(super) use std::path::PathBuf;
 pub(super) use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::generated::chat::{
-    client_frame, server_frame,
-    ClientDelete, ClientDownloadRequest, ClientFrame, ClientJoin, ClientMessage,
-    ClientUploadEnd, ClientUploadStart, ServerFrame, UploadChunk,
+    ClientDelete, ClientDownloadRequest, ClientFrame, ClientJoin, ClientMessage, ClientUploadEnd,
+    ClientUploadStart, ServerFrame, UploadChunk, client_frame, server_frame,
 };
 
 // ── DB / server setup ─────────────────────────────────────────────────────────
@@ -158,10 +157,12 @@ pub(super) fn encode_upload_chunk_frame(upload_id: u32, index: u32, data: &[u8])
 
 pub(super) fn encode_download_request(request_id: &str, attachment_id: i64) -> Vec<u8> {
     ClientFrame {
-        payload: Some(client_frame::Payload::DownloadRequest(ClientDownloadRequest {
-            request_id: request_id.to_string(),
-            attachment_id,
-        })),
+        payload: Some(client_frame::Payload::DownloadRequest(
+            ClientDownloadRequest {
+                request_id: request_id.to_string(),
+                attachment_id,
+            },
+        )),
     }
     .encode_to_vec()
 }

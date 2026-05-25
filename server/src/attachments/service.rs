@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use actix_web::web;
 use crate::app::AppCtx;
 use crate::attachments::db::{
     AttachmentMeta, enforce_attachments_storage_limit, get_attachment_data, insert_attachment,
@@ -10,7 +9,7 @@ use crate::attachments::{
     ATTACHMENT_CHUNK_SIZE, MAX_ATTACHMENTS_STORAGE_BYTES, MAX_PENDING_UPLOADS_PER_SESSION,
     PENDING_UPLOAD_TTL,
 };
-
+use actix_web::web;
 
 // ── Pending upload state ──────────────────────────────────────────────────────
 
@@ -317,7 +316,7 @@ mod tests {
 
     #[test]
     fn encode_download_chunk_produces_valid_proto() {
-        use crate::generated::chat::{server_frame, ServerFrame, DownloadChunk};
+        use crate::generated::chat::{DownloadChunk, ServerFrame, server_frame};
         use prost::Message;
 
         let encoded = encode_download_chunk(99, 3, b"world");

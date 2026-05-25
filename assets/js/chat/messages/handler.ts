@@ -1,10 +1,4 @@
-import {
-    domCreatorRef,
-    ObserverInstance,
-    on,
-    off,
-    Task,
-} from '../../utils';
+import { domCreatorRef, ObserverInstance, on, off, Task } from '../../utils';
 import type { ObserverState } from '../../utils';
 import {
     SERVER_FRAME_MESSAGE,
@@ -12,9 +6,9 @@ import {
     SERVER_FRAME_PAYLOAD_VALUE,
     SERVER_MESSAGE_ITEM,
     SERVER_MESSAGE_REQUEST_ID,
-} from '../generated/chat';
+} from '@month/gen/chat';
 import type { BaseChatSocket } from '../protocol/incoming';
-import type { ServerFramePayload } from '../generated/chat';
+import type { ServerFramePayload } from '@month/gen/chat';
 import {
     CHAT_ITEM_ID,
     CHAT_ITEM_SENDER_ID,
@@ -22,9 +16,13 @@ import {
     CHAT_ITEM_BODY,
     CHAT_ITEM_CREATED_AT,
     CHAT_ITEM_ATTACHMENTS,
-} from '../generated/chat';
-import type { ChatItem } from '../generated/chat';
-import { chatMessageTemplate, MESSAGE_REF_ATTACHMENTS, MessageRefs } from './template';
+} from '@month/gen/chat';
+import type { ChatItem } from '@month/gen/chat';
+import {
+    chatMessageTemplate,
+    MESSAGE_REF_ATTACHMENTS,
+    MessageRefs,
+} from './template';
 import { renderAttachment } from '../attachments/handler';
 
 // ── MsgsEvent tuple ───────────────────────────────────────────────────────────
@@ -38,8 +36,10 @@ export type MsgsInitPayload = {
     waitForMessageId: (requestId: string) => Task<number>;
 };
 
-export type MsgsEvent =
-    | readonly [type: typeof MSGS_INIT, payload: MsgsInitPayload];
+export type MsgsEvent = readonly [
+    type: typeof MSGS_INIT,
+    payload: MsgsInitPayload,
+];
 
 export type MsgsObs = ObserverInstance<MsgsEvent>;
 
@@ -85,10 +85,15 @@ export const makeWaitForMessageId =
         const handler = (event: ServerFramePayload) => {
             if (
                 event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_MESSAGE &&
-                event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_MESSAGE_REQUEST_ID] === requestId
+                event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_MESSAGE_REQUEST_ID] ===
+                    requestId
             ) {
                 off(handler, wsEventState);
-                resolve(event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_MESSAGE_ITEM]![CHAT_ITEM_ID]);
+                resolve(
+                    event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_MESSAGE_ITEM]![
+                        CHAT_ITEM_ID
+                    ]
+                );
             }
         };
         on(handler, wsEventState);

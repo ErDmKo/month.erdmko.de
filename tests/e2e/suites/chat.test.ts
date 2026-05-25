@@ -11,13 +11,17 @@ const room = () => `room-${Math.random().toString(36).slice(2)}`;
 
 describe('chat smoke', () => {
     test('server accepts WebSocket connections', async () => {
-        const ws = await WsClient.connect(`ws://127.0.0.1:${PORT()}/ws/chat/${room()}`);
+        const ws = await WsClient.connect(
+            `ws://127.0.0.1:${PORT()}/ws/chat/${room()}`
+        );
         ws.close();
     });
 
     test('join sends joined then history', async () => {
         const r = room();
-        const ws = await WsClient.connect(`ws://127.0.0.1:${PORT()}/ws/chat/${r}`);
+        const ws = await WsClient.connect(
+            `ws://127.0.0.1:${PORT()}/ws/chat/${r}`
+        );
         ws.sendText({ type: 'join', nickname: 'alice' });
 
         const joined = await ws.nextText();
@@ -25,7 +29,9 @@ describe('chat smoke', () => {
 
         const history = await ws.nextText();
         expect(history.type).toBe('history');
-        expect(Array.isArray((history as { messages?: unknown }).messages ?? [])).toBe(true);
+        expect(
+            Array.isArray((history as { messages?: unknown }).messages ?? [])
+        ).toBe(true);
 
         ws.close();
     });
@@ -37,10 +43,18 @@ describe('chat smoke', () => {
 
         alice.sendText({ type: 'message', body: 'hello from alice' });
 
-        const aliceMsg = await alice.findText((v) => v.type === 'message' && (v as { body?: string }).body === 'hello from alice');
+        const aliceMsg = await alice.findText(
+            (v) =>
+                v.type === 'message' &&
+                (v as { body?: string }).body === 'hello from alice'
+        );
         expect(aliceMsg).not.toBeNull();
 
-        const bobMsg = await bob.findText((v) => v.type === 'message' && (v as { body?: string }).body === 'hello from alice');
+        const bobMsg = await bob.findText(
+            (v) =>
+                v.type === 'message' &&
+                (v as { body?: string }).body === 'hello from alice'
+        );
         expect(bobMsg).not.toBeNull();
 
         alice.close();

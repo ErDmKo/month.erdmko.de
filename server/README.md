@@ -6,6 +6,22 @@ Server will start on localhost and will use 8080 port
 cargo run
 ```
 
+## Tests
+
+All Rust tests run via Bazel (not `cargo test` — the binary requires `BAZEL_STATIC` baked in at compile time):
+
+```bash
+bazel test //server:chat_db_test
+```
+
+To see full test output:
+
+```bash
+bazel test //server:chat_db_test --test_output=all
+```
+
+All WS tests send binary protobuf frames (`ClientFrame`/`ServerFrame`) — there is no JSON on the wire.
+
 ## Prettier
 
 ```bash

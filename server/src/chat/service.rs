@@ -10,11 +10,9 @@ use super::db::{self, ChatMessage};
 use super::error::{ChatError, ChatResult};
 use crate::app::AppCtx;
 use crate::generated::chat::{
-    client_frame, server_frame,
-    AttachmentItem, ChatItem, ClientFrame,
-    ServerDeleted, ServerDownloadEnd, ServerDownloadStart, ServerError,
-    ServerFrame, ServerHistory, ServerJoined, ServerMessage, ServerUploadDone,
-    ServerUploadReady, DownloadChunk,
+    AttachmentItem, ChatItem, ClientFrame, DownloadChunk, ServerDeleted, ServerDownloadEnd,
+    ServerDownloadStart, ServerError, ServerFrame, ServerHistory, ServerJoined, ServerMessage,
+    ServerUploadDone, ServerUploadReady, client_frame, server_frame,
 };
 
 pub const MAX_MESSAGE_LEN: usize = 200;
@@ -123,8 +121,8 @@ pub enum ClientEvent {
 }
 
 pub fn parse_client_event(buf: &[u8]) -> ChatResult<ClientEvent> {
-    let frame = ClientFrame::decode(buf)
-        .map_err(|_| ChatError::bad_payload("Malformed client frame."))?;
+    let frame =
+        ClientFrame::decode(buf).map_err(|_| ChatError::bad_payload("Malformed client frame."))?;
 
     match frame.payload {
         Some(client_frame::Payload::Join(msg)) => Ok(ClientEvent::Join {
@@ -238,7 +236,10 @@ pub fn is_allowed_origin(origin: &str) -> bool {
 // Every builder wraps its payload in ServerFrame and encodes to Vec<u8>.
 
 fn server_frame(payload: server_frame::Payload) -> Vec<u8> {
-    ServerFrame { payload: Some(payload) }.encode_to_vec()
+    ServerFrame {
+        payload: Some(payload),
+    }
+    .encode_to_vec()
 }
 
 pub fn error_payload(request_id: Option<&str>, code: &str, message: &str) -> Vec<u8> {
@@ -269,12 +270,16 @@ fn chat_item_proto(item: &ChatMessage) -> ChatItem {
         sender_name: item.sender_name.clone(),
         body: item.body.clone(),
         created_at: item.created_at.clone(),
-        attachments: item.attachments.iter().map(|a| AttachmentItem {
-            id: a.id,
-            filename: a.filename.clone(),
-            size: a.size,
-            mime_type: a.mime_type.clone(),
-        }).collect(),
+        attachments: item
+            .attachments
+            .iter()
+            .map(|a| AttachmentItem {
+                id: a.id,
+                filename: a.filename.clone(),
+                size: a.size,
+                mime_type: a.mime_type.clone(),
+            })
+            .collect(),
     }
 }
 

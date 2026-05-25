@@ -179,7 +179,9 @@ impl ChatWs {
                 Ok(None) => {
                     warn!(
                         "event=attachment_error code=ATTACHMENT_NOT_FOUND attachment_id={} sender_id={} request_id={}",
-                        attachment_id, sender_id, request_id.as_deref().unwrap_or("null"),
+                        attachment_id,
+                        sender_id,
+                        request_id.as_deref().unwrap_or("null"),
                     );
                     addr.do_send(PushEvent(chat_service::error_payload(
                         request_id.as_deref(),
@@ -190,7 +192,10 @@ impl ChatWs {
                 Err(err) => {
                     warn!(
                         "event=attachment_error code=INTERNAL attachment_id={} sender_id={} request_id={} error={:?}",
-                        attachment_id, sender_id, request_id.as_deref().unwrap_or("null"), err,
+                        attachment_id,
+                        sender_id,
+                        request_id.as_deref().unwrap_or("null"),
+                        err,
                     );
                     addr.do_send(PushEvent(chat_service::error_payload(
                         request_id.as_deref(),

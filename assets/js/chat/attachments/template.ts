@@ -6,6 +6,7 @@ import {
     genTagName,
     genText,
 } from '@month/utils';
+import { $chat__button } from '@month/gen/styles';
 
 // ── Attachment item refs ──────────────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ export const attachmentItemTemplate = (
                 genText(formatFileSize(size)),
             ]),
             genTagName('button', [
-                genClass('chat__button chat__button--download'),
+                genClass(`${$chat__button} chat__button--download`),
                 genAttr('type', 'button'),
                 genProp('onclick', onDownloadClick),
                 genText('Download'),
@@ -98,7 +99,7 @@ export const uploadPreviewTemplate = (filename: string, size: number) =>
                 genText(formatFileSize(size)),
             ]),
             genTagName('button', [
-                genClass('chat__button chat__button--remove'),
+                genClass(`${$chat__button} chat__button--remove`),
                 genRef(UPLOAD_PREVIEW_REF_REMOVE),
                 genAttr('type', 'button'),
                 genAttr('aria-label', 'Remove attachment'),

@@ -11,7 +11,8 @@
         "strictNullChecks": false,
         "strictFunctionTypes": false,
         "paths": {
-            "@month/*": ["./*"]
+            "@month/*": ["./*"],
+            "@month/gen/*": ["./gen/*"]
         }
     }
 }

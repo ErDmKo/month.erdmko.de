@@ -9,7 +9,7 @@ import {
 } from '@month/utils';
 import type { ObserverState } from '@month/utils';
 import type { ChatSocket } from './protocol/incoming';
-import type { ServerFramePayload, ClientFramePayload } from './generated/chat';
+import type { ServerFramePayload, ClientFramePayload } from '@month/gen/chat';
 import { initChatUi, CHAT_UI_ERROR } from './chat-ui/init';
 import type { ChatUiObs } from './chat-ui/events';
 import { initMessages } from './messages/init';
@@ -39,18 +39,18 @@ const initTemplate = (ctx: Window, root: Element) => {
                     taskChain((msgsObs: MsgsObs) =>
                         initAttachments(ctx, socket, chatUiObs, msgsObs)
                     ),
-                    taskFork(
-                        noop,
-                        (err) =>
-                            chatUiObs(
-                                bindArg(
-                                    [CHAT_UI_ERROR, String(err)] as const,
-                                    trigger
-                                )
+                    taskFork(noop, (err) =>
+                        chatUiObs(
+                            bindArg(
+                                [CHAT_UI_ERROR, String(err)] as const,
+                                trigger
                             )
+                        )
                     )
                 ),
-            (err) => { throw err; }
+            (err) => {
+                throw err;
+            }
         )
     );
 };

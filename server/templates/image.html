@@ -5,14 +5,14 @@
 <section>
     <h1 id="header">Image generator</h1>
     {% if error %}
-    <div class="result">
+    <div class="{{ css.result }}">
       <h3>Result</h3>
       <div>
         Error "{{ error }}"
       </div>
     </div>
     {% elif result %}
-    <div class="result">
+    <div class="{{ css.result }}">
       <h3>Result</h3>
       <img alt="query result" src="data:image/jpg;base64,{{ result }}"/>
       <div>
@@ -23,16 +23,16 @@
 </section>
 <section>
 <form 
-  class="big_form"
+  class="{{ css.big_form }}"
   method="POST"
   action="/task">
     <input 
         type="text"
-        class="big_input"
+        class="{{ css.big_input }}"
         value="{{ promt | default(value="") }}"
         name="promt"
         placeholder="Image promt"/>
-    <div class="buttons">
+    <div class="{{ css.buttons }}">
         <button 
             name="action"
             value="generate"

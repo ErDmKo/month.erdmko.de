@@ -16,10 +16,17 @@ import * as path from 'node:path';
 // ── Descriptor types (mirrors build.rs JSON output) ──────────────────────────
 
 type ProtoFieldType =
-    | 'uint32' | 'int32' | 'int64' | 'uint64'
-    | 'bool' | 'string' | 'bytes'
-    | 'double' | 'float'
-    | 'message' | 'unknown';
+    | 'uint32'
+    | 'int32'
+    | 'int64'
+    | 'uint64'
+    | 'bool'
+    | 'string'
+    | 'bytes'
+    | 'double'
+    | 'float'
+    | 'message'
+    | 'unknown';
 
 type FieldDescriptor = {
     name: string;
@@ -30,13 +37,13 @@ type FieldDescriptor = {
 };
 
 type OneofVariant = {
-    name: string;       // e.g. "join"
-    number: number;     // protobuf field number
+    name: string; // e.g. "join"
+    number: number; // protobuf field number
     message_type: string; // e.g. "ClientJoin"
 };
 
 type OneofDescriptor = {
-    name: string;          // e.g. "payload"
+    name: string; // e.g. "payload"
     variants: OneofVariant[];
 };
 
@@ -60,12 +67,18 @@ const protoTypeToTs = (t: ProtoFieldType, messageType?: string): string => {
         case 'int64':
         case 'uint64':
         case 'float':
-        case 'double': return 'number';
-        case 'bool':   return 'boolean';
-        case 'string': return 'string';
-        case 'bytes':  return 'Uint8Array';
-        case 'message': return messageType ?? 'unknown';
-        default:       return 'unknown';
+        case 'double':
+            return 'number';
+        case 'bool':
+            return 'boolean';
+        case 'string':
+            return 'string';
+        case 'bytes':
+            return 'Uint8Array';
+        case 'message':
+            return messageType ?? 'unknown';
+        default:
+            return 'unknown';
     }
 };
 
@@ -77,8 +90,10 @@ const protoTypeWire = (t: ProtoFieldType): string => {
         case 'uint64':
         case 'bool':
         case 'float':
-        case 'double': return 'WIRE_VARINT';
-        default:       return 'WIRE_LEN';
+        case 'double':
+            return 'WIRE_VARINT';
+        default:
+            return 'WIRE_LEN';
     }
 };
 
@@ -87,10 +102,14 @@ const encodeHelper = (t: ProtoFieldType): string => {
         case 'uint32':
         case 'int32':
         case 'int64':
-        case 'uint64': return 'encodeUint32Field';
-        case 'string': return 'encodeStringField';
-        case 'bytes':  return 'encodeBytesField';
-        default:       return 'encodeUint32Field';
+        case 'uint64':
+            return 'encodeUint32Field';
+        case 'string':
+            return 'encodeStringField';
+        case 'bytes':
+            return 'encodeBytesField';
+        default:
+            return 'encodeUint32Field';
     }
 };
 
@@ -113,7 +132,7 @@ const genMessage = (msg: MessageDescriptor): string => {
 
     // ── Tuple type ────────────────────────────────────────────────────────────
     const tupleFields = fields
-        .map(f => {
+        .map((f) => {
             const tsType = protoTypeToTs(f.type, f.message_type);
             const fieldType = f.repeated ? `${tsType}[]` : tsType;
             return `    ${toCamel(f.name)}: ${fieldType}`;
@@ -126,13 +145,15 @@ const genMessage = (msg: MessageDescriptor): string => {
 
     // ── Field index constants ─────────────────────────────────────────────────
     fields.forEach((f, i) => {
-        lines.push(`export const ${fieldConstName(name, f.name)} = ${i} as const;`);
+        lines.push(
+            `export const ${fieldConstName(name, f.name)} = ${i} as const;`
+        );
     });
     lines.push('');
 
     // ── encode ────────────────────────────────────────────────────────────────
     const encodeParams = fields
-        .map(f => {
+        .map((f) => {
             const tsType = protoTypeToTs(f.type, f.message_type);
             const fieldType = f.repeated ? `readonly ${tsType}[]` : tsType;
             return `    ${toCamel(f.name)}: ${fieldType}`;
@@ -143,14 +164,18 @@ const genMessage = (msg: MessageDescriptor): string => {
     lines.push(encodeParams);
     lines.push(`): Uint8Array =>`);
     lines.push(`    concatBytes(ctx, [`);
-    fields.forEach(f => {
+    fields.forEach((f) => {
         const camel = toCamel(f.name);
         if (f.type === 'message' && f.repeated) {
             // repeated message: encode each item as a length-delimited field
-            lines.push(`        ...encodeRepeatedMessage(ctx, ${f.number}, ${camel}, encode${f.message_type!}),`);
+            lines.push(
+                `        ...encodeRepeatedMessage(ctx, ${f.number}, ${camel}, encode${f.message_type!}),`
+            );
         } else if (f.type === 'message') {
             // single message: encodeMessageField returns Uint8Array directly
-            lines.push(`        encodeMessageField(ctx, ${f.number}, ${camel}, encode${f.message_type!}),`);
+            lines.push(
+                `        encodeMessageField(ctx, ${f.number}, ${camel}, encode${f.message_type!}),`
+            );
         } else {
             const helper = encodeHelper(f.type);
             lines.push(`        ...${helper}(ctx, ${f.number}, ${camel}),`);
@@ -170,30 +195,52 @@ const genMessage = (msg: MessageDescriptor): string => {
     const defaultFor = (f: FieldDescriptor): string => {
         if (f.repeated) return '[]';
         switch (f.type) {
-            case 'uint32': case 'int32': case 'int64': case 'uint64': return '0';
-            case 'string': return "''";
-            case 'bytes':  return 'new ctx.Uint8Array(0)';
-            default:       return 'null';
+            case 'uint32':
+            case 'int32':
+            case 'int64':
+            case 'uint64':
+                return '0';
+            case 'string':
+                return "''";
+            case 'bytes':
+                return 'new ctx.Uint8Array(0)';
+            default:
+                return 'null';
         }
     };
-    const defaults = fields.map(f => defaultFor(f)).join(', ');
+    const defaults = fields.map((f) => defaultFor(f)).join(', ');
     lines.push(`    const fields: unknown[] = [${defaults}];`);
     lines.push(`    while (!readerAtEnd(reader)) {`);
     lines.push(`        switch (readerTag(reader)) {`);
-    fields.forEach(f => {
+    fields.forEach((f) => {
         const constName = fieldConstName(name, f.name);
         if (f.type === 'message') {
             if (f.repeated) {
-                lines.push(`            case ${f.number}: ((fields[${constName}] ??= []) as unknown[]).push(readerMessage(ctx, reader, decode${f.message_type!})); break;`);
+                lines.push(
+                    `            case ${f.number}: ((fields[${constName}] ??= []) as unknown[]).push(readerMessage(ctx, reader, decode${f.message_type!})); break;`
+                );
             } else {
-                lines.push(`            case ${f.number}: fields[${constName}] = readerMessage(ctx, reader, decode${f.message_type!}); break;`);
+                lines.push(
+                    `            case ${f.number}: fields[${constName}] = readerMessage(ctx, reader, decode${f.message_type!}); break;`
+                );
             }
-        } else if (f.type === 'uint32' || f.type === 'int32' || f.type === 'int64' || f.type === 'uint64') {
-            lines.push(`            case ${f.number}: fields[${constName}] = readerVarint(reader); break;`);
+        } else if (
+            f.type === 'uint32' ||
+            f.type === 'int32' ||
+            f.type === 'int64' ||
+            f.type === 'uint64'
+        ) {
+            lines.push(
+                `            case ${f.number}: fields[${constName}] = readerVarint(reader); break;`
+            );
         } else if (f.type === 'string') {
-            lines.push(`            case ${f.number}: fields[${constName}] = readerString(reader); break;`);
+            lines.push(
+                `            case ${f.number}: fields[${constName}] = readerString(reader); break;`
+            );
         } else if (f.type === 'bytes') {
-            lines.push(`            case ${f.number}: fields[${constName}] = readerBytes(reader); break;`);
+            lines.push(
+                `            case ${f.number}: fields[${constName}] = readerBytes(reader); break;`
+            );
         }
     });
     lines.push(`            default: if (!readerSkip(reader)) return null;`);
@@ -220,10 +267,10 @@ const genOneofWrapper = (msg: MessageDescriptor): string => {
     const lines: string[] = [];
     const snake = toScreamingSnake(name);
     const variantConst = `${snake}_PAYLOAD_VARIANT`;
-    const valueConst   = `${snake}_PAYLOAD_VALUE`;
+    const valueConst = `${snake}_PAYLOAD_VALUE`;
 
     // ── Variant name constants ─────────────────────────────────────────────────
-    oneof.variants.forEach(v => {
+    oneof.variants.forEach((v) => {
         const constName = `${snake}_${v.name.toUpperCase()}`;
         lines.push(`export const ${constName} = ${v.number} as const;`);
     });
@@ -239,7 +286,9 @@ const genOneofWrapper = (msg: MessageDescriptor): string => {
     oneof.variants.forEach((v, i) => {
         const constName = `${snake}_${v.name.toUpperCase()}`;
         const sep = i < oneof.variants.length - 1 ? '' : ';';
-        lines.push(`    | readonly [variant: typeof ${constName}, value: ${v.message_type}]${sep}`);
+        lines.push(
+            `    | readonly [variant: typeof ${constName}, value: ${v.message_type}]${sep}`
+        );
     });
     lines.push('');
 
@@ -249,9 +298,11 @@ const genOneofWrapper = (msg: MessageDescriptor): string => {
     lines.push(`    payload: ${name}Payload,`);
     lines.push(`): Uint8Array => {`);
     lines.push(`    switch (payload[${variantConst}]) {`);
-    oneof.variants.forEach(v => {
+    oneof.variants.forEach((v) => {
         const constName = `${snake}_${v.name.toUpperCase()}`;
-        lines.push(`        case ${constName}: return encodeMessageField(ctx, ${v.number}, payload[${valueConst}], encode${v.message_type});`);
+        lines.push(
+            `        case ${constName}: return encodeMessageField(ctx, ${v.number}, payload[${valueConst}], encode${v.message_type});`
+        );
     });
     lines.push(`        default: return new ctx.Uint8Array(0);`);
     lines.push(`    }`);
@@ -264,10 +315,13 @@ const genOneofWrapper = (msg: MessageDescriptor): string => {
     lines.push(`    buf: Uint8Array,`);
     lines.push(`): ${name}Payload | null =>`);
     lines.push(`    decodeOneofFrame(ctx, buf, [`);
-    const maxField = Math.max(...oneof.variants.map(v => v.number));
+    const maxField = Math.max(...oneof.variants.map((v) => v.number));
     for (let i = 0; i <= maxField; i++) {
-        const v = oneof.variants.find(v => v.number === i);
-        if (!v) { lines.push(`        undefined,`); continue; }
+        const v = oneof.variants.find((v) => v.number === i);
+        if (!v) {
+            lines.push(`        undefined,`);
+            continue;
+        }
         const constName = `${snake}_${v.name.toUpperCase()}`;
         lines.push(`        [${constName}, decode${v.message_type}],`);
     }
@@ -278,7 +332,10 @@ const genOneofWrapper = (msg: MessageDescriptor): string => {
 
 // ── File generator ────────────────────────────────────────────────────────────
 
-const genFile = (descriptor: PackageDescriptor, protoUtilsPath: string): string => {
+const genFile = (
+    descriptor: PackageDescriptor,
+    protoUtilsPath: string
+): string => {
     const header = [
         `// @generated from ${descriptor.package}.proto — do not edit by hand`,
         `// Re-generate: cargo build (server/build.rs) then bazel run //assets/js/tools:gen-proto`,
@@ -319,14 +376,18 @@ const genFile = (descriptor: PackageDescriptor, protoUtilsPath: string): string 
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-const [,, descriptorPath, outputPath, protoUtilsRelPath] = process.argv;
+const [, , descriptorPath, outputPath, protoUtilsRelPath] = process.argv;
 
 if (!descriptorPath || !outputPath || !protoUtilsRelPath) {
-    console.error('Usage: gen-proto <descriptor.json> <output.ts> <proto-utils-relative-path>');
+    console.error(
+        'Usage: gen-proto <descriptor.json> <output.ts> <proto-utils-relative-path>'
+    );
     process.exit(1);
 }
 
-const descriptor: PackageDescriptor = JSON.parse(fs.readFileSync(descriptorPath, 'utf8'));
+const descriptor: PackageDescriptor = JSON.parse(
+    fs.readFileSync(descriptorPath, 'utf8')
+);
 const code = genFile(descriptor, protoUtilsRelPath);
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, code, 'utf8');

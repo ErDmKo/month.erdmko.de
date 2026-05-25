@@ -27,7 +27,11 @@ function waitForPort(port: number, timeoutMs = 15_000): Promise<void> {
     return new Promise((resolve, reject) => {
         const attempt = () => {
             if (Date.now() > deadline) {
-                return reject(new Error(`Server on port ${port} did not become ready within ${timeoutMs}ms`));
+                return reject(
+                    new Error(
+                        `Server on port ${port} did not become ready within ${timeoutMs}ms`
+                    )
+                );
             }
             const sock = net.connect(port, '127.0.0.1');
             sock.on('connect', () => {
@@ -65,7 +69,9 @@ function waitForPort(port: number, timeoutMs = 15_000): Promise<void> {
  *
  * `workspaceRoot` defaults to the repo root (two levels up from this file).
  */
-export async function startServer(workspaceRoot?: string): Promise<ServerHandle> {
+export async function startServer(
+    workspaceRoot?: string
+): Promise<ServerHandle> {
     const root = workspaceRoot ?? path.resolve(__dirname, '..', '..', '..');
 
     // ── 1. Build ────────────────────────────────────────────────────────────
@@ -74,10 +80,17 @@ export async function startServer(workspaceRoot?: string): Promise<ServerHandle>
             cwd: root,
             stdio: ['ignore', 'pipe', 'pipe'],
         });
-        build.stderr?.on('data', () => {/* suppress */});
+        build.stderr?.on('data', () => {
+            /* suppress */
+        });
         build.on('close', (code) => {
             if (code === 0) resolve();
-            else reject(new Error(`bazel build //server:server exited with code ${code}`));
+            else
+                reject(
+                    new Error(
+                        `bazel build //server:server exited with code ${code}`
+                    )
+                );
         });
     });
 
@@ -85,17 +98,26 @@ export async function startServer(workspaceRoot?: string): Promise<ServerHandle>
     // `bazel-bin/server/server.runfiles/_main/` is the root used when the
     // binary is run via `bazel run`.  Templates are at `server/templates/`
     // and static assets at `assets/` relative to that root.
-    const runfilesMain = path.join(root, 'bazel-bin', 'server', 'server.runfiles', '_main');
+    const runfilesMain = path.join(
+        root,
+        'bazel-bin',
+        'server',
+        'server.runfiles',
+        '_main'
+    );
     const runfilesTemplates = path.join(runfilesMain, 'server', 'templates');
     const runfilesAssets = path.join(runfilesMain, 'assets');
 
     // ── 3. Create isolated BASE_PATH ────────────────────────────────────────
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e_server_'));
-    // Symlink read-only trees from runfiles
-    fs.symlinkSync(runfilesTemplates, path.join(baseDir, 'server', 'templates'));
-    fs.symlinkSync(runfilesAssets, path.join(baseDir, 'assets'));
-    // Create a fresh, writable db directory
+    // Create server/ and server/db/ before symlinking into server/
     fs.mkdirSync(path.join(baseDir, 'server', 'db'), { recursive: true });
+    // Symlink read-only trees from runfiles
+    fs.symlinkSync(
+        runfilesTemplates,
+        path.join(baseDir, 'server', 'templates')
+    );
+    fs.symlinkSync(runfilesAssets, path.join(baseDir, 'assets'));
 
     // ── 4. Spawn ─────────────────────────────────────────────────────────────
     const port = await freePort();

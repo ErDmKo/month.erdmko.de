@@ -18,6 +18,38 @@ ts_config(
     visibility = [":__subpackages__"],
 )
 
+# ── Generate gen/styles.ts from the CSS class-name mapping ───────────────────
+
+genrule(
+    name = "styles_ts",
+    srcs = ["//assets/css:css_build"],
+    outs = ["gen/styles.ts"],
+    cmd = "BAZEL_BINDIR=$(BINDIR) $(execpath //assets/js/tools:gen_styles_ts_bin) $$PWD/$(location //assets/css:css_build)/style.module.json $$PWD/$@",
+    tags = ["local"],
+    tools = ["//assets/js/tools:gen_styles_ts_bin"],
+)
+
+# ── Generate gen/chat.ts from the proto descriptor ────────────────────────────
+
+genrule(
+    name = "chat_ts",
+    srcs = ["//server:chat_descriptor_json"],
+    outs = ["gen/chat.ts"],
+    cmd = "BAZEL_BINDIR=$(BINDIR) $(execpath //assets/js/tools:gen_proto_bin) $$PWD/$(location //server:chat_descriptor_json) $$PWD/$@ ../utils/proto-utils",
+    tags = ["local"],
+    tools = ["//assets/js/tools:gen_proto_bin"],
+)
+
+ts_project(
+    name = "gen",
+    srcs = [
+        ":chat_ts",
+        ":styles_ts",
+    ],
+    declaration = True,
+    deps = [":utils"],
+)
+
 ts_project(
     name = "utils",
     srcs = glob(["utils/**/*.ts"]),
@@ -32,7 +64,7 @@ ts_project(
     ]),
     declaration = True,
     deps = [
-        ":utils",
+        ":gen",
     ],
 )
 
@@ -60,7 +92,6 @@ ts_project(
         ":utils",
     ],
 )
-
 esbuild(
     name = "snowflake-bundle",
     entry_point = "snowflake-effect.ts",
@@ -82,7 +113,7 @@ ts_project(
     ]),
     declaration = True,
     deps = [
-        ":utils",
+        ":gen",
     ],
 )
 
@@ -108,7 +139,7 @@ ts_project(
     ]),
     declaration = True,
     deps = [
-        ":utils",
+        ":gen",
     ],
 )
 
@@ -123,20 +154,45 @@ ts_project(
     ),
     declaration = True,
     deps = [
-        ":utils",
+        ":gen",
     ],
 )
 
 ts_project(
-    name = "chat_test",
-    srcs = ["chat/protocol.test.ts"],
+    name = "chat_tests",
+    srcs = glob(["**/*.test.ts"]),
     declaration = True,
     tsconfig = ":tsconfig_test",
     deps = [
         ":chat",
+        ":gen",
         "//:node_modules/@types/node",
     ],
 )
+
+[
+    (
+        esbuild(
+            name = src.removesuffix(".ts") + "-bin",
+            bundle = True,
+            entry_point = src,
+            metafile = False,
+            minify = False,
+            platform = "node",
+            sourcemap = False,
+            target = "esnext",
+            tsconfig = ":tsconfig",
+            deps = [":chat_tests"],
+        ),
+        js_test(
+            name = src.removesuffix(".ts"),
+            data = [src.removesuffix(".ts") + "-bin"],
+            entry_point = src.removesuffix(".ts") + "-bin",
+            node_options = ["--test"],
+        ),
+    )
+    for src in glob(["**/*.test.ts"])
+]
 
 esbuild(
     name = "chat-bundle",
@@ -149,59 +205,6 @@ esbuild(
     deps = [
         ":chat",
     ],
-)
-
-esbuild(
-    name = "chat-protocol-test-bin",
-    bundle = True,
-    entry_point = "chat/protocol.test.ts",
-    metafile = False,
-    minify = False,
-    platform = "node",
-    sourcemap = False,
-    target = "esnext",
-    tsconfig = ":tsconfig",
-    deps = [
-        ":chat_test",
-    ],
-)
-
-js_test(
-    name = "chat-protocol-test",
-    data = [":chat-protocol-test-bin"],
-    entry_point = ":chat-protocol-test-bin",
-)
-
-ts_project(
-    name = "chat_attachments_proto_test",
-    srcs = ["chat/attachments-proto.test.ts"],
-    declaration = True,
-    tsconfig = ":tsconfig_test",
-    deps = [
-        ":chat",
-        "//:node_modules/@types/node",
-    ],
-)
-
-esbuild(
-    name = "chat-attachments-proto-test-bin",
-    bundle = True,
-    entry_point = "chat/attachments-proto.test.ts",
-    metafile = False,
-    minify = False,
-    platform = "node",
-    sourcemap = False,
-    target = "esnext",
-    tsconfig = ":tsconfig",
-    deps = [
-        ":chat_attachments_proto_test",
-    ],
-)
-
-js_test(
-    name = "chat-attachments-proto-test",
-    data = [":chat-attachments-proto-test-bin"],
-    entry_point = ":chat-attachments-proto-test-bin",
 )
 
 esbuild(

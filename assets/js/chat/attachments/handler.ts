@@ -43,13 +43,10 @@ import {
     CLIENT_FRAME_UPLOAD_START,
     CLIENT_FRAME_UPLOAD_END,
     CLIENT_FRAME_UPLOAD_CHUNK,
-} from '../generated/chat';
-import type { ServerFramePayload } from '../generated/chat';
+} from '@month/gen/chat';
+import type { ServerFramePayload } from '@month/gen/chat';
 export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
-import {
-    ATTACHMENT_REF_PROGRESS,
-    attachmentItemTemplate,
-} from './template';
+import { ATTACHMENT_REF_PROGRESS, attachmentItemTemplate } from './template';
 import {
     ATTACHMENT_ITEM_ID,
     ATTACHMENT_ITEM_FILENAME,
@@ -63,10 +60,18 @@ import {
     SERVER_UPLOAD_DONE_SIZE,
     SERVER_UPLOAD_DONE_MIME_TYPE,
     SERVER_UPLOAD_DONE_MESSAGE_ID,
-} from '../generated/chat';
-import type { AttachmentItem, ServerDownloadStart, ServerUploadDone } from '../generated/chat';
-export { uploadPreviewTemplate, UPLOAD_PREVIEW_REF_PROGRESS, UPLOAD_PREVIEW_REF_REMOVE } from './template';
-export type { AttachmentItem } from '../generated/chat';
+} from '@month/gen/chat';
+import type {
+    AttachmentItem,
+    ServerDownloadStart,
+    ServerUploadDone,
+} from '@month/gen/chat';
+export {
+    uploadPreviewTemplate,
+    UPLOAD_PREVIEW_REF_PROGRESS,
+    UPLOAD_PREVIEW_REF_REMOVE,
+} from './template';
+export type { AttachmentItem } from '@month/gen/chat';
 
 declare global {
     interface Window {
@@ -129,10 +134,17 @@ const sendChunks = (
     let index = 0;
     while (offset < bytes.length) {
         const chunk = bytes.slice(offset, offset + CHUNK_SIZE);
-        outgoing(bindArg([CLIENT_FRAME_UPLOAD_CHUNK, [uploadId, index, chunk]] as const, trigger));
+        outgoing(
+            bindArg(
+                [CLIENT_FRAME_UPLOAD_CHUNK, [uploadId, index, chunk]] as const,
+                trigger
+            )
+        );
         offset += CHUNK_SIZE;
         index++;
-        uploadEvents(bindArg([UPLOAD_PROGRESS, index, total] as const, trigger));
+        uploadEvents(
+            bindArg([UPLOAD_PROGRESS, index, total] as const, trigger)
+        );
     }
 };
 
@@ -141,7 +153,12 @@ const sendUploadEnd = (
     requestId: string,
     uploadId: number
 ): void => {
-    outgoing(bindArg([CLIENT_FRAME_UPLOAD_END, [requestId, uploadId]] as const, trigger));
+    outgoing(
+        bindArg(
+            [CLIENT_FRAME_UPLOAD_END, [requestId, uploadId]] as const,
+            trigger
+        )
+    );
 };
 
 export const startUpload = (
@@ -156,7 +173,11 @@ export const startUpload = (
     if (file.size === 0 || file.size > MAX_UPLOAD_SIZE) {
         uploadEvents(
             bindArg(
-                [UPLOAD_ERROR, 'UPLOAD_TOO_LARGE', `File must be between 1 byte and ${MAX_UPLOAD_SIZE} bytes.`] as const,
+                [
+                    UPLOAD_ERROR,
+                    'UPLOAD_TOO_LARGE',
+                    `File must be between 1 byte and ${MAX_UPLOAD_SIZE} bytes.`,
+                ] as const,
                 trigger
             )
         );
@@ -169,17 +190,31 @@ export const startUpload = (
     const handleEvent = (event: ServerFramePayload): void => {
         if (
             event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_UPLOAD_READY &&
-            event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_UPLOAD_READY_REQUEST_ID] === requestId
+            event[SERVER_FRAME_PAYLOAD_VALUE][
+                SERVER_UPLOAD_READY_REQUEST_ID
+            ] === requestId
         ) {
-            const uploadId = event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_UPLOAD_READY_UPLOAD_ID];
+            const uploadId =
+                event[SERVER_FRAME_PAYLOAD_VALUE][
+                    SERVER_UPLOAD_READY_UPLOAD_ID
+                ];
             uploadEvents(bindArg([UPLOAD_READY, uploadId] as const, trigger));
             pipe(
                 readFileAsArrayBuffer(ctx, file),
-                taskMap((buffer: ArrayBuffer) => sendChunks(ctx, outgoing, uploadId, buffer, uploadEvents)),
-                taskMap(bindArgs([outgoing, requestId, uploadId], sendUploadEnd)),
+                taskMap((buffer: ArrayBuffer) =>
+                    sendChunks(ctx, outgoing, uploadId, buffer, uploadEvents)
+                ),
+                taskMap(
+                    bindArgs([outgoing, requestId, uploadId], sendUploadEnd)
+                ),
                 taskFork(noop, (e) => {
                     unsubscribe();
-                    uploadEvents(bindArg([UPLOAD_ERROR, 'UPLOAD_FAILED', String(e)] as const, trigger));
+                    uploadEvents(
+                        bindArg(
+                            [UPLOAD_ERROR, 'UPLOAD_FAILED', String(e)] as const,
+                            trigger
+                        )
+                    );
                 })
             );
             return;
@@ -187,23 +222,37 @@ export const startUpload = (
 
         if (
             event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_UPLOAD_DONE &&
-            event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_UPLOAD_DONE_REQUEST_ID] === requestId
+            event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_UPLOAD_DONE_REQUEST_ID] ===
+                requestId
         ) {
             unsubscribe();
-            uploadEvents(bindArg([UPLOAD_DONE, event[SERVER_FRAME_PAYLOAD_VALUE]] as const, trigger));
+            uploadEvents(
+                bindArg(
+                    [UPLOAD_DONE, event[SERVER_FRAME_PAYLOAD_VALUE]] as const,
+                    trigger
+                )
+            );
             return;
         }
 
         if (
             event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_ERROR &&
-            (event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_REQUEST_ID] === requestId ||
-             event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_REQUEST_ID] === '')
+            (event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_REQUEST_ID] ===
+                requestId ||
+                event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_REQUEST_ID] ===
+                    '')
         ) {
             unsubscribe();
-            uploadEvents(bindArg(
-                [UPLOAD_ERROR, event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_CODE], event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_MESSAGE]] as const,
-                trigger
-            ));
+            uploadEvents(
+                bindArg(
+                    [
+                        UPLOAD_ERROR,
+                        event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_CODE],
+                        event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_MESSAGE],
+                    ] as const,
+                    trigger
+                )
+            );
         }
     };
     const unsubscribe = bindArgs([handleEvent, wsEvents], off);
@@ -212,7 +261,16 @@ export const startUpload = (
 
     outgoing(
         bindArg(
-            [CLIENT_FRAME_UPLOAD_START, [requestId, messageId, file.name, file.size, file.type || 'application/octet-stream']] as const,
+            [
+                CLIENT_FRAME_UPLOAD_START,
+                [
+                    requestId,
+                    messageId,
+                    file.name,
+                    file.size,
+                    file.type || 'application/octet-stream',
+                ],
+            ] as const,
             trigger
         )
     );
@@ -250,7 +308,11 @@ export const startDownload = (
     const tryAssembleBlob = (): void => {
         if (!session) return;
         if (!session[ACTIVE_END_SEEN]) return;
-        if (session[ACTIVE_RECEIVED] < session[ACTIVE_META][SERVER_DOWNLOAD_START_TOTAL_CHUNKS]) return;
+        if (
+            session[ACTIVE_RECEIVED] <
+            session[ACTIVE_META][SERVER_DOWNLOAD_START_TOTAL_CHUNKS]
+        )
+            return;
         unsubscribe();
         const chunks = session[ACTIVE_CHUNKS];
         const totalLen = chunks.reduce((s, c) => s + c.length, 0);
@@ -260,16 +322,28 @@ export const startDownload = (
             out.set(chunk, offset);
             offset += chunk.length;
         }
-        const blob = new ctx.Blob([out], { type: session[ACTIVE_META][SERVER_DOWNLOAD_START_MIME_TYPE] });
+        const blob = new ctx.Blob([out], {
+            type: session[ACTIVE_META][SERVER_DOWNLOAD_START_MIME_TYPE],
+        });
         downloadEvents(
-            bindArg([DOWNLOAD_DONE, blob, session[ACTIVE_META][SERVER_DOWNLOAD_START_FILENAME]] as const, trigger)
+            bindArg(
+                [
+                    DOWNLOAD_DONE,
+                    blob,
+                    session[ACTIVE_META][SERVER_DOWNLOAD_START_FILENAME],
+                ] as const,
+                trigger
+            )
         );
     };
 
     const handleEvent = (event: ServerFramePayload): void => {
         if (
-            event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_DOWNLOAD_START &&
-            event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_DOWNLOAD_START_REQUEST_ID] === requestId
+            event[SERVER_FRAME_PAYLOAD_VARIANT] ===
+                SERVER_FRAME_DOWNLOAD_START &&
+            event[SERVER_FRAME_PAYLOAD_VALUE][
+                SERVER_DOWNLOAD_START_REQUEST_ID
+            ] === requestId
         ) {
             const meta = event[SERVER_FRAME_PAYLOAD_VALUE];
             session = [meta, [], 0, downloadEvents, false];
@@ -278,16 +352,25 @@ export const startDownload = (
         }
 
         if (
-            event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_DOWNLOAD_CHUNK &&
-            event[SERVER_FRAME_PAYLOAD_VALUE][DOWNLOAD_CHUNK_ATTACHMENT_ID] === attachmentId
+            event[SERVER_FRAME_PAYLOAD_VARIANT] ===
+                SERVER_FRAME_DOWNLOAD_CHUNK &&
+            event[SERVER_FRAME_PAYLOAD_VALUE][DOWNLOAD_CHUNK_ATTACHMENT_ID] ===
+                attachmentId
         ) {
             if (!session) return;
-            session[ACTIVE_CHUNKS][event[SERVER_FRAME_PAYLOAD_VALUE][DOWNLOAD_CHUNK_INDEX]] =
-                event[SERVER_FRAME_PAYLOAD_VALUE][DOWNLOAD_CHUNK_DATA];
+            session[ACTIVE_CHUNKS][
+                event[SERVER_FRAME_PAYLOAD_VALUE][DOWNLOAD_CHUNK_INDEX]
+            ] = event[SERVER_FRAME_PAYLOAD_VALUE][DOWNLOAD_CHUNK_DATA];
             session[ACTIVE_RECEIVED]++;
             session[ACTIVE_OBSERVER](
                 bindArg(
-                    [DOWNLOAD_PROGRESS, session[ACTIVE_RECEIVED], session[ACTIVE_META][SERVER_DOWNLOAD_START_TOTAL_CHUNKS]] as const,
+                    [
+                        DOWNLOAD_PROGRESS,
+                        session[ACTIVE_RECEIVED],
+                        session[ACTIVE_META][
+                            SERVER_DOWNLOAD_START_TOTAL_CHUNKS
+                        ],
+                    ] as const,
                     trigger
                 )
             );
@@ -297,7 +380,9 @@ export const startDownload = (
 
         if (
             event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_DOWNLOAD_END &&
-            event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_DOWNLOAD_END_REQUEST_ID] === requestId
+            event[SERVER_FRAME_PAYLOAD_VALUE][
+                SERVER_DOWNLOAD_END_REQUEST_ID
+            ] === requestId
         ) {
             if (!session) return;
             session[ACTIVE_END_SEEN] = true;
@@ -307,19 +392,31 @@ export const startDownload = (
 
         if (
             event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_ERROR &&
-            event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_REQUEST_ID] === requestId
+            event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_REQUEST_ID] ===
+                requestId
         ) {
             unsubscribe();
-            downloadEvents(bindArg(
-                [DOWNLOAD_ERROR, event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_CODE], event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_MESSAGE]] as const,
-                trigger
-            ));
+            downloadEvents(
+                bindArg(
+                    [
+                        DOWNLOAD_ERROR,
+                        event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_CODE],
+                        event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_MESSAGE],
+                    ] as const,
+                    trigger
+                )
+            );
         }
     };
     const unsubscribe = bindArgs([handleEvent, wsEvents], off);
 
     on(handleEvent, wsEvents);
-    outgoing(bindArg([CLIENT_FRAME_DOWNLOAD_REQUEST, [requestId, attachmentId]] as const, trigger));
+    outgoing(
+        bindArg(
+            [CLIENT_FRAME_DOWNLOAD_REQUEST, [requestId, attachmentId]] as const,
+            trigger
+        )
+    );
 
     return downloadEvents;
 };
@@ -368,8 +465,15 @@ export const renderAttachment = (
             return;
         }
         const requestId = `dl-${attachment[ATTACHMENT_ITEM_ID]}-${Date.now()}`;
-        const downloadObs = startDownload(ctx, socket, requestId, attachment[ATTACHMENT_ITEM_ID]);
-        downloadObs(bindArg((event: DownloadEvent) => setDownloadState(event), on));
+        const downloadObs = startDownload(
+            ctx,
+            socket,
+            requestId,
+            attachment[ATTACHMENT_ITEM_ID]
+        );
+        downloadObs(
+            bindArg((event: DownloadEvent) => setDownloadState(event), on)
+        );
     };
 
     const liEl = ctx.document.createElement('li');
@@ -404,7 +508,11 @@ export const renderAttachment = (
             if (event[DOWNLOAD_EVENT_TYPE] === DOWNLOAD_DONE) {
                 progressEl.hidden = true;
                 progressEl.textContent = '';
-                triggerBrowserDownload(ctx, event[DOWNLOAD_DONE_BLOB] as Blob, event[DOWNLOAD_DONE_FILENAME] as string);
+                triggerBrowserDownload(
+                    ctx,
+                    event[DOWNLOAD_DONE_BLOB] as Blob,
+                    event[DOWNLOAD_DONE_FILENAME] as string
+                );
                 return;
             }
             if (event[DOWNLOAD_EVENT_TYPE] === DOWNLOAD_ERROR) {

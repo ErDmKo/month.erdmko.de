@@ -44,8 +44,8 @@ fn main() {
         .compile_protos(&protos, &[contracts_dir])
         .expect("failed to compile proto files for descriptor");
 
-    let descriptor_bin = fs::read(out_dir.join("descriptor.bin"))
-        .expect("failed to read descriptor.bin");
+    let descriptor_bin =
+        fs::read(out_dir.join("descriptor.bin")).expect("failed to read descriptor.bin");
 
     let fds = prost_types::FileDescriptorSet::decode(descriptor_bin.as_slice())
         .expect("failed to decode FileDescriptorSet");
@@ -78,16 +78,16 @@ fn main() {
                         use prost_types::field_descriptor_proto::{Label, Type};
                         let type_name = match f.r#type() {
                             Type::Uint32 => "uint32",
-                            Type::Int32  => "int32",
-                            Type::Int64  => "int64",
+                            Type::Int32 => "int32",
+                            Type::Int64 => "int64",
                             Type::Uint64 => "uint64",
-                            Type::Bool   => "bool",
+                            Type::Bool => "bool",
                             Type::String => "string",
-                            Type::Bytes  => "bytes",
+                            Type::Bytes => "bytes",
                             Type::Double => "double",
-                            Type::Float  => "float",
+                            Type::Float => "float",
                             Type::Message => "message",
-                            _            => "unknown",
+                            _ => "unknown",
                         };
                         let repeated = f.label() == Label::Repeated;
                         let mut obj = serde_json::json!({
@@ -100,7 +100,8 @@ fn main() {
                         }
                         if type_name == "message" {
                             // e.g. ".chat.ChatItem" → "ChatItem"
-                            let inner = f.type_name()
+                            let inner = f
+                                .type_name()
                                 .trim_start_matches('.')
                                 .split('.')
                                 .last()
@@ -124,7 +125,8 @@ fn main() {
                             .filter(|f| f.oneof_index == Some(oneof_idx as i32))
                             .map(|f| {
                                 // inner type name e.g. "ClientJoin"
-                                let inner = f.type_name()
+                                let inner = f
+                                    .type_name()
                                     .trim_start_matches('.')
                                     .split('.')
                                     .last()
@@ -161,8 +163,11 @@ fn main() {
         });
 
         let json_path = out_dir.join(format!("{}.descriptor.json", package));
-        fs::write(&json_path, serde_json::to_string_pretty(&descriptor).unwrap())
-            .expect("failed to write descriptor JSON");
+        fs::write(
+            &json_path,
+            serde_json::to_string_pretty(&descriptor).unwrap(),
+        )
+        .expect("failed to write descriptor JSON");
     }
 
     // Clean up the binary descriptor — only the JSON is needed downstream

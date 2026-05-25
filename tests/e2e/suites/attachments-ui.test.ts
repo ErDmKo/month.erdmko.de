@@ -24,7 +24,8 @@ const room = () => `room-${Math.random().toString(36).slice(2)}`;
 // assets/js/chat/chat-ui/template.ts and assets/js/chat/attachments/template.ts
 const SEL = {
     nicknameInput: '.chat__input:not(.chat__textarea)',
-    joinButton: '.chat__button:not(.chat__button--send):not(.chat__button--attach):not(.chat__button--remove)',
+    joinButton:
+        '.chat__button:not(.chat__button--send):not(.chat__button--attach):not(.chat__button--remove)',
     messageTextarea: '.chat__textarea',
     sendButton: '.chat__button--send, .chat__button[type="submit"]',
     attachButton: '.chat__button--attach, input[type="file"]',
@@ -58,7 +59,10 @@ async function openAndJoin(roomId: string, nickname: string): Promise<Page> {
     // Suppress console noise from the page
     // page.on('console', msg => console.log('[browser]', msg.text()));
 
-    await page.goto(`${BASE_URL()}/chat/${roomId}`, { waitUntil: 'networkidle2', timeout: 10_000 });
+    await page.goto(`${BASE_URL()}/chat/${roomId}`, {
+        waitUntil: 'networkidle2',
+        timeout: 10_000,
+    });
 
     // Check the page loaded (if the bundle is missing, the join form won't appear)
     const joinFormExists = await page.$(SEL.nicknameInput).then(Boolean);
@@ -86,13 +90,20 @@ describe('attachments UI (Puppeteer)', () => {
         fs.writeFileSync(tmpFile, 'preview content');
 
         try {
-            const fileInput = await page.$(SEL.fileInput) as import("puppeteer").ElementHandle<HTMLInputElement> | null;
+            const fileInput = (await page.$(SEL.fileInput)) as
+                | import('puppeteer').ElementHandle<HTMLInputElement>
+                | null;
             expect(fileInput).not.toBeNull();
             await fileInput!.uploadFile(tmpFile);
 
             // The upload preview filename should appear above the composer
-            await page.waitForSelector(SEL.uploadPreviewFilename, { timeout: 3_000 });
-            const filename = await page.$eval(SEL.uploadPreviewFilename, (el) => el.textContent);
+            await page.waitForSelector(SEL.uploadPreviewFilename, {
+                timeout: 3_000,
+            });
+            const filename = await page.$eval(
+                SEL.uploadPreviewFilename,
+                (el) => el.textContent
+            );
             expect(filename).toContain('e2e-preview-test.txt');
         } finally {
             await page.close();
@@ -106,9 +117,13 @@ describe('attachments UI (Puppeteer)', () => {
         fs.writeFileSync(tmpFile, 'to be removed');
 
         try {
-            const fileInput = await page.$(SEL.fileInput) as import("puppeteer").ElementHandle<HTMLInputElement> | null;
+            const fileInput = (await page.$(SEL.fileInput)) as
+                | import('puppeteer').ElementHandle<HTMLInputElement>
+                | null;
             await fileInput!.uploadFile(tmpFile);
-            await page.waitForSelector(SEL.uploadPreviewFilename, { timeout: 3_000 });
+            await page.waitForSelector(SEL.uploadPreviewFilename, {
+                timeout: 3_000,
+            });
 
             await page.click(SEL.removeButton);
 
@@ -116,7 +131,7 @@ describe('attachments UI (Puppeteer)', () => {
             await page.waitForFunction(
                 (sel) => !document.querySelector(sel),
                 { timeout: 3_000 },
-                SEL.uploadPreviewFilename,
+                SEL.uploadPreviewFilename
             );
         } finally {
             await page.close();
@@ -128,15 +143,19 @@ describe('attachments UI (Puppeteer)', () => {
         const roomId = room();
         const page = await openAndJoin(roomId, 'alice');
         const tmpFile = path.join(os.tmpdir(), 'e2e-upload-test.bin');
-        const fileContent = Buffer.alloc(1024, 0xab);  // 1 KB
+        const fileContent = Buffer.alloc(1024, 0xab); // 1 KB
         fs.writeFileSync(tmpFile, fileContent);
 
         try {
             await page.type(SEL.messageTextarea, 'message with attachment');
 
-            const fileInput = await page.$(SEL.fileInput) as import("puppeteer").ElementHandle<HTMLInputElement> | null;
+            const fileInput = (await page.$(SEL.fileInput)) as
+                | import('puppeteer').ElementHandle<HTMLInputElement>
+                | null;
             await fileInput!.uploadFile(tmpFile);
-            await page.waitForSelector(SEL.uploadPreviewFilename, { timeout: 3_000 });
+            await page.waitForSelector(SEL.uploadPreviewFilename, {
+                timeout: 3_000,
+            });
 
             // Submit the form
             await page.click(SEL.sendButton);
@@ -144,7 +163,10 @@ describe('attachments UI (Puppeteer)', () => {
             // The attachment item should appear in the message list
             await page.waitForSelector(SEL.attachmentItem, { timeout: 10_000 });
 
-            const attachmentName = await page.$eval(SEL.attachmentName, (el) => el.textContent);
+            const attachmentName = await page.$eval(
+                SEL.attachmentName,
+                (el) => el.textContent
+            );
             expect(attachmentName).toContain('e2e-upload-test.bin');
         } finally {
             await page.close();
@@ -158,16 +180,20 @@ describe('attachments UI (Puppeteer)', () => {
 
         // Create a file large enough to generate multiple chunks
         const tmpFile = path.join(os.tmpdir(), 'e2e-progress-test.bin');
-        const fileContent = Buffer.alloc(512 * 1024, 0xcd);  // 512 KB
+        const fileContent = Buffer.alloc(512 * 1024, 0xcd); // 512 KB
         fs.writeFileSync(tmpFile, fileContent);
 
         const progressTexts: string[] = [];
         try {
             await page.type(SEL.messageTextarea, 'progress test');
 
-            const fileInput = await page.$(SEL.fileInput) as import("puppeteer").ElementHandle<HTMLInputElement> | null;
+            const fileInput = (await page.$(SEL.fileInput)) as
+                | import('puppeteer').ElementHandle<HTMLInputElement>
+                | null;
             await fileInput!.uploadFile(tmpFile);
-            await page.waitForSelector(SEL.uploadPreviewFilename, { timeout: 3_000 });
+            await page.waitForSelector(SEL.uploadPreviewFilename, {
+                timeout: 3_000,
+            });
 
             // Observe progress spans via MutationObserver before submitting
             await page.evaluate((sel) => {
@@ -178,7 +204,11 @@ describe('attachments UI (Puppeteer)', () => {
                         (window as any).__progressTexts.push(el.textContent);
                     }
                 });
-                observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+                observer.observe(document.body, {
+                    subtree: true,
+                    childList: true,
+                    characterData: true,
+                });
                 (window as any).__progressObserver = observer;
             }, SEL.uploadProgress);
 
@@ -187,11 +217,15 @@ describe('attachments UI (Puppeteer)', () => {
             // Wait for upload to complete (attachment appears)
             await page.waitForSelector(SEL.attachmentItem, { timeout: 15_000 });
 
-            const captured = await page.evaluate(() => (window as any).__progressTexts as string[]);
+            const captured = await page.evaluate(
+                () => (window as any).__progressTexts as string[]
+            );
             // At least one progress update should have been captured
             // (may be empty if upload was too fast — only assert when chunks > 1)
             if (captured.length > 0) {
-                expect(captured.some((t) => /\d+\s*\/\s*\d+/.test(t))).toBe(true);
+                expect(captured.some((t) => /\d+\s*\/\s*\d+/.test(t))).toBe(
+                    true
+                );
             }
         } finally {
             await page.evaluate(() => {
@@ -212,9 +246,13 @@ describe('attachments UI (Puppeteer)', () => {
 
         try {
             await page.type(SEL.messageTextarea, 'msg for download');
-            const fileInput = await page.$(SEL.fileInput) as import("puppeteer").ElementHandle<HTMLInputElement> | null;
+            const fileInput = (await page.$(SEL.fileInput)) as
+                | import('puppeteer').ElementHandle<HTMLInputElement>
+                | null;
             await fileInput!.uploadFile(tmpFile);
-            await page.waitForSelector(SEL.uploadPreviewFilename, { timeout: 3_000 });
+            await page.waitForSelector(SEL.uploadPreviewFilename, {
+                timeout: 3_000,
+            });
             await page.click(SEL.sendButton);
 
             // Wait for the attachment to appear
@@ -236,7 +274,7 @@ describe('attachments UI (Puppeteer)', () => {
             // Wait for createObjectURL to be called (= download triggered)
             await page.waitForFunction(
                 () => (window as any).__downloadObjectUrls.length > 0,
-                { timeout: 10_000 },
+                { timeout: 10_000 }
             );
 
             const urls: string[] = await page.evaluate(

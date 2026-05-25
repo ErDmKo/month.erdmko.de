@@ -18,6 +18,7 @@ rust_binary(
     data = [
         "//assets",
         "//assets/css",
+        "//assets/css:css_build",
         "//assets/img",
         "//assets/js:chat-bundle",
         "//assets/js:metrika",

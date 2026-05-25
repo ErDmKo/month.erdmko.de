@@ -3,14 +3,14 @@
 {% block desc %}{% if current %}Месяц '{{ current }}' - имеет порядковый номер {{ current_no_number }}{% else %}Номер месяца{% endif %}{% endblock desc %}
 {% block inner_content %}
 <script async src="/static/js/month-bundle.js"></script>
-<div class="image_background" style="background-image: url('/static/img/month/{{ current_no_number }}.png')">
+<div class="{{ css.image_background }}" style="background-image: url('/static/img/month/{{ current_no_number }}.png')">
   <h1>Номер месяца {% if current %}{{ current }} {{ current_no_number }}{% endif %}</h1>
   <div class="js-month">
     <h2>Другие месяцы</h2>
-    <ul class="month">
-      <li class="month__item"><a href="/month">Текущий</a></li>
+    <ul class="{{ css.month }}">
+      <li class="{{ css.month__item }}"><a href="/month">Текущий</a></li>
     {% for i in range(end=12) %}
-      <li class="month__item"><a href="/month/{{ i + 1 }}">{{ i + 1 }} {{ months[i] }}</a></li>
+      <li class="{{ css.month__item }}"><a href="/month/{{ i + 1 }}">{{ i + 1 }} {{ months[i] }}</a></li>
     {% endfor %}
     </ul>
   </div>

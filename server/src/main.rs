@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::{env, option_env};
+use std::{env, fs, option_env};
 use tera::Tera;
 
 pub mod app;
@@ -23,8 +23,6 @@ pub mod pages;
 static TEMPLATES_GLOB: &str = "templates/**/*";
 static BASE_PATH: Option<&'static str> = option_env!("BASE_PATH");
 static BAZEL_STATIC: Option<&'static str> = option_env!("BAZEL_STATIC");
-static HOST_RUN: Option<&'static str> = option_env!("HOST");
-static PORT_RUN: Option<&'static str> = option_env!("PORT");
 
 async fn get_static_from_root(
     ctx: web::Data<app::AppCtx>,
@@ -77,11 +75,21 @@ async fn main() -> std::io::Result<()> {
         None => static_path.push("static"),
     }
     info!("Static path '{:?}'", static_path);
+    let css_path = static_path.join("css/minified/style.module.json");
+    info!("Loading CSS map from '{:?}'", css_path);
+    let css = serde_json::from_str::<serde_json::Value>(
+        &fs::read_to_string(&css_path)
+            .map_err(|e| Error::new(ErrorKind::Other, format!("CSS map error: {e}")))?,
+    )
+    .map_err(|e| Error::new(ErrorKind::Other, format!("CSS map parse error: {e}")))?;
+    info!("CSS map loaded ({} classes)", css.as_object().map_or(0, |m| m.len()));
     let mut base_dir = templates_path.clone();
     templates_path.push(&TEMPLATES_GLOB);
-    let host = HOST_RUN.unwrap_or("127.0.0.1");
-    let port_str = PORT_RUN.unwrap_or("8080");
-    let port = port_str.parse::<u16>().unwrap();
+    let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port: u16 = env::var("PORT")
+        .unwrap_or_else(|_| "8080".to_string())
+        .parse()
+        .unwrap();
     let tera_path = &templates_path.to_str().unwrap();
     info!("Templates start {:?}", tera_path);
     let tera = Tera::new(tera_path).unwrap();
@@ -99,6 +107,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(app::AppCtx {
                 static_path: static_path.clone(),
                 pool: pool.clone(),
+                css: css.clone(),
             }))
             .wrap(middleware::NormalizePath::trim())
             .wrap(middleware::Compress::default())

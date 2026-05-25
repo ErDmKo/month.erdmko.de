@@ -47,7 +47,11 @@ function readVarint(buf: Buffer, pos: { value: number }): number {
  * function encodes only the inner `UploadChunk` fields — matching the format
  * `encode_upload_chunk_frame` in `helpers.rs`.
  */
-export function encodeUploadChunk(uploadId: number, index: number, data: Uint8Array): Buffer {
+export function encodeUploadChunk(
+    uploadId: number,
+    index: number,
+    data: Uint8Array
+): Buffer {
     const inner: number[] = [];
     // field 1: upload_id (varint)
     writeVarint(inner, (1 << 3) | 0);
