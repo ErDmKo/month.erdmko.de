@@ -15,42 +15,47 @@ import puppeteer, { Browser, Page } from 'puppeteer';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { PAGE_TIMEOUT_MS } from '../helpers/constants';
+import {
+    $chat__button,
+    $chat__input,
+    $chat__textarea,
+    $chat__messages,
+} from '../../../assets/js/gen/styles';
 
 const PORT = () => parseInt(process.env.E2E_SERVER_PORT!, 10);
 const BASE_URL = () => `http://127.0.0.1:${PORT()}`;
 const room = () => `room-${Math.random().toString(36).slice(2)}`;
 
-// CSS selectors derived from the class names in
-// assets/js/chat/chat-ui/template.ts and assets/js/chat/attachments/template.ts
+const c = (name: string) => `.${name}`;
+
 const SEL = {
-    nicknameInput: '.chat__input:not(.chat__textarea)',
-    joinButton:
-        '.chat__button:not(.chat__button--send):not(.chat__button--attach):not(.chat__button--remove)',
-    messageTextarea: '.chat__textarea',
-    sendButton: '.chat__button--send, .chat__button[type="submit"]',
-    attachButton: '.chat__button--attach, input[type="file"]',
+    nicknameInput: `${c($chat__input)}:not(${c($chat__textarea)})`,
+    joinButton: c($chat__button),
+    messageTextarea: c($chat__textarea),
+    sendButton: `${c($chat__button)}[type="submit"]`, // kept for reference, not used directly
     fileInput: 'input[type="file"]',
     uploadPreviewFilename: '.chat__upload-filename',
     uploadProgress: '.chat__upload-progress',
-    removeButton: '.chat__button--remove',
+    removeButton: `${c($chat__button)}.chat__button--remove`,
     attachmentItem: '.chat__attachment-item',
     attachmentName: '.chat__attachment-name',
-    downloadButton: '.chat__button--download',
+    downloadButton: `${c($chat__button)}.chat__button--download`,
     downloadProgress: '.chat__attachment-progress',
-    messageList: '.chat__messages',
+    messageList: c($chat__messages),
 };
 
 let browser: Browser;
 
-beforeAll(async () => {
+beforeEach(async () => {
     browser = await puppeteer.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
 });
 
-afterAll(async () => {
-    if (browser) await browser.close();
+afterEach(async () => {
+    await browser.close();
 });
 
 /** Open a new page and join a chat room. Returns the page after join. */
@@ -60,24 +65,18 @@ async function openAndJoin(roomId: string, nickname: string): Promise<Page> {
     // page.on('console', msg => console.log('[browser]', msg.text()));
 
     await page.goto(`${BASE_URL()}/chat/${roomId}`, {
-        waitUntil: 'networkidle2',
-        timeout: 10_000,
+        waitUntil: 'load',
+        timeout: PAGE_TIMEOUT_MS,
     });
 
-    // Check the page loaded (if the bundle is missing, the join form won't appear)
-    const joinFormExists = await page.$(SEL.nicknameInput).then(Boolean);
-    if (!joinFormExists) {
-        await page.close();
-        throw new Error(
-            'Chat UI did not render — ensure the frontend bundle is built: bazel build //assets/js:month-bundle'
-        );
-    }
+    // Wait for JS to render the join form
+    await page.waitForSelector(SEL.nicknameInput, { timeout: PAGE_TIMEOUT_MS });
 
     await page.type(SEL.nicknameInput, nickname);
     await page.click(SEL.joinButton);
 
     // Wait for chat screen to appear
-    await page.waitForSelector(SEL.messageTextarea, { timeout: 5_000 });
+    await page.waitForSelector(SEL.messageTextarea, { timeout: PAGE_TIMEOUT_MS });
     return page;
 }
 
@@ -98,7 +97,7 @@ describe('attachments UI (Puppeteer)', () => {
 
             // The upload preview filename should appear above the composer
             await page.waitForSelector(SEL.uploadPreviewFilename, {
-                timeout: 3_000,
+                timeout: PAGE_TIMEOUT_MS,
             });
             const filename = await page.$eval(
                 SEL.uploadPreviewFilename,
@@ -122,7 +121,7 @@ describe('attachments UI (Puppeteer)', () => {
                 | null;
             await fileInput!.uploadFile(tmpFile);
             await page.waitForSelector(SEL.uploadPreviewFilename, {
-                timeout: 3_000,
+                timeout: PAGE_TIMEOUT_MS,
             });
 
             await page.click(SEL.removeButton);
@@ -130,7 +129,7 @@ describe('attachments UI (Puppeteer)', () => {
             // After removal the preview item should disappear
             await page.waitForFunction(
                 (sel) => !document.querySelector(sel),
-                { timeout: 3_000 },
+                { timeout: PAGE_TIMEOUT_MS },
                 SEL.uploadPreviewFilename
             );
         } finally {
@@ -154,14 +153,15 @@ describe('attachments UI (Puppeteer)', () => {
                 | null;
             await fileInput!.uploadFile(tmpFile);
             await page.waitForSelector(SEL.uploadPreviewFilename, {
-                timeout: 3_000,
+                timeout: PAGE_TIMEOUT_MS,
             });
 
             // Submit the form
-            await page.click(SEL.sendButton);
+            await page.focus(SEL.messageTextarea);
+            await page.keyboard.press("Enter");
 
             // The attachment item should appear in the message list
-            await page.waitForSelector(SEL.attachmentItem, { timeout: 10_000 });
+            await page.waitForSelector(SEL.attachmentItem, { timeout: PAGE_TIMEOUT_MS });
 
             const attachmentName = await page.$eval(
                 SEL.attachmentName,
@@ -192,7 +192,7 @@ describe('attachments UI (Puppeteer)', () => {
                 | null;
             await fileInput!.uploadFile(tmpFile);
             await page.waitForSelector(SEL.uploadPreviewFilename, {
-                timeout: 3_000,
+                timeout: PAGE_TIMEOUT_MS,
             });
 
             // Observe progress spans via MutationObserver before submitting
@@ -212,10 +212,11 @@ describe('attachments UI (Puppeteer)', () => {
                 (window as any).__progressObserver = observer;
             }, SEL.uploadProgress);
 
-            await page.click(SEL.sendButton);
+            await page.focus(SEL.messageTextarea);
+            await page.keyboard.press("Enter");
 
             // Wait for upload to complete (attachment appears)
-            await page.waitForSelector(SEL.attachmentItem, { timeout: 15_000 });
+            await page.waitForSelector(SEL.attachmentItem, { timeout: PAGE_TIMEOUT_MS });
 
             const captured = await page.evaluate(
                 () => (window as any).__progressTexts as string[]
@@ -238,11 +239,12 @@ describe('attachments UI (Puppeteer)', () => {
         }
     });
 
-    test('download flow: click Download → file is downloaded via createObjectURL', async () => {
+    test('download flow: downloaded file content matches uploaded file', async () => {
         const roomId = room();
         const page = await openAndJoin(roomId, 'alice');
         const tmpFile = path.join(os.tmpdir(), 'e2e-download-test.txt');
-        fs.writeFileSync(tmpFile, 'download me please');
+        const fileContent = 'download me please';
+        fs.writeFileSync(tmpFile, fileContent);
 
         try {
             await page.type(SEL.messageTextarea, 'msg for download');
@@ -251,37 +253,65 @@ describe('attachments UI (Puppeteer)', () => {
                 | null;
             await fileInput!.uploadFile(tmpFile);
             await page.waitForSelector(SEL.uploadPreviewFilename, {
-                timeout: 3_000,
+                timeout: PAGE_TIMEOUT_MS,
             });
-            await page.click(SEL.sendButton);
+            await page.focus(SEL.messageTextarea);
+            await page.keyboard.press('Enter');
 
-            // Wait for the attachment to appear
-            await page.waitForSelector(SEL.downloadButton, { timeout: 10_000 });
+            await page.waitForSelector(SEL.downloadButton, { timeout: PAGE_TIMEOUT_MS });
 
-            // Intercept createObjectURL to detect download completion
+            // Tell Chrome to accept downloads silently — prevents the "leave site?" dialog
+            const cdp = await page.createCDPSession();
+            await cdp.send('Browser.setDownloadBehavior', {
+                behavior: 'allow',
+                downloadPath: os.tmpdir(),
+                eventsEnabled: false,
+            });
+
+            // Intercept createObjectURL: read blob as base64 before it gets revoked,
+            // then signal completion when revokeObjectURL is called.
             await page.evaluate(() => {
-                (window as any).__downloadObjectUrls = [];
-                const orig = URL.createObjectURL.bind(URL);
+                (window as any).__downloadedBase64 = null;
+                (window as any).__downloadRevoked = false;
+
+                const origCreate = URL.createObjectURL.bind(URL);
+                const origRevoke = URL.revokeObjectURL.bind(URL);
+
                 URL.createObjectURL = (blob: Blob) => {
-                    const url = orig(blob);
-                    (window as any).__downloadObjectUrls.push(url);
+                    const url = origCreate(blob);
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        (window as any).__downloadedBase64 = (reader.result as string).split(',')[1];
+                    };
+                    reader.readAsDataURL(blob);
                     return url;
+                };
+
+                URL.revokeObjectURL = (url: string) => {
+                    origRevoke(url);
+                    (window as any).__downloadRevoked = true;
                 };
             });
 
             await page.click(SEL.downloadButton);
 
-            // Wait for createObjectURL to be called (= download triggered)
+            // Wait until revokeObjectURL is called — the full download cycle is done
             await page.waitForFunction(
-                () => (window as any).__downloadObjectUrls.length > 0,
-                { timeout: 10_000 }
+                () => (window as any).__downloadRevoked === true,
+                { timeout: PAGE_TIMEOUT_MS }
             );
 
-            const urls: string[] = await page.evaluate(
-                () => (window as any).__downloadObjectUrls as string[]
+            // Also wait for the FileReader async read to finish
+            await page.waitForFunction(
+                () => (window as any).__downloadedBase64 !== null,
+                { timeout: PAGE_TIMEOUT_MS }
             );
-            expect(urls.length).toBeGreaterThan(0);
-            expect(urls[0]).toMatch(/^blob:/);
+
+            const base64: string = await page.evaluate(
+                () => (window as any).__downloadedBase64 as string
+            );
+            const downloaded = Buffer.from(base64, 'base64').toString('utf8');
+            expect(downloaded).toBe(fileContent);
         } finally {
             await page.close();
             fs.unlinkSync(tmpFile);

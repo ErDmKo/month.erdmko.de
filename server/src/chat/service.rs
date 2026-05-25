@@ -230,6 +230,7 @@ pub fn is_allowed_origin(origin: &str) -> bool {
         .next()
         .unwrap_or("");
     matches!(host, "erdmko.dev" | "erdmko.dev:443" | "localhost:8080")
+        || host.starts_with("127.0.0.1:")
 }
 
 // ── Server → Client payload builders ─────────────────────────────────────────

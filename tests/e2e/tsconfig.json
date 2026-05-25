@@ -7,7 +7,6 @@
         "esModuleInterop": true,
         "resolveJsonModule": true,
         "outDir": "dist",
-        "rootDir": ".",
         "skipLibCheck": true
     },
     "include": ["**/*.ts"],

@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
+import { SERVER_READY_TIMEOUT_MS } from './constants';
 
 export interface ServerHandle {
     port: number;
@@ -22,7 +23,7 @@ function freePort(): Promise<number> {
 }
 
 /** Poll until TCP connect succeeds or timeout expires. */
-function waitForPort(port: number, timeoutMs = 15_000): Promise<void> {
+function waitForPort(port: number, timeoutMs = SERVER_READY_TIMEOUT_MS): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     return new Promise((resolve, reject) => {
         const attempt = () => {
@@ -130,14 +131,23 @@ export async function startServer(
             HOST: '127.0.0.1',
             PORT: String(port),
             BASE_PATH: baseDir,
-            RUST_LOG: 'warn',
+            RUST_LOG: 'debug',
         },
         stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    proc.stdout?.on('data', (d: Buffer) => {
+        process.stdout.write(d.toString().replace(/^/gm, '[server] '));
+    });
+    proc.stderr?.on('data', (d: Buffer) => {
+        process.stderr.write(d.toString().replace(/^/gm, '[server] '));
     });
 
     proc.on('error', (err) => {
         throw new Error(`Failed to spawn server: ${err.message}`);
     });
+
+    proc.unref();
 
     await waitForPort(port);
 
