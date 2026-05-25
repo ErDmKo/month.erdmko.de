@@ -139,6 +139,9 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
             Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
             Ok(ws::Message::Binary(bytes)) => self.on_binary(&bytes, ctx),
             Ok(ws::Message::Close(reason)) => ctx.close(reason),
+            Err(ws::ProtocolError::Overflow) => {
+                Self::send_error(&self.room_id, &self.sender_id, ctx, None, "BAD_PAYLOAD", "Frame too large.");
+            }
             _ => {}
         }
     }
