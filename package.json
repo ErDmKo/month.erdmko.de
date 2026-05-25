@@ -14,7 +14,7 @@
         "gen": "npx tsx script/gen.ts",
         "e2e": "npx tsx script/e2e.ts",
         "save": "docker save what_amonth -o image.tar",
-        "pub": "npm run build && npm run save && ansible-playbook ansible/push.yaml -i ansible/inventory.yaml",
+        "pub": "npm run build && npm run save && uvx --from ansible-core ansible-playbook ansible/push.yaml -i ansible/inventory.yaml",
         "start": "docker run --rm -p 8080:8080 what_amonth"
     },
     "repository": {

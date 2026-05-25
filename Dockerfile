@@ -10,9 +10,6 @@ RUN USER=root cargo new app
 
 COPY server/Cargo.toml server/Cargo.lock /usr/src/app/
 
-ENV HOST=0.0.0.0
-ENV PORT=8080
-
 WORKDIR /usr/src/app
 RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse cargo build --release
 
@@ -40,4 +37,8 @@ COPY --from=builder_linux /usr/src/app/target/release/server /usr/local/bin/serv
 COPY --from=builder_linux /usr/local/bin/static/ /usr/local/bin/static/
 COPY --from=builder_linux /usr/local/bin/templates /usr/local/bin/templates/
 VOLUME ["/usr/local/bin/db/"]
+
+ENV HOST=0.0.0.0
+ENV PORT=8080
+
 CMD ["/usr/local/bin/server"]
