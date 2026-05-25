@@ -44,6 +44,9 @@ const main = async (): Promise<void> => {
     console.log('\n[e2e] Building server with Bazel...');
     run('bazel build //server:server');
 
+    console.log('\n[e2e] Regenerating CSS + proto type exports...');
+    run('npm run gen');
+
     console.log('\n[e2e] Installing test dependencies...');
     run('npm ci', E2E_DIR);
 
