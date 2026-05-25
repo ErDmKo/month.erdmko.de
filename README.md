@@ -18,12 +18,18 @@ npm run pub
 
 ## Bazel static build
 
-### Pretter
+### Format code
 
-Run this command to fix code style
+Run this command to fix code style (JS/TS/CSS, Rust, Starlark):
 
 ```bash
-bazel run //assets/js:prettier
+bazel run //tools/format:format
+```
+
+Check formatting without modifying files:
+
+```bash
+bazel test //tools/format:format_test
 ```
 
 ### Build static
@@ -32,7 +38,24 @@ bazel run //assets/js:prettier
 bazel build //assets/css
 ```
 
-### Run tests
+### Code generation
+
+The chat WebSocket protocol is defined in `contracts/chat/chat.proto`. After editing the `.proto` file, regenerate both the Rust and TypeScript outputs.
+
+**Rust** (via `prost`, runs automatically as part of the server build):
+
+```bash
+bazel build //contracts/chat:chat_rs
+```
+
+**TypeScript** (generate then copy into the source tree):
+
+```bash
+bazel build //assets/js/tools:gen_chat_proto
+cp bazel-bin/assets/js/tools/chat.ts assets/js/chat/generated/chat.ts
+```
+
+### Run Bazel tests
 
 Run all tests:
 
@@ -40,11 +63,39 @@ Run all tests:
 bazel test //...
 ```
 
-Run chat frontend protocol test (Node.js via Bazel toolchain):
+Run all frontend tests (any `*.test.ts` under `assets/js/`):
 
 ```bash
-bazel test //assets/js:chat-protocol-test
+bazel test //assets/js:all
 ```
+
+Run a specific frontend test:
+
+```bash
+bazel test //assets/js:chat/protocol.test
+bazel test //assets/js:chat/attachments-proto.test
+```
+
+Run all suites (builds server automatically):
+
+```bash
+./tests/e2e/run.sh
+```
+
+Run a specific suite:
+
+```bash
+./tests/e2e/run.sh suites/chat
+./tests/e2e/run.sh suites/attachments.test
+```
+
+Or directly via npm (server must already be built):
+
+```bash
+cd tests/e2e && npm ci && npx jest
+```
+
+
 
 ### Run rust server
 
@@ -54,24 +105,10 @@ This command will run a http server on port 8080
 bazel run //server:server
 ```
 
-#### Run code formater
-
-Formatter for backend
+### Run npm commands in bazel
 
 ```bash
-cd server && cargo fmt
-```
-
-Formatter for frontend
-
-```bash
-bazel run //assets/js:prettier
-```
-
-### Run npm comands in bazel
-
-```bash
- bazel run @nodejs_host//:npm -- version
+bazel run @nodejs_host//:npm -- version
 ```
 
 ### Build docker container

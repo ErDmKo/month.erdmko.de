@@ -1,8 +1,8 @@
 use actix_web::HttpRequest;
-use actix_web::{get, Responder};
+use actix_web::{Responder, get};
+use chrono::{Datelike, Local};
 use serde::Serialize;
 use tera::Context;
-use chrono::{Local, Datelike};
 
 use super::utils;
 
@@ -44,7 +44,7 @@ impl From<MainPageContext<MainPageLink>> for MainPageContext<MainPageLinkString>
             addreses: context.addreses.into_iter().map(Into::into).collect(),
             tools: context.tools.into_iter().map(Into::into).collect(),
             games: context.games.into_iter().map(Into::into).collect(),
-            is_snow: context.is_snow
+            is_snow: context.is_snow,
         }
     }
 }

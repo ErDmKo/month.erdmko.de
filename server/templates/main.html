@@ -4,21 +4,21 @@
 {% if is_snow %}
   <script src="/static/js/snowflake-bundle.js"></script>
 {% endif %}
-<article class="page">
-    <header class="page__header js-header">
-        <h1 class="page__headline">Eroshenko Dmitry</h1>
-        <h2 class="page__sub">👨‍💻 Programmer</h2>
+<article class="{{ css.page }}">
+    <header class="{{ css.page__header }} js-header">
+        <h1 class="{{ css.page__headline }}">Eroshenko Dmitry</h1>
+        <h2 class="{{ css.page__sub }}">👨‍💻 Programmer</h2>
     </header>
-    <hr class="avatar"/>
-    <section class="address">
-        <address class="address__item">
-            <h3 class="address__header">📝 If you have any questions or comments don't hesitate to email me</h3>
-            <ul class="address__list">
+    <hr class="{{ css.avatar }}"/>
+    <section class="{{ css.address }}">
+        <address class="{{ css.address__item }}">
+            <h3 class="{{ css.address__header }}">📝 If you have any questions or comments don't hesitate to email me</h3>
+            <ul class="{{ css.address__list }}">
                 {% for address in addreses %}
                 <li>
-                    <span class="address__title">{{ address.name }}</span>
+                    <span class="{{ css.address__title }}">{{ address.name }}</span>
                     <a 
-                        class="address__ancor"
+                        class="{{ css.address__ancor }}"
                         rel="noopener noreferrer"
                         href="{{ address.href }}"
                         target="_blank">
@@ -28,14 +28,14 @@
                 {% endfor %}
             </ul>
         </address>
-        <address class="address__item">
-            <h3 class="address__header"> 🛠 Some awesome online tools</h3>
-            <ul class="address__list">
+        <address class="{{ css.address__item }}">
+            <h3 class="{{ css.address__header }}"> 🛠 Some awesome online tools</h3>
+            <ul class="{{ css.address__list }}">
                 {% for tool in tools %}
                 <li>
-                    <span class="address__title">{{ tool.name }}</span> 
+                    <span class="{{ css.address__title }}">{{ tool.name }}</span> 
                     <a 
-                        class="address__ancor"
+                        class="{{ css.address__ancor }}"
                         rel="noopener noreferrer"
                         href="{{ tool.href }}">
                             {{ tool.text }}
@@ -44,14 +44,14 @@
                 {% endfor %}
             </ul>
         </address>
-        <address class="address__item">
-            <h3 class="address__header"> 🎮 Some simple html games</h3>
-            <ul class="address__list">
+        <address class="{{ css.address__item }}">
+            <h3 class="{{ css.address__header }}"> 🎮 Some simple html games</h3>
+            <ul class="{{ css.address__list }}">
                 {% for game in games %}
                 <li>
-                    <span class="address__title">{{ game.name }}</span> 
+                    <span class="{{ css.address__title }}">{{ game.name }}</span> 
                     <a 
-                        class="address__ancor"
+                        class="{{ css.address__ancor }}"
                         rel="noopener noreferrer"
                         href="{{ game.href }}">
                             {{ game.text }}
@@ -60,13 +60,13 @@
                 {% endfor %}
             </ul>
         </address>
-        <address class="address__item">
-            <h3 class="address__header">💸 Or you can send me some money just for fun!</h3>
-            <ul class="address__list">
+        <address class="{{ css.address__item }}">
+            <h3 class="{{ css.address__header }}">💸 Or you can send me some money just for fun!</h3>
+            <ul class="{{ css.address__list }}">
                 <li>
-                    <span class="address__title">Eth:</span> 
+                    <span class="{{ css.address__title }}">Eth:</span> 
                     <a 
-                        class="address__ancor"
+                        class="{{ css.address__ancor }}"
                         rel="noopener noreferrer"
                         href="https://etherscan.io/address/0xEFF121F128e0e64C0E64AE8Eb6eB042a0E5Aa81c">
                            0xEFF121F128e0e64C0E64AE8Eb6eB042a0E5Aa81c

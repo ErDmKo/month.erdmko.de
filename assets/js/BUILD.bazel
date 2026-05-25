@@ -1,6 +1,6 @@
 load("@aspect_rules_esbuild//esbuild:defs.bzl", "esbuild")
 load("@aspect_rules_js//js:defs.bzl", "js_test")
-load("@aspect_rules_ts//ts:defs.bzl", "ts_project", "ts_config")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_config", "ts_project")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -18,19 +18,54 @@ ts_config(
     visibility = [":__subpackages__"],
 )
 
+# ── Generate gen/styles.ts from the CSS class-name mapping ───────────────────
+
+genrule(
+    name = "styles_ts",
+    srcs = ["//assets/css:css_build"],
+    outs = ["gen/styles.ts"],
+    cmd = "BAZEL_BINDIR=$(BINDIR) $(execpath //assets/js/tools:gen_styles_ts_bin) $$PWD/$(location //assets/css:css_build)/style.module.json $$PWD/$@",
+    tags = ["local"],
+    tools = ["//assets/js/tools:gen_styles_ts_bin"],
+)
+
+# ── Generate gen/chat.ts from the proto descriptor ────────────────────────────
+
+genrule(
+    name = "chat_ts",
+    srcs = ["//server:chat_descriptor_json"],
+    outs = ["gen/chat.ts"],
+    cmd = "BAZEL_BINDIR=$(BINDIR) $(execpath //assets/js/tools:gen_proto_bin) $$PWD/$(location //server:chat_descriptor_json) $$PWD/$@ ../utils/proto-utils",
+    tags = ["local"],
+    tools = ["//assets/js/tools:gen_proto_bin"],
+)
+
+ts_project(
+    name = "gen",
+    srcs = [
+        ":chat_ts",
+        ":styles_ts",
+    ],
+    declaration = True,
+    deps = [":utils"],
+)
+
 ts_project(
     name = "utils",
     srcs = glob(["utils/**/*.ts"]),
-    declaration = True
+    declaration = True,
 )
 
 ts_project(
     name = "tetris",
-    srcs = glob(["tetris-effect.ts", "tetris/**/*.ts"]),
+    srcs = glob([
+        "tetris-effect.ts",
+        "tetris/**/*.ts",
+    ]),
     declaration = True,
     deps = [
-      ":utils"
-    ]
+        ":gen",
+    ],
 )
 
 esbuild(
@@ -38,9 +73,9 @@ esbuild(
     entry_point = "tetris-effect.ts",
     metafile = False,
     minify = True,
+    sourcemap = False,
     target = "esnext",
     tsconfig = ":tsconfig",
-    sourcemap = False,
     deps = [
         ":tetris",
     ],
@@ -48,20 +83,22 @@ esbuild(
 
 ts_project(
     name = "snowflake",
-    srcs = glob(["snowflake-effect.ts", "snowflake/**/*.ts"]),
+    srcs = glob([
+        "snowflake-effect.ts",
+        "snowflake/**/*.ts",
+    ]),
     declaration = True,
     deps = [
-      ":utils"
-    ]
+        ":utils",
+    ],
 )
-
 esbuild(
     name = "snowflake-bundle",
     entry_point = "snowflake-effect.ts",
     metafile = False,
     minify = True,
-    target = "esnext",
     sourcemap = False,
+    target = "esnext",
     tsconfig = ":tsconfig",
     deps = [
         ":snowflake",
@@ -70,21 +107,24 @@ esbuild(
 
 ts_project(
     name = "tennis",
-    srcs = glob(["tennis-effect.ts", "tennis/**/*.ts"]),
+    srcs = glob([
+        "tennis-effect.ts",
+        "tennis/**/*.ts",
+    ]),
     declaration = True,
     deps = [
-      ":utils"
-    ]
+        ":gen",
+    ],
 )
 
 esbuild(
     name = "tennis-bundle",
-    entry_point = "tennis-effect.ts",
     bundle = True,
+    entry_point = "tennis-effect.ts",
     metafile = False,
     minify = True,
-    target = "esnext",
     sourcemap = False,
+    target = "esnext",
     tsconfig = ":tsconfig",
     deps = [
         ":tennis",
@@ -93,68 +133,78 @@ esbuild(
 
 ts_project(
     name = "month",
-    srcs = glob(["month-effect.ts", "month/**/*.ts"]),
+    srcs = glob([
+        "month-effect.ts",
+        "month/**/*.ts",
+    ]),
     declaration = True,
     deps = [
-      ":utils"
-    ]
+        ":gen",
+    ],
 )
 
 ts_project(
     name = "chat",
     srcs = glob(
-        ["chat-effect.ts", "chat/**/*.ts"],
+        [
+            "chat-effect.ts",
+            "chat/**/*.ts",
+        ],
         exclude = ["chat/**/*.test.ts"],
     ),
     declaration = True,
     deps = [
-      ":utils"
-    ]
+        ":gen",
+    ],
 )
 
 ts_project(
-    name = "chat_test",
-    srcs = ["chat/protocol.test.ts"],
+    name = "chat_tests",
+    srcs = glob(["**/*.test.ts"]),
     declaration = True,
     tsconfig = ":tsconfig_test",
     deps = [
         ":chat",
+        ":gen",
         "//:node_modules/@types/node",
     ],
 )
+
+[
+    (
+        esbuild(
+            name = src.removesuffix(".ts") + "-bin",
+            bundle = True,
+            entry_point = src,
+            metafile = False,
+            minify = False,
+            platform = "node",
+            sourcemap = False,
+            target = "esnext",
+            tsconfig = ":tsconfig",
+            deps = [":chat_tests"],
+        ),
+        js_test(
+            name = src.removesuffix(".ts"),
+            data = [src.removesuffix(".ts") + "-bin"],
+            entry_point = src.removesuffix(".ts") + "-bin",
+            node_options = ["--test"],
+        ),
+    )
+    for src in glob(["**/*.test.ts"])
+]
 
 esbuild(
     name = "chat-bundle",
     entry_point = "chat-effect.ts",
     metafile = False,
     minify = True,
-    target = "esnext",
     sourcemap = False,
+    target = "esnext",
     tsconfig = ":tsconfig",
     deps = [
         ":chat",
     ],
-)
-
-esbuild(
-    name = "chat-protocol-test-bin",
-    entry_point = "chat/protocol.test.ts",
-    bundle = True,
-    platform = "node",
-    metafile = False,
-    minify = False,
-    target = "esnext",
-    sourcemap = False,
-    tsconfig = ":tsconfig",
-    deps = [
-        ":chat_test",
-    ],
-)
-
-js_test(
-    name = "chat-protocol-test",
-    entry_point = ":chat-protocol-test-bin",
-    data = [":chat-protocol-test-bin"],
 )
 
 esbuild(
@@ -162,8 +212,8 @@ esbuild(
     entry_point = "month-effect.ts",
     metafile = False,
     minify = True,
-    target = "esnext",
     sourcemap = False,
+    target = "esnext",
     tsconfig = ":tsconfig",
     deps = [
         ":month",

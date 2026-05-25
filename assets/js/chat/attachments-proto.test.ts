@@ -1,0 +1,101 @@
+import { test } from 'node:test';
+import * as assert from 'node:assert/strict';
+import {
+    encodeClientFrame,
+    decodeClientFrame,
+    encodeServerFrame,
+    decodeServerFrame,
+    CLIENT_FRAME_UPLOAD_CHUNK,
+    SERVER_FRAME_DOWNLOAD_CHUNK,
+    CLIENT_FRAME_PAYLOAD_VARIANT,
+    CLIENT_FRAME_PAYLOAD_VALUE,
+    SERVER_FRAME_PAYLOAD_VARIANT,
+    SERVER_FRAME_PAYLOAD_VALUE,
+    UPLOAD_CHUNK_UPLOAD_ID,
+    UPLOAD_CHUNK_INDEX,
+    UPLOAD_CHUNK_DATA,
+    DOWNLOAD_CHUNK_ATTACHMENT_ID,
+    DOWNLOAD_CHUNK_INDEX,
+    DOWNLOAD_CHUNK_DATA,
+} from '@month/gen/chat';
+
+const ctx = globalThis as unknown as Window;
+
+test('UploadChunk round-trip via ClientFrame', () => {
+    const uploadId = 7;
+    const index = 3;
+    const data = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0x05]);
+
+    const encoded = encodeClientFrame(ctx, [
+        CLIENT_FRAME_UPLOAD_CHUNK,
+        [uploadId, index, data],
+    ]);
+    const decoded = decodeClientFrame(ctx, encoded);
+
+    assert.ok(decoded !== null);
+    assert.equal(
+        decoded![CLIENT_FRAME_PAYLOAD_VARIANT],
+        CLIENT_FRAME_UPLOAD_CHUNK
+    );
+    assert.equal(
+        decoded![CLIENT_FRAME_PAYLOAD_VALUE][UPLOAD_CHUNK_UPLOAD_ID],
+        uploadId
+    );
+    assert.equal(
+        decoded![CLIENT_FRAME_PAYLOAD_VALUE][UPLOAD_CHUNK_INDEX],
+        index
+    );
+    assert.deepEqual(
+        decoded![CLIENT_FRAME_PAYLOAD_VALUE][UPLOAD_CHUNK_DATA],
+        data
+    );
+});
+
+test('DownloadChunk round-trip via ServerFrame', () => {
+    const attachmentId = 42;
+    const dlIndex = 1;
+    const dlData = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+
+    const dlEncoded = encodeServerFrame(ctx, [
+        SERVER_FRAME_DOWNLOAD_CHUNK,
+        [attachmentId, dlIndex, dlData],
+    ]);
+    const dlDecoded = decodeServerFrame(ctx, dlEncoded);
+
+    assert.ok(dlDecoded !== null);
+    assert.equal(
+        dlDecoded![SERVER_FRAME_PAYLOAD_VARIANT],
+        SERVER_FRAME_DOWNLOAD_CHUNK
+    );
+    assert.equal(
+        dlDecoded![SERVER_FRAME_PAYLOAD_VALUE][DOWNLOAD_CHUNK_ATTACHMENT_ID],
+        attachmentId
+    );
+    assert.equal(
+        dlDecoded![SERVER_FRAME_PAYLOAD_VALUE][DOWNLOAD_CHUNK_INDEX],
+        dlIndex
+    );
+    assert.deepEqual(
+        dlDecoded![SERVER_FRAME_PAYLOAD_VALUE][DOWNLOAD_CHUNK_DATA],
+        dlData
+    );
+});
+
+test('UploadChunk with index=0 and empty data', () => {
+    const encoded = encodeClientFrame(ctx, [
+        CLIENT_FRAME_UPLOAD_CHUNK,
+        [1, 0, new Uint8Array(0)],
+    ]);
+    const decoded = decodeClientFrame(ctx, encoded);
+
+    assert.ok(decoded !== null);
+    assert.equal(
+        decoded![CLIENT_FRAME_PAYLOAD_VARIANT],
+        CLIENT_FRAME_UPLOAD_CHUNK
+    );
+    assert.equal(decoded![CLIENT_FRAME_PAYLOAD_VALUE][UPLOAD_CHUNK_INDEX], 0);
+    assert.equal(
+        decoded![CLIENT_FRAME_PAYLOAD_VALUE][UPLOAD_CHUNK_DATA].length,
+        0
+    );
+});

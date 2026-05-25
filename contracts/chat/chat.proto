@@ -1,0 +1,155 @@
+syntax = "proto3";
+
+package chat;
+
+// ── Wrapper frames ─────────────────────────────────────────────────────────────
+// Every WebSocket binary frame is exactly one of these two messages.
+// The oneof field number is the unambiguous discriminant — no type field needed.
+
+message ClientFrame {
+  oneof payload {
+    ClientJoin            join             = 1;
+    ClientMessage         message          = 2;
+    ClientDelete          delete           = 3;
+    ClientUploadStart     upload_start     = 4;
+    ClientUploadEnd       upload_end       = 5;
+    ClientDownloadRequest download_request = 6;
+    UploadChunk           upload_chunk     = 7;
+  }
+}
+
+message ServerFrame {
+  oneof payload {
+    ServerJoined        joined         = 1;
+    ServerHistory       history        = 2;
+    ServerMessage       message        = 3;
+    ServerDeleted       deleted        = 4;
+    ServerError         error          = 5;
+    ServerUploadReady   upload_ready   = 6;
+    ServerUploadDone    upload_done    = 7;
+    ServerDownloadStart download_start = 8;
+    ServerDownloadEnd   download_end   = 9;
+    DownloadChunk       download_chunk = 10;
+  }
+}
+
+// ── Client → Server ───────────────────────────────────────────────────────────
+
+message ClientJoin {
+  string request_id = 1;
+  string nickname   = 2;
+}
+
+message ClientMessage {
+  string request_id = 1;
+  string body       = 2;
+}
+
+message ClientDelete {
+  string request_id = 1;
+  int64  message_id = 2;
+}
+
+message ClientUploadStart {
+  string request_id = 1;
+  int64  message_id = 2;
+  string filename   = 3;
+  uint32 size       = 4;
+  string mime_type  = 5;
+}
+
+message ClientUploadEnd {
+  string request_id = 1;
+  uint32 upload_id  = 2;
+}
+
+message ClientDownloadRequest {
+  string request_id   = 1;
+  int64  attachment_id = 2;
+}
+
+// Client → Server: chunk of file being uploaded
+message UploadChunk {
+  uint32 upload_id = 1;
+  uint32 index     = 2;
+  bytes  data      = 3;
+}
+
+// ── Server → Client ───────────────────────────────────────────────────────────
+
+message ServerJoined {
+  string request_id  = 1;
+  string sender_id   = 2;
+  string sender_name = 3;
+}
+
+message AttachmentItem {
+  int64  id         = 1;
+  string filename   = 2;
+  int64  size       = 3;
+  string mime_type  = 4;
+}
+
+message ChatItem {
+  int64  id          = 1;
+  string room_id     = 2;
+  string sender_id   = 3;
+  string sender_name = 4;
+  string body        = 5;
+  string created_at  = 6;
+  repeated AttachmentItem attachments = 7;
+}
+
+message ServerHistory {
+  repeated ChatItem items = 1;
+}
+
+message ServerMessage {
+  ChatItem item       = 1;
+  string   request_id = 2;
+}
+
+message ServerDeleted {
+  int64 message_id = 1;
+}
+
+message ServerError {
+  string request_id = 1;
+  string code       = 2;
+  string message    = 3;
+}
+
+message ServerUploadReady {
+  string request_id = 1;
+  uint32 upload_id  = 2;
+}
+
+message ServerUploadDone {
+  string request_id   = 1;
+  int64  attachment_id = 2;
+  string filename     = 3;
+  int64  size         = 4;
+  string mime_type    = 5;
+  int64  message_id   = 6;
+}
+
+message ServerDownloadStart {
+  string request_id   = 1;
+  int64  attachment_id = 2;
+  string filename     = 3;
+  int64  size         = 4;
+  string mime_type    = 5;
+  uint32 total_chunks = 6;
+}
+
+message ServerDownloadEnd {
+  string request_id   = 1;
+  int64  attachment_id = 2;
+}
+
+// Server → Client: chunk of file being downloaded
+message DownloadChunk {
+  int64  attachment_id = 1;
+  uint32 index         = 2;
+  bytes  data          = 3;
+}

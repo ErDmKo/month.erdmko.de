@@ -2,7 +2,7 @@ export const PROP = 0 as const;
 export const REF = 1 as const;
 export const ATTR = 2 as const;
 
-type PropType = string | Function | Partial<CSSStyleDeclaration> | number
+type PropType = string | Function | Partial<CSSStyleDeclaration> | number;
 type AttrType = string | number;
 export type RefKey = string | number;
 type RefMarker = false | true | RefKey;
@@ -23,54 +23,56 @@ export type DOMStruct<K extends TagName> = readonly [
     attrs: AttrMap, // 2
     ref: RefMarker, // 3
     children?: readonly DOMStruct<TagName>[], // 4
-    key?: string | number // 5
+    key?: string | number, // 5
 ];
 
-function genPropFn (name: 'style', value: Partial<CSSStyleDeclaration>): Props;
-function genPropFn (name: 'onclick', value: (m: MouseEvent) => void): Props;
-function genPropFn (name: string, value: PropType): Props;
-function genPropFn (name: string, value:  PropType) {
-  return [PROP, name, value] as const;
-};
+function genPropFn(name: 'style', value: Partial<CSSStyleDeclaration>): Props;
+function genPropFn(name: 'onclick', value: (m: MouseEvent) => void): Props;
+function genPropFn(name: string, value: PropType): Props;
+function genPropFn(name: string, value: PropType) {
+    return [PROP, name, value] as const;
+}
 
 export const genProp = genPropFn;
 
 export const genAttr = (name: string, value: string | number): Props => {
-  return [ATTR, name, value] as const;
+    return [ATTR, name, value] as const;
 };
 
 export function genRef(): Props;
 export function genRef(key: RefKey): Props;
 export function genRef(key?: RefKey): Props {
-  return key === undefined ? [REF] as const : [REF, key] as const;
+    return key === undefined ? ([REF] as const) : ([REF, key] as const);
 }
 
 export const genText = (text: string | number): Props => {
-  return [PROP, 'innerText', text] as const
+    return [PROP, 'innerText', text] as const;
 };
 
 export const genClass = (className: string): Props => {
-  return [ATTR, 'class', className] as const
-}
+    return [ATTR, 'class', className] as const;
+};
 
 export const genTagDiv = <T extends TagName>(
-  props: Props[],
-  children: DOMStruct<T>[] = [],
+    props: Props[],
+    children: DOMStruct<T>[] = []
 ): DOMStruct<T> => {
-  const [propMap, attrMap, hasRef] = collectProps(props);
-  return ['div' as T, propMap, attrMap, hasRef, children] as const;
+    const [propMap, attrMap, hasRef] = collectProps(props);
+    return ['div' as T, propMap, attrMap, hasRef, children] as const;
 };
 
 export const genTagName = <T extends TagName>(
-  tagName: T,
-  props: Props[],
-  children: DOMStruct<T>[] = []
-): DOMStruct<T> => { 
-  const [propMap, attrMap, hasRef] = collectProps(props);
-  return [tagName, propMap, attrMap, hasRef, children] as const;
+    tagName: T,
+    props: Props[],
+    children: DOMStruct<T>[] = []
+): DOMStruct<T> => {
+    const [propMap, attrMap, hasRef] = collectProps(props);
+    return [tagName, propMap, attrMap, hasRef, children] as const;
 };
 
-const collectProps = (attributes: readonly Props[]): [PropMap, AttrMap, RefMarker] => {
+const collectProps = (
+    attributes: readonly Props[]
+): [PropMap, AttrMap, RefMarker] => {
     const props: PropMap = {};
     const attrs: AttrMap = {};
     let ref: RefMarker = false;
@@ -91,9 +93,11 @@ const collectProps = (attributes: readonly Props[]): [PropMap, AttrMap, RefMarke
     return [props, attrs, ref];
 };
 
-const isFragment = (struct: DOMStruct<TagName> | DOMStruct<TagName>[]): struct is DOMStruct<TagName>[] => {
-  return struct.length > 0 && Array.isArray(struct[0]);
-}
+const isFragment = (
+    struct: DOMStruct<TagName> | DOMStruct<TagName>[]
+): struct is DOMStruct<TagName>[] => {
+    return struct.length > 0 && Array.isArray(struct[0]);
+};
 
 export const domCreator = <K extends keyof HTMLElementTagNameMap>(
     ctx: Window,
@@ -103,10 +107,9 @@ export const domCreator = <K extends keyof HTMLElementTagNameMap>(
     if (!(ctx.document && typeof ctx.document.createElement == 'function')) {
         throw new Error();
     }
-    const currnent: [Element, DOMStruct<TagName>][] = isFragment(struct) 
-      ? struct.reverse()
-          .map((s) => [root, s])
-      : [[root, struct as DOMStruct<TagName>]];
+    const currnent: [Element, DOMStruct<TagName>][] = isFragment(struct)
+        ? struct.reverse().map((s) => [root, s])
+        : [[root, struct as DOMStruct<TagName>]];
     const refs: HTMLElementTagNameMap[K][] = [];
     while (currnent.length) {
         const nextStruct = currnent.pop();
@@ -147,9 +150,8 @@ export const domCreatorRef = <K extends keyof HTMLElementTagNameMap>(
         throw new Error();
     }
     const currnent: [Element, DOMStruct<TagName>][] = isFragment(struct)
-      ? struct.reverse()
-          .map((s) => [root, s])
-      : [[root, struct as DOMStruct<TagName>]];
+        ? struct.reverse().map((s) => [root, s])
+        : [[root, struct as DOMStruct<TagName>]];
     const refs: Record<string, HTMLElementTagNameMap[K]> = {};
     while (currnent.length) {
         const nextStruct = currnent.pop();
@@ -185,4 +187,4 @@ export const cleanHtml = (root: HTMLElement) => {
     while (root.firstChild) {
         root.removeChild(root.firstChild);
     }
-}
+};

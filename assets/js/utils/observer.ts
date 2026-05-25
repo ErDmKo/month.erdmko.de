@@ -19,6 +19,15 @@ export const on = <EventType>(
     state.push(callback);
 };
 
+export const off = <EventType>(
+    callback: (e: EventType) => void,
+    state: ObserverState<EventType>
+) => {
+    const index = state.indexOf(callback);
+    if (index !== -1) {
+        state.splice(index, 1);
+    }
+};
 
 export const trigger = <EventType>(
     event: EventType,
@@ -31,13 +40,13 @@ export const trigger = <EventType>(
 
 // Typescript alias for bindArg(..., trigger);
 export const next = <EventType>(e: EventType) => {
-  return (state: ObserverState<EventType>) => trigger(e, state);
-}
+    return (state: ObserverState<EventType>) => trigger(e, state);
+};
 
 // Typescript alias for bindArg(..., on);
 export const subscribe = <EventType>(callback: (e: EventType) => void) => {
-  return (state: ObserverState<EventType>) => on(callback, state);
-}
+    return (state: ObserverState<EventType>) => on(callback, state);
+};
 
 export const delayOperator = <T>(delay: number, state: ObserverState<T>) => {
     const oldObserver = observer(state);
@@ -68,23 +77,34 @@ export const sumOperator = (state: ObserverState<number>) => {
 };
 
 export const combineLatestWith = <First, Second>(
-  firstObserver: ObserverInstance<First>,
-  secondObserver: ObserverInstance<Second>
+    firstObserver: ObserverInstance<First>,
+    secondObserver: ObserverInstance<Second>
 ) => {
-  const newObserver = observer<[First, Second]>();
-  let firstValue: First;
-  let secondValue: Second;
-  firstObserver(
-    bindArg((newVal: First) => {
-      firstValue = newVal;
-      newObserver(bindArg([firstValue, secondValue], trigger));
-    }, on)
-  );
-  secondObserver(
-    bindArg((newVal: Second) => {
-      secondValue = newVal;
-      newObserver(bindArg([firstValue, secondValue], trigger));
-    }, on)
-  );
-  return newObserver;
+    const newObserver = observer<[First, Second]>();
+    let firstValue: First;
+    let secondValue: Second;
+    firstObserver(
+        bindArg((newVal: First) => {
+            firstValue = newVal;
+            newObserver(bindArg([firstValue, secondValue], trigger));
+        }, on)
+    );
+    secondObserver(
+        bindArg((newVal: Second) => {
+            secondValue = newVal;
+            newObserver(bindArg([firstValue, secondValue], trigger));
+        }, on)
+    );
+    return newObserver;
+};
+
+export const createStore = <S>(initial: S) => {
+    let state = initial;
+    const storeObs = observer<S>();
+    const getState = () => state;
+    const setState = (next: S) => {
+        state = next;
+        storeObs(bindArg(next, trigger));
+    };
+    return [getState, setState, storeObs] as const;
 };

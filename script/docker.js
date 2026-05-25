@@ -40,11 +40,11 @@ const main = async () => {
     const staticDir = `${serverDeps}.runfiles/_main/assets`;
     let secrets = {};
     try {
-      ({ default: secrets } = await import('./secret.json', {
-         assert: { type: "json" }
-      }));
+        ({ default: secrets } = await import('./secret.json', {
+            assert: { type: 'json' },
+        }));
     } catch (e) {
-      console.log('No secrets build');
+        console.log('No secrets build');
     }
     /**
       Docker only can use files inside the the project folder,
@@ -60,10 +60,13 @@ const main = async () => {
             '--platform linux/amd64',
             `--tag ${PROJECT_NAME}`,
             `--build-arg STATIC_DIR=${TMP_DIR}`,
-        ].concat(secrets.apiToken ? [
-            `--build-arg API_TOKEN=${secrets.apiToken}`,
-        ] : [])
-      .join(' ')
+        ]
+            .concat(
+                secrets.apiToken
+                    ? [`--build-arg API_TOKEN=${secrets.apiToken}`]
+                    : []
+            )
+            .join(' ')
     );
     await execAsync(`rm -rf ./${TMP_DIR}`);
 };

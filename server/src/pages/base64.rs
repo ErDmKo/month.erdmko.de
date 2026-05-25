@@ -3,7 +3,7 @@ use crate::db::{delete_promt, insert_data_promt, insert_promt, insert_status_pro
 use actix_multipart::Multipart;
 use actix_web::http::StatusCode;
 use actix_web::web::Redirect;
-use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder, Result};
+use actix_web::{HttpRequest, HttpResponse, Responder, Result, get, post, web};
 use actix_web_grants::protect;
 use base64::{decode, encode};
 use futures_util::StreamExt as _;

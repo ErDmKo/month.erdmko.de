@@ -25,7 +25,6 @@ export type Vector2D = [width: number, height: number];
 export const WIDTH_INDEX = 0;
 export const HEIGHT_INDEX = 1;
 
-
 export const GAME_STATE_PLAY = 0 as const;
 export const GAME_STATE_END = 1 as const;
 
@@ -33,7 +32,7 @@ export type GameObserverState = typeof GAME_STATE_PLAY | typeof GAME_STATE_END;
 
 export type GameObservers = [
     gameState: ObserverInstance<GameObserverState>,
-    score: ObserverInstance<number>
+    score: ObserverInstance<number>,
 ];
 
 export type FieldState = [
@@ -42,7 +41,7 @@ export type FieldState = [
     figure: FigureInstance[], // 2
     loop: number, // 3
     observers: GameObservers, // 4
-    score: number // 5
+    score: number, // 5
 ];
 const LOOP_INDEX = 3;
 const OBSERVERS_INDEX = 4;
@@ -160,9 +159,9 @@ export const addFigureRandomFigure = (ctx: Window, state: FieldState) => {
     const [field, , figures] = state;
     const [gameState] = getObservers(state);
     if (state[LOOP_INDEX]) {
-      // TODO optimistions needed in case if 
-      // it was previosly GAME_STATE_PLAY no need to update it again
-      gameState(bindArg(GAME_STATE_PLAY, trigger));
+        // TODO optimistions needed in case if
+        // it was previosly GAME_STATE_PLAY no need to update it again
+        gameState(bindArg(GAME_STATE_PLAY, trigger));
     }
     if (figures.length) {
         return;

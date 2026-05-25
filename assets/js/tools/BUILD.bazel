@@ -1,0 +1,47 @@
+load("@aspect_rules_js//js:defs.bzl", "js_binary")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_config", "ts_project")
+
+package(default_visibility = ["//visibility:public"])
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+)
+
+# ── Compile gen-proto tool ────────────────────────────────────────────────────
+
+ts_project(
+    name = "gen_proto_lib",
+    srcs = ["gen-proto.ts"],
+    declaration = True,
+    tsconfig = ":tsconfig",
+    deps = ["//:node_modules/@types/node"],
+)
+
+js_binary(
+    name = "gen_proto_bin",
+    data = [
+        "package.json",
+        ":gen_proto_lib",
+    ],
+    entry_point = "gen-proto.js",
+)
+
+# ── Compile gen-styles-ts tool ───────────────────────────────────────────────
+
+ts_project(
+    name = "gen_styles_ts_lib",
+    srcs = ["gen-styles.ts"],
+    declaration = True,
+    tsconfig = ":tsconfig",
+    deps = ["//:node_modules/@types/node"],
+)
+
+js_binary(
+    name = "gen_styles_ts_bin",
+    data = [
+        "package.json",
+        ":gen_styles_ts_lib",
+    ],
+    entry_point = "gen-styles.js",
+)

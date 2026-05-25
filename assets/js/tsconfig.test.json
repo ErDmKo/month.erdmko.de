@@ -1,17 +1,18 @@
 {
-  "$schema": "http://json.schemastore.org/tsconfig",
-  "compilerOptions": {
-    "target": "esNext",
-    "module": "ES2022",
-    "esModuleInterop": false,
-    "moduleResolution": "node",
-    "declaration": true,
-    "alwaysStrict": false,
-    "skipLibCheck": true,
-    "baseUrl": "./",
-    "paths": {
-      "@month/*": ["./*"]
-    },
-    "types": ["node"]
-  }
+    "$schema": "http://json.schemastore.org/tsconfig",
+    "compilerOptions": {
+        "target": "esNext",
+        "module": "ES2022",
+        "esModuleInterop": false,
+        "moduleResolution": "bundler",
+        "declaration": true,
+        "alwaysStrict": false,
+        "skipLibCheck": true,
+        "ignoreDeprecations": "6.0",
+        "baseUrl": "./",
+        "paths": {
+            "@month/*": ["./*"]
+        },
+        "types": ["node"]
+    }
 }

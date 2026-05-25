@@ -1,16 +1,18 @@
 {
     "$schema": "http://json.schemastore.org/tsconfig",
     "compilerOptions": {
-      "target": "esNext",
-      "module": "ES2022",
-      "esModuleInterop": false,
-      "moduleResolution": "node",
-      "declaration": true,
-      "alwaysStrict": false,
-      "skipLibCheck": true,
-      "baseUrl": "./",
-      "paths": {
-        "@month/*": ["./*"]
-      }
+        "target": "esNext",
+        "module": "ES2022",
+        "moduleResolution": "bundler",
+        "declaration": true,
+        "skipLibCheck": true,
+        "noUnusedLocals": true,
+        "noImplicitAny": false,
+        "strictNullChecks": false,
+        "strictFunctionTypes": false,
+        "paths": {
+            "@month/*": ["./*"],
+            "@month/gen/*": ["./gen/*"]
+        }
     }
 }

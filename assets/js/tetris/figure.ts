@@ -12,7 +12,7 @@ export type FigureState = [
     matrix: FieldType, // 0
     position: Vector2D, // 1
     isFixed: 0 | 1, // 2
-    color: string // 3
+    color: string, // 3
 ];
 
 export const IS_FIXED_INDEX = 2;

@@ -1,4 +1,6 @@
-$base-color: #007db5;
+:root {
+    --base-color: #007db5;
+}
 
 body,
 html {
@@ -6,7 +8,7 @@ html {
     font-family: 'Roboto', sans-serif;
 }
 a {
-    color: $base-color;
+    color: var(--base-color);
     text-decoration: none;
 }
 h1,
@@ -25,6 +27,15 @@ h3 {
 }
 .buttons {
     margin: 15px 0px;
+}
+.min,
+.max {
+    font-size: 16px;
+    padding: 8px;
+    margin: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
 }
 .result {
     border-radius: 10px;
@@ -49,7 +60,6 @@ h3 {
 }
 .page__headline {
     line-height: 100px;
-    font-size: 90px;
     font-size: 11vw;
     margin: 20px 0;
 }
@@ -57,7 +67,6 @@ h3 {
     font-size: 27px;
 }
 .page__sub {
-    font-size: 27px;
     font-size: 3vw;
 }
 .page__header {
@@ -81,7 +90,7 @@ h3 {
     text-decoration: none;
     max-width: 500px;
     word-break: break-all;
-    color: $base-color;
+    color: var(--base-color);
 }
 .address__ancor:hover,
 a:hover {
@@ -221,9 +230,9 @@ a:hover {
 }
 
 .image_background {
-  box-shadow: inset 0px 0px 400px 240px #fff;
-  background-repeat: no-repeat;
-  background-size: cover;
+    box-shadow: inset 0px 0px 400px 240px #fff;
+    background-repeat: no-repeat;
+    background-size: cover;
 }
 
 .chat {
@@ -350,7 +359,7 @@ a:hover {
 }
 
 .chat__button {
-    background: $base-color;
+    background: var(--base-color);
     color: #fff;
     border: 0;
     border-radius: 4px;
@@ -359,4 +368,77 @@ a:hover {
 
 .chat__button:disabled {
     background: #aaa;
+}
+
+.chat__button--download,
+.chat__button--remove {
+    padding: 4px 10px;
+    font-size: 13px;
+}
+
+.chat__attachments {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.chat__attachment-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f9f9f9;
+    font-size: 13px;
+}
+
+.chat__attachment-icon {
+    flex-shrink: 0;
+}
+
+.chat__attachment-name {
+    font-weight: 500;
+    word-break: break-all;
+}
+
+.chat__attachment-size {
+    color: #888;
+    white-space: nowrap;
+}
+
+.chat__attachment-progress {
+    color: #555;
+    font-size: 12px;
+}
+
+.chat__upload-preview {
+    margin-bottom: 8px;
+}
+
+.chat__upload-preview-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid #b7d8f5;
+    border-radius: 4px;
+    background: #e9f4ff;
+    font-size: 13px;
+}
+
+.chat__upload-filename {
+    font-weight: 500;
+    word-break: break-all;
+}
+
+.chat__upload-size {
+    color: #888;
+    white-space: nowrap;
+}
+
+.chat__upload-progress {
+    color: #555;
+    font-size: 12px;
 }

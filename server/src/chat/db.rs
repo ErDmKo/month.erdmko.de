@@ -2,11 +2,12 @@ use actix_web::web;
 use rusqlite;
 use serde::{Deserialize, Serialize};
 
+use super::error::{ChatError, ChatResult};
 use crate::app::AppCtx;
+use crate::attachments::db::{AttachmentMeta, get_attachments_for_messages};
 use crate::chat::service::{
     HISTORY_LIMIT, MAX_MESSAGE_LEN, MAX_MESSAGES_STORAGE_BYTES, MAX_ROOMS_STORAGE_BYTES,
 };
-use super::error::{ChatError, ChatResult};
 
 pub static CHAT_ROOMS_TABLE: &str = "rooms";
 pub static CHAT_MESSAGES_TABLE: &str = "messages";
@@ -19,6 +20,8 @@ pub struct ChatMessage {
     pub sender_name: String,
     pub body: String,
     pub created_at: String,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentMeta>,
 }
 
 fn ensure_foreign_keys(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
@@ -102,7 +105,10 @@ fn enforce_messages_storage_limit(
     }
 }
 
-fn enforce_rooms_storage_limit(conn: &rusqlite::Connection, max_bytes: usize) -> rusqlite::Result<()> {
+fn enforce_rooms_storage_limit(
+    conn: &rusqlite::Connection,
+    max_bytes: usize,
+) -> rusqlite::Result<()> {
     let max_bytes = max_bytes as i64;
     loop {
         let current_total: i64 = conn.query_row(
@@ -147,7 +153,9 @@ pub async fn create_room_if_not_exists(
     let conn = web::block(move || pool.get())
         .await
         .map_err(|err| ChatError::internal("DB worker failure.", format!("{err:?}")))?
-        .map_err(|err| ChatError::internal("Failed to acquire DB connection.", format!("{err:?}")))?;
+        .map_err(|err| {
+            ChatError::internal("Failed to acquire DB connection.", format!("{err:?}"))
+        })?;
     ensure_foreign_keys(&conn)
         .map_err(|err| ChatError::internal("Failed to enable foreign keys.", format!("{err:?}")))?;
     conn.execute(
@@ -155,8 +163,9 @@ pub async fn create_room_if_not_exists(
         (room_slug,),
     )
     .map_err(|err| ChatError::internal("Failed to create room.", format!("{err:?}")))?;
-    enforce_rooms_storage_limit(&conn, MAX_ROOMS_STORAGE_BYTES)
-        .map_err(|err| ChatError::internal("Failed to enforce room storage limit.", format!("{err:?}")))?;
+    enforce_rooms_storage_limit(&conn, MAX_ROOMS_STORAGE_BYTES).map_err(|err| {
+        ChatError::internal("Failed to enforce room storage limit.", format!("{err:?}"))
+    })?;
     Ok(())
 }
 
@@ -187,7 +196,9 @@ pub async fn insert_message(
     let conn = web::block(move || pool.get())
         .await
         .map_err(|err| ChatError::internal("DB worker failure.", format!("{err:?}")))?
-        .map_err(|err| ChatError::internal("Failed to acquire DB connection.", format!("{err:?}")))?;
+        .map_err(|err| {
+            ChatError::internal("Failed to acquire DB connection.", format!("{err:?}"))
+        })?;
     ensure_foreign_keys(&conn)
         .map_err(|err| ChatError::internal("Failed to enable foreign keys.", format!("{err:?}")))?;
     let room_db_id: i64 = conn
@@ -226,11 +237,18 @@ pub async fn insert_message(
                 sender_name: row.get("sender_name")?,
                 body: row.get("body")?,
                 created_at: row.get("created_at")?,
+                attachments: vec![],
             })
         })
-        .map_err(|err| ChatError::internal("Failed to load inserted message.", format!("{err:?}")))?;
-    enforce_messages_storage_limit(&conn, MAX_MESSAGES_STORAGE_BYTES)
-        .map_err(|err| ChatError::internal("Failed to enforce message storage limit.", format!("{err:?}")))?;
+        .map_err(|err| {
+            ChatError::internal("Failed to load inserted message.", format!("{err:?}"))
+        })?;
+    enforce_messages_storage_limit(&conn, MAX_MESSAGES_STORAGE_BYTES).map_err(|err| {
+        ChatError::internal(
+            "Failed to enforce message storage limit.",
+            format!("{err:?}"),
+        )
+    })?;
 
     Ok(inserted)
 }
@@ -252,7 +270,9 @@ pub async fn delete_message_by_id(
     let conn = web::block(move || pool.get())
         .await
         .map_err(|err| ChatError::internal("DB worker failure.", format!("{err:?}")))?
-        .map_err(|err| ChatError::internal("Failed to acquire DB connection.", format!("{err:?}")))?;
+        .map_err(|err| {
+            ChatError::internal("Failed to acquire DB connection.", format!("{err:?}"))
+        })?;
     ensure_foreign_keys(&conn)
         .map_err(|err| ChatError::internal("Failed to enable foreign keys.", format!("{err:?}")))?;
     let affected = conn
@@ -283,7 +303,9 @@ pub async fn get_recent_messages(
     let conn = web::block(move || pool.get())
         .await
         .map_err(|err| ChatError::internal("DB worker failure.", format!("{err:?}")))?
-        .map_err(|err| ChatError::internal("Failed to acquire DB connection.", format!("{err:?}")))?;
+        .map_err(|err| {
+            ChatError::internal("Failed to acquire DB connection.", format!("{err:?}"))
+        })?;
     ensure_foreign_keys(&conn)
         .map_err(|err| ChatError::internal("Failed to enable foreign keys.", format!("{err:?}")))?;
     let mut stmt = conn
@@ -309,10 +331,24 @@ pub async fn get_recent_messages(
                 sender_name: row.get("sender_name")?,
                 body: row.get("body")?,
                 created_at: row.get("created_at")?,
+                attachments: vec![],
             })
         })
         .and_then(Iterator::collect::<Result<Vec<_>, _>>)
         .map_err(|err| ChatError::internal("Failed to load history.", format!("{err:?}")))?;
+
+    // Batch-fetch attachment metadata for all loaded messages.
+    if !rows.is_empty() {
+        let ids: Vec<i64> = rows.iter().map(|m| m.id).collect();
+        let mut att_map = get_attachments_for_messages(&conn, &ids).map_err(|err| {
+            ChatError::internal("Failed to load attachments.", format!("{err:?}"))
+        })?;
+        for msg in &mut rows {
+            if let Some(atts) = att_map.remove(&msg.id) {
+                msg.attachments = atts;
+            }
+        }
+    }
 
     rows.reverse();
     Ok(rows)
@@ -339,9 +375,12 @@ mod tests {
         let ctx = web::Data::new(AppCtx {
             static_path: PathBuf::new(),
             pool,
+            css: serde_json::Value::Object(serde_json::Map::new()),
         });
         let conn = ctx.pool.get().expect("pool connection should be available");
         init_chat_schema(&conn).expect("chat schema should be initialized");
+        crate::attachments::db::init_attachments_schema(&conn)
+            .expect("attachments schema should be initialized");
         ctx
     }
 
@@ -369,9 +408,15 @@ mod tests {
     #[actix_web::test]
     async fn deletes_rooms_with_fewer_messages_first_when_storage_limit_exceeded() {
         let ctx = setup_ctx();
-        create_room_if_not_exists(&ctx, "aaaaa").await.expect("first room create should succeed");
-        create_room_if_not_exists(&ctx, "bbbbb").await.expect("second room create should succeed");
-        create_room_if_not_exists(&ctx, "ccccc").await.expect("third room create should succeed");
+        create_room_if_not_exists(&ctx, "aaaaa")
+            .await
+            .expect("first room create should succeed");
+        create_room_if_not_exists(&ctx, "bbbbb")
+            .await
+            .expect("second room create should succeed");
+        create_room_if_not_exists(&ctx, "ccccc")
+            .await
+            .expect("third room create should succeed");
         insert_message(&ctx, "bbbbb", "u1", "alice", "one")
             .await
             .expect("insert message one should succeed");
@@ -385,7 +430,10 @@ mod tests {
         let conn = ctx.pool.get().expect("pool connection should be available");
         enforce_rooms_storage_limit(&conn, 5).expect("limit should be enforced");
         let mut stmt = conn
-            .prepare(format!("SELECT slug FROM {CHAT_ROOMS_TABLE} ORDER BY created_at ASC, id ASC").as_str())
+            .prepare(
+                format!("SELECT slug FROM {CHAT_ROOMS_TABLE} ORDER BY created_at ASC, id ASC")
+                    .as_str(),
+            )
             .expect("prepare should succeed");
         let rows: Vec<String> = stmt
             .query_map((), |row| row.get(0))
@@ -397,9 +445,15 @@ mod tests {
     #[actix_web::test]
     async fn insert_and_fetch_recent_messages() {
         let ctx = setup_ctx();
-        create_room_if_not_exists(&ctx, "general").await.expect("room create should succeed");
-        insert_message(&ctx, "general", "u1", "alice", "first").await.expect("insert first message should succeed");
-        insert_message(&ctx, "general", "u2", "bob", "second").await.expect("insert second message should succeed");
+        create_room_if_not_exists(&ctx, "general")
+            .await
+            .expect("room create should succeed");
+        insert_message(&ctx, "general", "u1", "alice", "first")
+            .await
+            .expect("insert first message should succeed");
+        insert_message(&ctx, "general", "u2", "bob", "second")
+            .await
+            .expect("insert second message should succeed");
 
         let messages = get_recent_messages(&ctx, "general", Some(50))
             .await
@@ -412,7 +466,9 @@ mod tests {
     #[actix_web::test]
     async fn rejects_invalid_message_body() {
         let ctx = setup_ctx();
-        create_room_if_not_exists(&ctx, "general").await.expect("room create should succeed");
+        create_room_if_not_exists(&ctx, "general")
+            .await
+            .expect("room create should succeed");
 
         let empty_result = insert_message(&ctx, "general", "u1", "alice", "   ").await;
         assert!(empty_result.is_err());
@@ -425,10 +481,18 @@ mod tests {
     #[actix_web::test]
     async fn deletes_oldest_messages_when_storage_limit_exceeded() {
         let ctx = setup_ctx();
-        create_room_if_not_exists(&ctx, "general").await.expect("room create should succeed");
-        insert_message(&ctx, "general", "u1", "alice", "aaaaa").await.expect("insert first should succeed");
-        insert_message(&ctx, "general", "u2", "bob", "bbbbb").await.expect("insert second should succeed");
-        insert_message(&ctx, "general", "u3", "carol", "ccccc").await.expect("insert third should succeed");
+        create_room_if_not_exists(&ctx, "general")
+            .await
+            .expect("room create should succeed");
+        insert_message(&ctx, "general", "u1", "alice", "aaaaa")
+            .await
+            .expect("insert first should succeed");
+        insert_message(&ctx, "general", "u2", "bob", "bbbbb")
+            .await
+            .expect("insert second should succeed");
+        insert_message(&ctx, "general", "u3", "carol", "ccccc")
+            .await
+            .expect("insert third should succeed");
 
         let conn = ctx.pool.get().expect("pool connection should be available");
         enforce_messages_storage_limit(&conn, 10).expect("limit should be enforced");
@@ -454,7 +518,9 @@ mod tests {
     #[actix_web::test]
     async fn delete_message_by_id_removes_target_message() {
         let ctx = setup_ctx();
-        create_room_if_not_exists(&ctx, "general").await.expect("room create should succeed");
+        create_room_if_not_exists(&ctx, "general")
+            .await
+            .expect("room create should succeed");
         let inserted = insert_message(&ctx, "general", "u1", "alice", "to delete")
             .await
             .expect("insert should succeed");
@@ -473,8 +539,12 @@ mod tests {
     #[actix_web::test]
     async fn delete_message_by_id_does_not_delete_message_from_other_room() {
         let ctx = setup_ctx();
-        create_room_if_not_exists(&ctx, "room-a").await.expect("room-a create should succeed");
-        create_room_if_not_exists(&ctx, "room-b").await.expect("room-b create should succeed");
+        create_room_if_not_exists(&ctx, "room-a")
+            .await
+            .expect("room-a create should succeed");
+        create_room_if_not_exists(&ctx, "room-b")
+            .await
+            .expect("room-b create should succeed");
         let inserted = insert_message(&ctx, "room-a", "u1", "alice", "protected")
             .await
             .expect("insert should succeed");
@@ -494,8 +564,12 @@ mod tests {
     #[actix_web::test]
     async fn deleting_room_cascades_messages() {
         let ctx = setup_ctx();
-        create_room_if_not_exists(&ctx, "aaaaa").await.expect("room a create should succeed");
-        create_room_if_not_exists(&ctx, "bbbbb").await.expect("room b create should succeed");
+        create_room_if_not_exists(&ctx, "aaaaa")
+            .await
+            .expect("room a create should succeed");
+        create_room_if_not_exists(&ctx, "bbbbb")
+            .await
+            .expect("room b create should succeed");
         insert_message(&ctx, "aaaaa", "u1", "alice", "gone")
             .await
             .expect("insert for room a should succeed");
@@ -513,7 +587,10 @@ mod tests {
         let room_b = get_recent_messages(&ctx, "bbbbb", Some(10))
             .await
             .expect("query should succeed");
-        assert!(room_a.is_empty(), "messages for deleted room should be removed");
+        assert!(
+            room_a.is_empty(),
+            "messages for deleted room should be removed"
+        );
         assert_eq!(room_b.len(), 1);
         assert_eq!(room_b[0].body, "stay");
     }

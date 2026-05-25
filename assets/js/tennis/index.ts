@@ -1,4 +1,5 @@
 import { bindArg, observer, on, trigger } from '@month/utils';
+import { $tennis } from '@month/gen/styles';
 import { useNative } from './native';
 import {
     Commands,
@@ -32,7 +33,7 @@ const initTemplate = (ctx: Window, element: Element) => {
     const gameStateObserver = observer<GameState, void>();
     const htmlElement = element as HTMLDivElement;
     htmlElement.innerText = '';
-    htmlElement.classList.add('tennis');
+    htmlElement.classList.add($tennis);
     const [
         wrapper,
         plusOneLeft,
@@ -86,7 +87,9 @@ const initTemplate = (ctx: Window, element: Element) => {
     plusOneLeft.addEventListener(
         'click',
         () => {
-            voiceControlObserver(bindArg([COMMAND_TYPE, TEAM_LEFT], trigger) as any);
+            voiceControlObserver(
+                bindArg([COMMAND_TYPE, TEAM_LEFT], trigger) as any
+            );
         },
         eventOptions
     );
@@ -127,7 +130,9 @@ const initTemplate = (ctx: Window, element: Element) => {
     plusOneRight.addEventListener(
         'click',
         () => {
-            voiceControlObserver(bindArg([COMMAND_TYPE, TEAM_RIGHT], trigger) as any);
+            voiceControlObserver(
+                bindArg([COMMAND_TYPE, TEAM_RIGHT], trigger) as any
+            );
         },
         eventOptions
     );

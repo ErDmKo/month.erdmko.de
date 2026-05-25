@@ -1,9 +1,29 @@
-load("@gzgz_rules_sass//sass:defs.bzl", "sass_binary")
+load("@npm//:postcss-cli/package_json.bzl", postcss_bin = "bin")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
 
 package(default_visibility = ["//visibility:public"])
 
-sass_binary(
+postcss_bin.postcss(
+    name = "css_build",
+    srcs = [
+        "style.css",
+        "postcss.config.js",
+        "//:node_modules/cssnano",
+        "//:node_modules/postcss-modules",
+    ],
+    args = [
+        "style.css",
+        "--config",
+        "postcss.config.js",
+        "--output",
+        "minified/style.css",
+        "--no-map",
+    ],
+    chdir = package_name(),
+    out_dirs = ["minified"],
+)
+
+js_library(
     name = "css",
-    sourcemap = False,
-    src = "style.scss",
+    srcs = [":css_build"],
 )

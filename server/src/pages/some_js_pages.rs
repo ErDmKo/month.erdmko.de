@@ -1,5 +1,5 @@
 use actix::{Actor, StreamHandler};
-use actix_web::{get, web, Error, HttpRequest, HttpResponse, Result};
+use actix_web::{Error, HttpRequest, HttpResponse, Result, get, web};
 use actix_web_actors::ws;
 use tera::Context;
 
@@ -12,7 +12,6 @@ pub async fn tetris_page_handler(req: HttpRequest) -> Result<HttpResponse> {
     ctx.insert("bundle_name", "tetris");
     return utils::render(req, "js_bundle_page.html", &ctx).await;
 }
-
 
 #[get("/tennis")]
 pub async fn tennis_page_handler(req: HttpRequest) -> Result<HttpResponse> {

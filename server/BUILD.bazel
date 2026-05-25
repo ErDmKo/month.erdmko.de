@@ -1,32 +1,41 @@
-load("@crate_index//:defs.bzl", "all_crate_deps", "aliases")
+load("@crate_index//:defs.bzl", "aliases", "all_crate_deps")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("//:variables.bzl", "api_token")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files(["build.rs"])
+
+copy_to_bin(
+    name = "chat_descriptor_json",
+    srcs = ["src/generated/chat.descriptor.json"],
+)
+
 rust_binary(
     name = "server",
     srcs = glob(["src/**/*.rs"]),
+    data = [
+        "//assets",
+        "//assets/css",
+        "//assets/css:css_build",
+        "//assets/img",
+        "//assets/js:chat-bundle",
+        "//assets/js:metrika",
+        "//assets/js:month-bundle",
+        "//assets/js:snowflake-bundle",
+        "//assets/js:tennis-bundle",
+        "//assets/js:tetris-bundle",
+        "//server/db",
+        "//server/templates",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     rustc_env = {
-        'BAZEL_STATIC': 'server',
-        'DOMAIN': 'erdmko.dev',
-        'API_TOKEN': api_token
+        "BAZEL_STATIC": "server",
+        "DOMAIN": "erdmko.dev",
+        "API_TOKEN": api_token,
     },
-    deps = all_crate_deps(normal = True),
-    data = [
-        '//server/db',
-        '//server/templates',
-        '//assets/js:tennis-bundle',
-        '//assets/js:tetris-bundle',
-        '//assets/js:snowflake-bundle',
-        '//assets/js:month-bundle',
-        '//assets/js:chat-bundle',
-        '//assets/js:metrika',
-        '//assets/css',
-        '//assets/img',
-        '//assets:assets',
-    ]
+    deps = all_crate_deps(normal = True) + ["//contracts/chat:chat_rs"],
 )
 
 rust_test(
@@ -34,5 +43,5 @@ rust_test(
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
     proc_macro_deps = all_crate_deps(proc_macro = True),
-    deps = all_crate_deps(normal = True),
+    deps = all_crate_deps(normal = True) + ["//contracts/chat:chat_rs"],
 )

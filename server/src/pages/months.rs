@@ -1,5 +1,5 @@
 use super::utils;
-use actix_web::{get, web, HttpRequest, Responder};
+use actix_web::{HttpRequest, Responder, get, web};
 use chrono::Local;
 use tera::Context;
 

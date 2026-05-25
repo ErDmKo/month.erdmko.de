@@ -12,6 +12,7 @@ import {
     genText,
     on,
 } from '@month/utils';
+import { $tetris, $c, $info, $wrapper, $s, $start, $rotateR, $rotateL } from '@month/gen/styles';
 import {
     FieldInstance,
     drawField,
@@ -68,15 +69,13 @@ const phoneControlsMap: [string, string][] = [
     ['KeyS', 'Down (S)'],
     ['KeyD', 'Right (D)'],
 ];
-const smallButton = 's';
-
-const phoneStyleMap = (): Record<string, string[]> => ({
-    Space: ['start', smallButton],
-    KeyE: ['rotateR', smallButton],
-    KeyQ: ['rotateL', smallButton],
-    KeyS: ['down', smallButton],
-    KeyA: ['left', smallButton],
-    KeyD: ['right', smallButton],
+const phoneStyleMap = (): Record<string, string> => ({
+    Space: `${$start} ${$s}`,
+    KeyE: `${$rotateR} ${$s}`,
+    KeyQ: `${$rotateL} ${$s}`,
+    KeyS: `down ${$s}`,
+    KeyA: `left ${$s}`,
+    KeyD: `right ${$s}`,
 });
 
 const addPhoneControls = (
@@ -84,37 +83,38 @@ const addPhoneControls = (
     element: HTMLDivElement,
     keyHandlers: KeyHandlers
 ) => {
-    const styles = phoneStyleMap();
-    domCreator(ctx, element, genTagDiv(
-        [genClass('c')],
-        phoneControlsMap.map(([key, name]) => {
-            const classes = styles[key];
-            return genTagName(
-                'button',
-                [
-                    genClass((classes || []).join(' ')),
+    const styles_map = phoneStyleMap();
+    domCreator(
+        ctx,
+        element,
+        genTagDiv(
+            [genClass($c)],
+            phoneControlsMap.map(([key, name]) => {
+                return genTagName('button', [
+                    genClass(styles_map[key] ?? ''),
                     genText(name),
                     genProp('onclick', keyHandlers[key]),
-                ],
-            );
-        }),
-    ));
+                ]);
+            })
+        )
+    );
 };
 
 const initCanvas = (ctx: Window, element: Element) => {
     const htmlElement = element as HTMLDivElement;
     htmlElement.innerHTML = '';
-    htmlElement.classList.add('tetris');
+    htmlElement.classList.add($tetris);
     const boardSize: Vector2D = [10, 20];
     const infoTemplate = genTagDiv([
-      genClass('info'),
-      genText(START_TEXT),
-      genRef()
+        genClass($info),
+        genText(START_TEXT),
+        genRef(),
     ]);
-    const [wrapper, info] = domCreator(ctx, htmlElement, genTagDiv(
-        [genClass('wrapper'), genRef()],
-        [infoTemplate],
-    ));
+    const [wrapper, info] = domCreator(
+        ctx,
+        htmlElement,
+        genTagDiv([genClass($wrapper), genRef()], [infoTemplate])
+    );
     const [rect, canvas] = fillElemWidhCanvas(ctx, wrapper);
     var canvasCtx = canvas.getContext('2d');
     if (!canvasCtx) {
