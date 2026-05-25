@@ -6,7 +6,20 @@ import {
     genTagName,
     genText,
 } from '@month/utils';
-import { $chat__button } from '@month/gen/styles';
+import {
+    $chat__button,
+    $chat__attachment_item,
+    $chat__attachment_icon,
+    $chat__attachment_name,
+    $chat__attachment_size,
+    $chat__attachment_progress,
+    $chat__upload_preview_item,
+    $chat__upload_filename,
+    $chat__upload_size,
+    $chat__upload_progress,
+    $chat__button__download,
+    $chat__button__remove,
+} from '@month/gen/styles';
 
 // ── Attachment item refs ──────────────────────────────────────────────────────
 
@@ -49,28 +62,28 @@ export const attachmentItemTemplate = (
 ) =>
     genTagName(
         'div',
-        [genClass('chat__attachment-item')],
+        [genClass($chat__attachment_item)],
         [
             genTagName('span', [
-                genClass('chat__attachment-icon'),
+                genClass($chat__attachment_icon),
                 genText('\uD83D\uDCCE'),
             ]),
             genTagName('span', [
-                genClass('chat__attachment-name'),
+                genClass($chat__attachment_name),
                 genText(filename),
             ]),
             genTagName('span', [
-                genClass('chat__attachment-size'),
+                genClass($chat__attachment_size),
                 genText(formatFileSize(size)),
             ]),
             genTagName('button', [
-                genClass(`${$chat__button} chat__button--download`),
+                genClass(`${$chat__button} ${$chat__button__download}`),
                 genAttr('type', 'button'),
                 genProp('onclick', onDownloadClick),
                 genText('Download'),
             ]),
             genTagName('span', [
-                genClass('chat__attachment-progress'),
+                genClass($chat__attachment_progress),
                 genRef(ATTACHMENT_REF_PROGRESS),
                 genAttr('hidden', 'hidden'),
             ]),
@@ -84,29 +97,29 @@ export const attachmentItemTemplate = (
 export const uploadPreviewTemplate = (filename: string, size: number) =>
     genTagName(
         'div',
-        [genClass('chat__upload-preview-item')],
+        [genClass($chat__upload_preview_item)],
         [
             genTagName('span', [
-                genClass('chat__attachment-icon'),
+                genClass($chat__attachment_icon),
                 genText('\uD83D\uDCCE'),
             ]),
             genTagName('span', [
-                genClass('chat__upload-filename'),
+                genClass($chat__upload_filename),
                 genText(filename),
             ]),
             genTagName('span', [
-                genClass('chat__upload-size'),
+                genClass($chat__upload_size),
                 genText(formatFileSize(size)),
             ]),
             genTagName('button', [
-                genClass(`${$chat__button} chat__button--remove`),
+                genClass(`${$chat__button} ${$chat__button__remove}`),
                 genRef(UPLOAD_PREVIEW_REF_REMOVE),
                 genAttr('type', 'button'),
                 genAttr('aria-label', 'Remove attachment'),
                 genText('\u00D7'),
             ]),
             genTagName('span', [
-                genClass('chat__upload-progress'),
+                genClass($chat__upload_progress),
                 genRef(UPLOAD_PREVIEW_REF_PROGRESS),
                 genAttr('hidden', 'hidden'),
             ]),

@@ -29,6 +29,7 @@ pub(super) fn setup_ctx() -> actix_web::web::Data<crate::app::AppCtx> {
     let ctx = actix_web::web::Data::new(crate::app::AppCtx {
         static_path: PathBuf::new(),
         pool,
+        css: serde_json::Value::Object(serde_json::Map::new()),
     });
     prepare_chat_schema(&ctx);
     ctx

@@ -18,6 +18,7 @@ import {
     $chat__button,
     $chat__messages,
     $chat__counter,
+    $chat__upload_preview,
 } from '@month/gen/styles';
 
 export const CHAT_REF_STATUS = 0 as const;
@@ -128,7 +129,7 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                         [genClass($chat__form), genRef(CHAT_REF_MESSAGE_FORM)],
                         [
                             genTagName('div', [
-                                genClass('chat__upload-preview'),
+                                genClass($chat__upload_preview),
                                 genRef(CHAT_REF_UPLOAD_PREVIEW),
                                 genAttr('hidden', 'hidden'),
                             ]),

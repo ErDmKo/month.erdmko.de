@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn encode_download_chunk_produces_valid_proto() {
-        use crate::generated::chat::{DownloadChunk, ServerFrame, server_frame};
+        use crate::generated::chat::{ServerFrame, server_frame};
         use prost::Message;
 
         let encoded = encode_download_chunk(99, 3, b"world");

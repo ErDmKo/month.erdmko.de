@@ -62,6 +62,7 @@ import {
     CHAT_REF_UPLOAD_PREVIEW,
     CHAT_REF_FILE_INPUT,
 } from '../chat-ui/template';
+import { $chat__attachments } from '@month/gen/styles';
 
 // ── local ref constant for on-the-fly <ul> ────────────────────────────────────
 
@@ -132,14 +133,14 @@ export const initAttachments =
                     );
                     if (!msgEl) return;
                     let ulEl = msgEl.querySelector(
-                        '.chat__attachments'
+                        `.${$chat__attachments}`
                     ) as HTMLUListElement | null;
                     if (!ulEl) {
                         const ulRefs = domCreatorRef(
                             ctx,
                             msgEl,
                             genTagName('ul', [
-                                genClass('chat__attachments'),
+                                genClass($chat__attachments),
                                 genRef(UPLOAD_DONE_UL_REF),
                             ])
                         ) as unknown as {

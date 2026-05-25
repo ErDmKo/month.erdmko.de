@@ -21,6 +21,13 @@ import {
     $chat__input,
     $chat__textarea,
     $chat__messages,
+    $chat__upload_filename,
+    $chat__upload_progress,
+    $chat__button__remove,
+    $chat__attachment_item,
+    $chat__attachment_name,
+    $chat__button__download,
+    $chat__attachment_progress,
 } from '../../../assets/js/gen/styles';
 
 const PORT = () => parseInt(process.env.E2E_SERVER_PORT!, 10);
@@ -33,15 +40,15 @@ const SEL = {
     nicknameInput: `${c($chat__input)}:not(${c($chat__textarea)})`,
     joinButton: c($chat__button),
     messageTextarea: c($chat__textarea),
-    sendButton: `${c($chat__button)}[type="submit"]`, // kept for reference, not used directly
+    sendButton: `${c($chat__button)}[type="submit"]`,
     fileInput: 'input[type="file"]',
-    uploadPreviewFilename: '.chat__upload-filename',
-    uploadProgress: '.chat__upload-progress',
-    removeButton: `${c($chat__button)}.chat__button--remove`,
-    attachmentItem: '.chat__attachment-item',
-    attachmentName: '.chat__attachment-name',
-    downloadButton: `${c($chat__button)}.chat__button--download`,
-    downloadProgress: '.chat__attachment-progress',
+    uploadPreviewFilename: c($chat__upload_filename),
+    uploadProgress: c($chat__upload_progress),
+    removeButton: `${c($chat__button)}.${$chat__button__remove}`,
+    attachmentItem: c($chat__attachment_item),
+    attachmentName: c($chat__attachment_name),
+    downloadButton: `${c($chat__button)}.${$chat__button__download}`,
+    downloadProgress: c($chat__attachment_progress),
     messageList: c($chat__messages),
 };
 

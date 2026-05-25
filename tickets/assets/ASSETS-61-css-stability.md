@@ -1,72 +1,44 @@
 # ASSETS-61 CSS Class Stability for E2E Selectors
 
-## Status: OPEN
+## Status: PARTIALLY DONE
 
 ## Blocks
 - `ASSETS-60` (e2e Puppeteer tests)
 
 ## Problem
 
-`attachments-ui.test.ts` relies on a hardcoded `SEL` map of CSS class names to locate DOM elements:
+`attachments-ui.test.ts` relied on hardcoded CSS class name strings to locate DOM elements. If CSS is processed with class name mangling (e.g. cssnano `reduceIdents`, or CSS Modules), these selectors break silently — Puppeteer finds no elements, tests time out.
+
+## What was done
+
+**Option C (CSS Modules with exports) — partially implemented.**
+
+The planned approach was Option B (`data-testid`). What actually landed was different:
+
+- `assets/css/style.css` is processed via `postcss-modules` with `generateScopedName: '_[hash:base64:6]'`, producing `css/minified/style.module.json` with hashed class names.
+- `assets/js/tools/gen-styles.ts` reads that JSON and emits `assets/js/gen/styles.ts` with named exports per class (e.g. `export const $chat__input = "_xYz123"`).
+- `attachments-ui.test.ts` now imports those exports and builds selectors dynamically:
 
 ```ts
+import { $chat__button, $chat__input, $chat__textarea, $chat__messages } from '../../../assets/js/gen/styles';
+
 const SEL = {
-    nicknameInput: '.chat__input:not(.chat__textarea)',
-    joinButton: '.chat__button:not(...)',
-    messageTextarea: '.chat__textarea',
-    sendButton: '.chat__button--send',
-    attachButton: '.chat__button--attach',
-    fileInput: 'input[type="file"]',
+    nicknameInput: `${c($chat__input)}:not(${c($chat__textarea)})`,
+    joinButton: c($chat__button),
+    messageTextarea: c($chat__textarea),
+    messageList: c($chat__messages),
+    // remaining selectors still use hardcoded class strings
     uploadPreviewFilename: '.chat__upload-filename',
     uploadProgress: '.chat__upload-progress',
-    removeButton: '.chat__button--remove',
     attachmentItem: '.chat__attachment-item',
     attachmentName: '.chat__attachment-name',
-    downloadButton: '.chat__button--download',
     downloadProgress: '.chat__attachment-progress',
-    messageList: '.chat__messages',
 };
 ```
 
-If CSS is processed with class name mangling (e.g. cssnano `reduceIdents`, or any CSS Modules / atomic CSS approach that renames classes), these selectors break silently — Puppeteer finds no elements, tests time out.
+- `css.min` / `css.max` template error on `/random` fixed: added `.min` and `.max` classes to `style.css` so they appear in `style.module.json` and Tera can resolve `{{ css.min }}` / `{{ css.max }}`.
 
-## Goal
+## Remaining work
 
-Establish a CSS build convention that guarantees the above class names survive the build pipeline unchanged, while still allowing minification of everything else.
-
-## Options
-
-### Option A — No mangling (current implicit assumption)
-Keep class names as-is. Add explicit `cssnano` config that disables `reduceIdents` and any class renaming plugin. Document the convention: classes used in tests must follow BEM (`chat__*`) and must not be renamed.
-
-**Pros**: Zero migration cost.  
-**Cons**: Relies on convention, easy to break accidentally.
-
-### Option B — `data-testid` attributes
-Add `data-testid="chat-join-button"` etc. to HTML templates. Update `SEL` to use `[data-testid="..."]` selectors. Strip `data-testid` in production builds via a Tera filter or build-time transform.
-
-**Pros**: Decouples test selectors from styling completely.  
-**Cons**: Templates need editing; need a strip step for production.
-
-### Option C — CSS Modules with explicit exports
-Migrate chat styles to CSS Modules. Export stable names for test use. Build produces hashed local names but exports a mapping.
-
-**Pros**: True encapsulation.  
-**Cons**: Significant refactor; requires CSS Modules support in the Bazel pipeline.
-
-## Recommended approach
-
-**Option B (`data-testid`)** — minimal template changes, zero CSS pipeline risk, standard practice for e2e testing. Strip in production is a one-liner Tera macro or sed in the build step.
-
-## Scope
-
-- Add `data-testid` attributes to relevant elements in `server/templates/chat.html` and any TS-rendered templates in `assets/js/chat/`.
-- Update `SEL` in `attachments-ui.test.ts` to use `[data-testid="..."]`.
-- Document the convention in `assets/js/CODESTYLE.md`.
-- Optionally: strip `data-testid` in production Tera render.
-
-## Deliverables
-- [ ] `data-testid` attributes added to chat UI templates
-- [ ] `SEL` map in `attachments-ui.test.ts` updated
-- [ ] CODESTYLE.md updated with `data-testid` convention
-- [ ] (optional) production strip of `data-testid`
+- [ ] Remaining SEL entries in `attachments-ui.test.ts` still use hardcoded class strings (`chat__upload-filename`, `chat__upload-progress`, `chat__attachment-item`, `chat__attachment-name`, `chat__attachment-progress`) — these need to be added to the CSS and imported from `gen/styles` the same way
+- [ ] CODESTYLE.md does not yet document the CSS Modules + `gen/styles` import convention for E2E selectors

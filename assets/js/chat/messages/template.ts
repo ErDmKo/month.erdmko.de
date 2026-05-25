@@ -6,6 +6,7 @@ import {
     $chat__message_meta,
     $chat__delete,
     $chat__message_body,
+    $chat__attachments,
 } from '@month/gen/styles';
 import type { AttachmentItem } from '@month/gen/chat';
 
@@ -59,8 +60,8 @@ export const chatMessageTemplate = (
             genTagName('div', [genClass($chat__message_body), genText(body)]),
             ...(attachments.length > 0
                 ? [
-                      genTagName('ul', [
-                          genClass('chat__attachments'),
+                       genTagName('ul', [
+                          genClass($chat__attachments),
                           genRef(MESSAGE_REF_ATTACHMENTS),
                       ]),
                   ]

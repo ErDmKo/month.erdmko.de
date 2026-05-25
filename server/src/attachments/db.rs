@@ -267,6 +267,7 @@ mod tests {
         let ctx = web::Data::new(AppCtx {
             static_path: PathBuf::new(),
             pool,
+            css: serde_json::Value::Object(serde_json::Map::new()),
         });
         let conn = ctx.pool.get().unwrap();
         conn.execute("PRAGMA foreign_keys = ON", ()).unwrap();

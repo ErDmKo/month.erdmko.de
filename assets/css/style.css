@@ -369,3 +369,76 @@ a:hover {
 .chat__button:disabled {
     background: #aaa;
 }
+
+.chat__button--download,
+.chat__button--remove {
+    padding: 4px 10px;
+    font-size: 13px;
+}
+
+.chat__attachments {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.chat__attachment-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f9f9f9;
+    font-size: 13px;
+}
+
+.chat__attachment-icon {
+    flex-shrink: 0;
+}
+
+.chat__attachment-name {
+    font-weight: 500;
+    word-break: break-all;
+}
+
+.chat__attachment-size {
+    color: #888;
+    white-space: nowrap;
+}
+
+.chat__attachment-progress {
+    color: #555;
+    font-size: 12px;
+}
+
+.chat__upload-preview {
+    margin-bottom: 8px;
+}
+
+.chat__upload-preview-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid #b7d8f5;
+    border-radius: 4px;
+    background: #e9f4ff;
+    font-size: 13px;
+}
+
+.chat__upload-filename {
+    font-weight: 500;
+    word-break: break-all;
+}
+
+.chat__upload-size {
+    color: #888;
+    white-space: nowrap;
+}
+
+.chat__upload-progress {
+    color: #555;
+    font-size: 12px;
+}

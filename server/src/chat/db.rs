@@ -375,6 +375,7 @@ mod tests {
         let ctx = web::Data::new(AppCtx {
             static_path: PathBuf::new(),
             pool,
+            css: serde_json::Value::Object(serde_json::Map::new()),
         });
         let conn = ctx.pool.get().expect("pool connection should be available");
         init_chat_schema(&conn).expect("chat schema should be initialized");
