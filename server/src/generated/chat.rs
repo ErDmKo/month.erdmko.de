@@ -2,7 +2,7 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ClientFrame {
-    #[prost(oneof = "client_frame::Payload", tags = "1, 2, 3, 4, 5, 6, 7")]
+    #[prost(oneof = "client_frame::Payload", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
     pub payload: ::core::option::Option<client_frame::Payload>,
 }
 /// Nested message and enum types in `ClientFrame`.
@@ -24,12 +24,23 @@ pub mod client_frame {
         DownloadRequest(super::ClientDownloadRequest),
         #[prost(message, tag = "7")]
         UploadChunk(super::UploadChunk),
+        #[prost(message, tag = "8")]
+        VoiceJoin(super::ClientVoiceJoin),
+        #[prost(message, tag = "9")]
+        VoiceLeave(super::ClientVoiceLeave),
+        #[prost(message, tag = "10")]
+        VoiceOffer(super::ClientVoiceOffer),
+        #[prost(message, tag = "11")]
+        VoiceIce(super::ClientVoiceIce),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerFrame {
-    #[prost(oneof = "server_frame::Payload", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    #[prost(
+        oneof = "server_frame::Payload",
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14"
+    )]
     pub payload: ::core::option::Option<server_frame::Payload>,
 }
 /// Nested message and enum types in `ServerFrame`.
@@ -57,6 +68,14 @@ pub mod server_frame {
         DownloadEnd(super::ServerDownloadEnd),
         #[prost(message, tag = "10")]
         DownloadChunk(super::DownloadChunk),
+        #[prost(message, tag = "11")]
+        VoiceState(super::ServerVoiceState),
+        #[prost(message, tag = "12")]
+        VoiceAnswer(super::ServerVoiceAnswer),
+        #[prost(message, tag = "13")]
+        VoiceIce(super::ServerVoiceIce),
+        #[prost(message, tag = "14")]
+        VoiceError(super::ServerVoiceError),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -252,4 +271,76 @@ pub struct DownloadChunk {
     pub index: u32,
     #[prost(bytes = "vec", tag = "3")]
     pub data: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClientVoiceJoin {
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClientVoiceLeave {
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClientVoiceOffer {
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub sdp: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClientVoiceIce {
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub candidate: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub sdp_mid: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "4")]
+    pub sdp_mline_idx: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VoiceParticipant {
+    #[prost(string, tag = "1")]
+    pub sender_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub sender_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ServerVoiceState {
+    #[prost(message, repeated, tag = "1")]
+    pub participants: ::prost::alloc::vec::Vec<VoiceParticipant>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ServerVoiceAnswer {
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub sdp: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ServerVoiceIce {
+    #[prost(string, tag = "1")]
+    pub candidate: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub sdp_mid: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "3")]
+    pub sdp_mline_idx: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ServerVoiceError {
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub code: ::prost::alloc::string::String,
 }

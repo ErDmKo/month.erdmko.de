@@ -41,6 +41,26 @@
               "message_type": "UploadChunk",
               "name": "upload_chunk",
               "number": 7
+            },
+            {
+              "message_type": "ClientVoiceJoin",
+              "name": "voice_join",
+              "number": 8
+            },
+            {
+              "message_type": "ClientVoiceLeave",
+              "name": "voice_leave",
+              "number": 9
+            },
+            {
+              "message_type": "ClientVoiceOffer",
+              "name": "voice_offer",
+              "number": 10
+            },
+            {
+              "message_type": "ClientVoiceIce",
+              "name": "voice_ice",
+              "number": 11
             }
           ]
         }
@@ -102,6 +122,26 @@
               "message_type": "DownloadChunk",
               "name": "download_chunk",
               "number": 10
+            },
+            {
+              "message_type": "ServerVoiceState",
+              "name": "voice_state",
+              "number": 11
+            },
+            {
+              "message_type": "ServerVoiceAnswer",
+              "name": "voice_answer",
+              "number": 12
+            },
+            {
+              "message_type": "ServerVoiceIce",
+              "name": "voice_ice",
+              "number": 13
+            },
+            {
+              "message_type": "ServerVoiceError",
+              "name": "voice_error",
+              "number": 14
             }
           ]
         }
@@ -496,6 +536,143 @@
         }
       ],
       "name": "DownloadChunk"
+    },
+    {
+      "fields": [
+        {
+          "name": "request_id",
+          "number": 1,
+          "type": "string"
+        }
+      ],
+      "name": "ClientVoiceJoin"
+    },
+    {
+      "fields": [
+        {
+          "name": "request_id",
+          "number": 1,
+          "type": "string"
+        }
+      ],
+      "name": "ClientVoiceLeave"
+    },
+    {
+      "fields": [
+        {
+          "name": "request_id",
+          "number": 1,
+          "type": "string"
+        },
+        {
+          "name": "sdp",
+          "number": 2,
+          "type": "string"
+        }
+      ],
+      "name": "ClientVoiceOffer"
+    },
+    {
+      "fields": [
+        {
+          "name": "request_id",
+          "number": 1,
+          "type": "string"
+        },
+        {
+          "name": "candidate",
+          "number": 2,
+          "type": "string"
+        },
+        {
+          "name": "sdp_mid",
+          "number": 3,
+          "type": "string"
+        },
+        {
+          "name": "sdp_mline_idx",
+          "number": 4,
+          "type": "uint32"
+        }
+      ],
+      "name": "ClientVoiceIce"
+    },
+    {
+      "fields": [
+        {
+          "name": "sender_id",
+          "number": 1,
+          "type": "string"
+        },
+        {
+          "name": "sender_name",
+          "number": 2,
+          "type": "string"
+        }
+      ],
+      "name": "VoiceParticipant"
+    },
+    {
+      "fields": [
+        {
+          "message_type": "VoiceParticipant",
+          "name": "participants",
+          "number": 1,
+          "repeated": true,
+          "type": "message"
+        }
+      ],
+      "name": "ServerVoiceState"
+    },
+    {
+      "fields": [
+        {
+          "name": "request_id",
+          "number": 1,
+          "type": "string"
+        },
+        {
+          "name": "sdp",
+          "number": 2,
+          "type": "string"
+        }
+      ],
+      "name": "ServerVoiceAnswer"
+    },
+    {
+      "fields": [
+        {
+          "name": "candidate",
+          "number": 1,
+          "type": "string"
+        },
+        {
+          "name": "sdp_mid",
+          "number": 2,
+          "type": "string"
+        },
+        {
+          "name": "sdp_mline_idx",
+          "number": 3,
+          "type": "uint32"
+        }
+      ],
+      "name": "ServerVoiceIce"
+    },
+    {
+      "fields": [
+        {
+          "name": "request_id",
+          "number": 1,
+          "type": "string"
+        },
+        {
+          "name": "code",
+          "number": 2,
+          "type": "string"
+        }
+      ],
+      "name": "ServerVoiceError"
     }
   ],
   "package": "chat"

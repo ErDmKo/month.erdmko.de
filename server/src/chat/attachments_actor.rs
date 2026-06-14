@@ -4,13 +4,12 @@ use log::{info, warn};
 
 use crate::attachments::service::{persist_upload, upload_done_payload};
 use crate::chat::service::{self as chat_service};
-
-use super::{ChatWs, PushEvent};
+use crate::pages::chat::chat_actor::{ChatWs, PushBinary, PushEvent};
 
 // ── Upload handlers ───────────────────────────────────────────────────────────
 
 impl ChatWs {
-    pub(super) fn on_upload_start(
+    pub(crate) fn on_upload_start(
         &mut self,
         request_id: Option<String>,
         message_id: i64,
@@ -69,7 +68,7 @@ impl ChatWs {
         }
     }
 
-    pub(super) fn on_upload_end(
+    pub(crate) fn on_upload_end(
         &mut self,
         request_id: Option<String>,
         upload_id: u32,
@@ -131,7 +130,7 @@ impl ChatWs {
 // ── Download handler ──────────────────────────────────────────────────────────
 
 impl ChatWs {
-    pub(super) fn on_download_request(
+    pub(crate) fn on_download_request(
         &mut self,
         request_id: Option<String>,
         attachment_id: i64,
@@ -161,7 +160,7 @@ impl ChatWs {
                         total,
                     )));
                     for (i, chunk) in chunks.iter().enumerate() {
-                        addr.do_send(super::PushBinary(encode_download_chunk(
+                        addr.do_send(PushBinary(encode_download_chunk(
                             attachment_id,
                             i as u32,
                             chunk,

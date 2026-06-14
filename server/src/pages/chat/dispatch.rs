@@ -2,11 +2,10 @@ use actix_web_actors::ws;
 use log::warn;
 
 use crate::chat::service::{self as chat_service, ClientEvent::*};
-
-use super::ChatWs;
+use crate::pages::chat::chat_actor::ChatWs;
 
 impl ChatWs {
-    pub(super) fn on_binary(&mut self, bytes: &[u8], ctx: &mut ws::WebsocketContext<Self>) {
+    pub(crate) fn on_binary(&mut self, bytes: &[u8], ctx: &mut ws::WebsocketContext<Self>) {
         if bytes.is_empty() {
             Self::send_error(
                 &self.room_id,
@@ -30,7 +29,6 @@ impl ChatWs {
             return;
         }
 
-        // All frames are ClientFrame (oneof wrapper — no prefix byte needed)
         let event = match chat_service::parse_client_event(bytes) {
             Ok(e) => e,
             Err(err) => {
@@ -42,7 +40,6 @@ impl ChatWs {
                     err,
                     err.details()
                 );
-                // Send error back to client but keep connection alive — per spec.
                 Self::send_error(
                     &self.room_id,
                     &self.sender_id,
@@ -104,6 +101,15 @@ impl ChatWs {
                     );
                 }
             }
+            VoiceJoin { request_id } => self.on_voice_join(request_id, ctx),
+            VoiceLeave { request_id } => self.on_voice_leave(request_id, ctx),
+            VoiceOffer { request_id, sdp } => self.on_voice_offer(request_id, sdp, ctx),
+            VoiceIce {
+                request_id,
+                candidate,
+                sdp_mid,
+                sdp_mline_idx,
+            } => self.on_voice_ice(request_id, candidate, sdp_mid, sdp_mline_idx, ctx),
         }
     }
 }

@@ -3,11 +3,10 @@ use actix_web_actors::ws;
 use log::{info, warn};
 
 use crate::chat::service::{self as chat_service, ChatSessionState};
-
-use super::{ChatWs, PushEvent};
+use crate::pages::chat::chat_actor::{ChatWs, PushEvent};
 
 impl ChatWs {
-    pub(super) fn on_join(
+    pub(crate) fn on_join(
         &mut self,
         request_id: Option<String>,
         nickname: String,
@@ -64,7 +63,7 @@ impl ChatWs {
         });
     }
 
-    pub(super) fn on_message(
+    pub(crate) fn on_message(
         &mut self,
         request_id: Option<String>,
         body: String,
@@ -131,7 +130,7 @@ impl ChatWs {
         });
     }
 
-    pub(super) fn on_delete(
+    pub(crate) fn on_delete(
         &mut self,
         request_id: Option<String>,
         message_id: i64,

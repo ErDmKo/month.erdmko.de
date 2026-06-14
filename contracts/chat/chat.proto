@@ -15,6 +15,10 @@ message ClientFrame {
     ClientUploadEnd       upload_end       = 5;
     ClientDownloadRequest download_request = 6;
     UploadChunk           upload_chunk     = 7;
+    ClientVoiceJoin       voice_join       = 8;
+    ClientVoiceLeave      voice_leave      = 9;
+    ClientVoiceOffer      voice_offer      = 10;
+    ClientVoiceIce        voice_ice        = 11;
   }
 }
 
@@ -30,6 +34,10 @@ message ServerFrame {
     ServerDownloadStart download_start = 8;
     ServerDownloadEnd   download_end   = 9;
     DownloadChunk       download_chunk = 10;
+    ServerVoiceState    voice_state    = 11;
+    ServerVoiceAnswer   voice_answer   = 12;
+    ServerVoiceIce      voice_ice      = 13;
+    ServerVoiceError    voice_error    = 14;
   }
 }
 
@@ -152,4 +160,53 @@ message DownloadChunk {
   int64  attachment_id = 1;
   uint32 index         = 2;
   bytes  data          = 3;
+}
+
+// ── Voice signaling (Client → Server) ────────────────────────────────────────
+
+message ClientVoiceJoin {
+  string request_id = 1;
+}
+
+message ClientVoiceLeave {
+  string request_id = 1;
+}
+
+message ClientVoiceOffer {
+  string request_id = 1;
+  string sdp        = 2;
+}
+
+message ClientVoiceIce {
+  string request_id    = 1;
+  string candidate     = 2;
+  string sdp_mid       = 3;
+  uint32 sdp_mline_idx = 4;
+}
+
+// ── Voice signaling (Server → Client) ────────────────────────────────────────
+
+message VoiceParticipant {
+  string sender_id   = 1;
+  string sender_name = 2;
+}
+
+message ServerVoiceState {
+  repeated VoiceParticipant participants = 1;
+}
+
+message ServerVoiceAnswer {
+  string request_id = 1;
+  string sdp        = 2;
+}
+
+message ServerVoiceIce {
+  string candidate     = 1;
+  string sdp_mid       = 2;
+  uint32 sdp_mline_idx = 3;
+}
+
+message ServerVoiceError {
+  string request_id = 1;
+  string code       = 2;
 }

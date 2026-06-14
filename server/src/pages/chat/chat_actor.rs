@@ -1,7 +1,3 @@
-mod attachments;
-mod dispatch;
-mod messaging;
-
 use actix::{Actor, Addr, AsyncContext, Handler, Message, StreamHandler};
 use actix_web::web;
 use actix_web_actors::ws;
@@ -12,29 +8,34 @@ use crate::app::AppCtx;
 use crate::attachments::service::UploadSessionState;
 use crate::chat::service::{self as chat_service, ChatSessionState, RoomRegistry};
 
-pub(super) static CHAT_ROOMS: LazyLock<RoomRegistry<ChatWs>> = LazyLock::new(RoomRegistry::new);
+// Pull in impl blocks that extend ChatWs from their home modules
+use crate::chat::attachments_actor as _;
+use crate::chat::messaging_actor as _;
+use crate::voice::voice_actor as _;
+
+pub(crate) static CHAT_ROOMS: LazyLock<RoomRegistry<ChatWs>> = LazyLock::new(RoomRegistry::new);
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub(super) struct PushEvent(pub(super) Vec<u8>);
+pub(crate) struct PushEvent(pub(crate) Vec<u8>);
 
 #[derive(Message)]
 #[rtype(result = "()")]
-pub(super) struct PushBinary(pub(super) Vec<u8>);
+pub(crate) struct PushBinary(pub(crate) Vec<u8>);
 
-pub(super) struct ChatWs {
-    pub(super) app_ctx: web::Data<AppCtx>,
-    pub(super) room_id: String,
-    pub(super) sender_id: String,
-    pub(super) session: ChatSessionState,
-    pub(super) is_registered: bool,
-    pub(super) uploads: UploadSessionState,
+pub(crate) struct ChatWs {
+    pub(crate) app_ctx: web::Data<AppCtx>,
+    pub(crate) room_id: String,
+    pub(crate) sender_id: String,
+    pub(crate) session: ChatSessionState,
+    pub(crate) is_registered: bool,
+    pub(crate) uploads: UploadSessionState,
 }
 
 // ── Room helpers ──────────────────────────────────────────────────────────────
 
 impl ChatWs {
-    pub(super) fn send_error(
+    pub(crate) fn send_error(
         room_id: &str,
         sender_id: &str,
         ctx: &mut ws::WebsocketContext<Self>,
@@ -52,15 +53,15 @@ impl ChatWs {
         ctx.binary(chat_service::error_payload(request_id, code, message));
     }
 
-    pub(super) fn register_connection(room_id: &str, addr: Addr<Self>) -> bool {
+    pub(crate) fn register_connection(room_id: &str, addr: Addr<Self>) -> bool {
         CHAT_ROOMS.try_register_connection(room_id, addr, chat_service::MAX_OPEN_CONNECTIONS)
     }
 
-    pub(super) fn cleanup_room(room_id: &str) {
+    pub(crate) fn cleanup_room(room_id: &str) {
         CHAT_ROOMS.cleanup_room(room_id);
     }
 
-    pub(super) fn broadcast_to_room(room_id: &str, payload: Vec<u8>) {
+    pub(crate) fn broadcast_to_room(room_id: &str, payload: Vec<u8>) {
         let recipients: Vec<Addr<Self>> = CHAT_ROOMS.connected_recipients(room_id);
         for addr in recipients {
             addr.do_send(PushEvent(payload.clone()));
@@ -101,7 +102,8 @@ impl Actor for ChatWs {
         if self.is_registered {
             Self::cleanup_room(&self.room_id);
         }
-        // Log any pending uploads that are being cancelled due to disconnect.
+        // Implicit voice leave on disconnect — broadcasts updated voice state to room.
+        self.do_voice_leave();
         for upload_id in self.uploads.pending_upload_ids() {
             info!(
                 "event=attachment_upload_cancelled upload_id={} sender_id={} reason=disconnect",

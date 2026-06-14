@@ -1,5 +1,5 @@
 mod base64;
-mod chat;
+pub(crate) mod chat;
 mod main_page;
 mod months;
 mod random;

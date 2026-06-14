@@ -118,6 +118,22 @@ pub enum ClientEvent {
         index: u32,
         data: Vec<u8>,
     },
+    VoiceJoin {
+        request_id: Option<String>,
+    },
+    VoiceLeave {
+        request_id: Option<String>,
+    },
+    VoiceOffer {
+        request_id: Option<String>,
+        sdp: String,
+    },
+    VoiceIce {
+        request_id: Option<String>,
+        candidate: String,
+        sdp_mid: String,
+        sdp_mline_idx: u32,
+    },
 }
 
 pub fn parse_client_event(buf: &[u8]) -> ChatResult<ClientEvent> {
@@ -157,6 +173,22 @@ pub fn parse_client_event(buf: &[u8]) -> ChatResult<ClientEvent> {
             index: msg.index,
             data: msg.data,
         }),
+        Some(client_frame::Payload::VoiceJoin(msg)) => Ok(ClientEvent::VoiceJoin {
+            request_id: opt_string(msg.request_id),
+        }),
+        Some(client_frame::Payload::VoiceLeave(msg)) => Ok(ClientEvent::VoiceLeave {
+            request_id: opt_string(msg.request_id),
+        }),
+        Some(client_frame::Payload::VoiceOffer(msg)) => Ok(ClientEvent::VoiceOffer {
+            request_id: opt_string(msg.request_id),
+            sdp: msg.sdp,
+        }),
+        Some(client_frame::Payload::VoiceIce(msg)) => Ok(ClientEvent::VoiceIce {
+            request_id: opt_string(msg.request_id),
+            candidate: msg.candidate,
+            sdp_mid: msg.sdp_mid,
+            sdp_mline_idx: msg.sdp_mline_idx,
+        }),
         None => Err(ChatError::bad_payload("Empty client frame.")),
     }
 }
@@ -168,6 +200,7 @@ fn opt_string(s: String) -> Option<String> {
 pub struct ChatSessionState {
     nickname: Option<String>,
     message_timestamps: VecDeque<Instant>,
+    pub voice: Option<crate::voice::service::VoiceSessionState>,
 }
 
 impl ChatSessionState {
@@ -175,6 +208,7 @@ impl ChatSessionState {
         Self {
             nickname: None,
             message_timestamps: VecDeque::new(),
+            voice: None,
         }
     }
 

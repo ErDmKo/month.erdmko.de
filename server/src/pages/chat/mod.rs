@@ -10,8 +10,10 @@ use crate::app::AppCtx;
 use crate::attachments::service::UploadSessionState;
 use crate::chat::service::{self as chat_service, ChatSessionState};
 
-mod actor;
-use actor::ChatWs;
+pub(crate) mod chat_actor;
+mod dispatch;
+
+use chat_actor::ChatWs;
 
 #[get("/chat/{room_id}")]
 pub async fn chat_room_page_handler(

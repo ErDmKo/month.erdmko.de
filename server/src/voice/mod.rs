@@ -1,3 +1,6 @@
+pub mod service;
+pub mod voice_actor;
+
 pub fn init() {
     gstreamer::init().expect("GStreamer initialization failed");
 }
