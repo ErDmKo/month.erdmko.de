@@ -19,6 +19,7 @@ pub mod chat;
 pub mod db;
 pub mod generated;
 pub mod pages;
+pub mod voice;
 
 static TEMPLATES_GLOB: &str = "templates/**/*";
 static BASE_PATH: Option<&'static str> = option_env!("BASE_PATH");

@@ -4,6 +4,8 @@ startup --windows_enable_symlinks
 build:windows --enable_runfiles
 
 build --enable_bzlmod
+build --action_env=PKG_CONFIG_PATH=/opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig
+build --action_env=PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 # This isn't currently the defaut in Bazel, but we enable it to test we'll be ready if/when it flips.
 build --incompatible_disallow_empty_glob
