@@ -1,104 +1,87 @@
-Epic 1: Базовая инфраструктура и Сигнальный сервер
-Задача этого этапа — подготовить фундамент и научить браузер и сервер обмениваться текстовыми сообщениями для установки соединения.
+# Voice Calling Tickets (Audio-Only MCU)
 
-Task 1.1: Инициализация проекта и зависимостей
+## Execution Order
 
-Создать проект на Rust (cargo new).
+1. `VOICE-10` Dependencies
+2. `VOICE-20` Signaling Server
+3. `VOICE-30` VPS & Network
+4. `VOICE-40` WebRTC Connection
+5. `VOICE-50` GStreamer Audio Engine
+6. `VOICE-60` Integration
+7. `VOICE-70` Browser Client
 
-Добавить базовые зависимости в Cargo.toml: tokio (для асинхронности), webrtc (сеть), gstreamer и gstreamer-webrtc (медиа), warp или axum (для сигнального WebSocket-сервера), serde (для JSON).
+## Dependency Map
 
-Task 1.2: Настройка WebSocket-сервера (Signaling)
+- `VOICE-10` → none
+- `VOICE-20` → `VOICE-10`
+- `VOICE-30` → `VOICE-10`
+- `VOICE-40` → `VOICE-20`, `VOICE-30`
+- `VOICE-50` → `VOICE-10`
+- `VOICE-60` → `VOICE-40`, `VOICE-50`
+- `VOICE-70` → `VOICE-20`, `VOICE-60`
 
-Реализовать эндпоинт ws://[ip-сервера]/ws.
+## Ticket Files
 
-Настроить прием и парсинг JSON-сообщений: SDP Offer, SDP Answer и ICE Candidates.
+- `VOICE-10-dependencies.md`
+- `VOICE-20-signaling.md`
+- `VOICE-30-vps-network.md`
+- `VOICE-40-webrtc-connection.md`
+- `VOICE-50-gstreamer-engine.md`
+- `VOICE-60-integration.md`
+- `VOICE-70-browser-client.md`
 
-Реализовать хранение списка подключенных клиентов (в памяти, например, через Arc<Mutex<HashMap>>).
+## Epics
 
-Task 1.3: Настройка VPS и сети
+### Epic 1: Base Infrastructure
+`VOICE-10`, `VOICE-20`, `VOICE-30`
 
-Открыть UDP-порты в файрволе сервера (например, диапазон 50000-50050) для WebRTC-трафика.
+Extend the existing Actix-Web server with WebRTC dependencies and voice signaling messages.
+No new endpoint — voice signaling runs over the existing `/ws/chat/{room_id}` connection.
+New protobuf messages are added to `chat.proto`; voice state lives inside the existing `ChatWs` actor.
 
-Вынести конфигурационные данные (публичный IP вашего VPS, порты) в переменные окружения (.env файл).
+### Epic 2: WebRTC Connection
+`VOICE-40`
 
-Epic 2: Сетевой слой WebRTC (Подключение)
-Здесь мы учим сервер принимать видео, но пока ничего с ним не делаем (просто устанавливаем P2P-соединение между браузером и сервером).
+Establish a working WebRTC peer connection per participant and receive their audio track.
+No mixing yet — confirm RTP packets arrive and log codec info.
 
-Task 2.1: Инициализация WebRTC API
+### Epic 3: GStreamer Audio Engine
+`VOICE-50`
 
-Настроить конфигурацию WebRTC (RTCConfiguration) на сервере.
+Per-participant decode pipeline (`appsrc → rtpopusdepay ! opusdec ! audioconvert ! audioresample`),
+mix-minus audiomixer (N mixers for N participants), and per-participant encode pipeline
+(`audiomixer ! opusenc ! rtpopuspay ! appsink`).
 
-Жестко прописать публичный IP VPS через NAT1To1IPs (чтобы сервер не искал себя через сторонние STUN-серверы).
+### Epic 4: Integration
+`VOICE-60`
 
-Task 2.2: Обработка PeerConnection
+Wire webrtc-rs and GStreamer together: inbound RTP → appsrc, appsink → outbound RTP.
+Includes teardown logic for disconnecting participants.
 
-Написать логику: при получении SDP Offer от клиента, сервер создает RTCPeerConnection, генерирует SDP Answer и отправляет обратно.
+### Epic 5: Browser Client
+`VOICE-70`
 
-Обработать получение ICE Candidates от браузера.
+Voice controls embedded inside the existing chat room UI — no new page or route.
+"Join voice" button, mute toggle, participant list, and a hidden `<audio>` element for the mixed stream.
+Uses the existing chat WebSocket connection for all signaling.
 
-Task 2.3: Прием медиа-треков (OnTrack)
+## Key Design Decisions
 
-Реализовать коллбэк OnTrack. Когда клиент начинает слать видео/аудио, сервер должен просто логировать: "Получен трек: видео, кодек VP8/H.264".
+- **No new endpoint**: signaling runs on the existing `/ws/chat/{room_id}` WS connection.
+- **No new actor**: voice state (`VoiceSessionState`) lives inside the existing `ChatWs` actor.
+- **Proto extension**: 4 new `ClientFrame` fields (8–11) and 4 new `ServerFrame` fields (11–14) added to `chat.proto`.
+- **Signaling format**: binary protobuf, same as all other chat frames — no JSON text frames.
+- **MCU model**: every browser connects to the server via WebRTC. Server owns all peer connections and does all mixing. No peer-to-peer signaling relay.
+- **Audio codec**: Opus end-to-end (browser → server → browser). No transcoding.
+- **Mix-minus**: N `audiomixer` instances for N participants to prevent echo.
+- **NAT**: `NAT1To1IPs` hardcoded to VPS public IP — no external STUN dependency.
+- **Identity**: voice participants reuse `sender_id` / `sender_name` from the chat join — no new identity.
+- **Video**: explicitly out of scope for this phase.
 
-Epic 3: Медийный движок на GStreamer (MCU логика)
-Самая "мясистая" часть. Учим сервер понимать видео, смешивать его и сжимать обратно для отправки.
+## Deferred (Post-Voice)
 
-Task 3.1: Пайплайн декодирования (Входящий поток)
-
-Создать appsrc в GStreamer для приема RTP-пакетов из webrtc-rs.
-
-Настроить парсер и декодер (например, rtpvp8depay ! vp8dec) для получения сырых кадров от каждого пользователя.
-
-Task 3.2: Видео-микшер (Compositor)
-
-Добавить элемент compositor в пайплайн.
-
-Настроить логику размещения: если 2 человека — делим экран пополам, если 3-4 — рисуем сетку 2x2.
-
-Task 3.3: Аудио-микшер (Mix-minus)
-
-Добавить элемент audiomixer.
-
-Важно: Реализовать логику генерации отдельного выходного аудиопотока для каждого пользователя (где смешаны все голоса, кроме его собственного, чтобы избежать эха).
-
-Task 3.4: Программный энкодер (Исходящий поток)
-
-Настроить сжатие готовой картинки (например, x264enc).
-
-Применить критические настройки для VPS: tune=zerolatency и speed-preset=ultrafast.
-
-Направить сжатый поток в appsink, чтобы забрать его обратно в код на Rust.
-
-Epic 4: Интеграция (Связка webrtc-rs и GStreamer)
-Склеиваем сеть и медиа-движок воедино.
-
-Task 4.1: Передача пакетов (Inbound)
-
-Написать цикл, который читает RTP-пакеты из webrtc-rs (в коллбэке OnTrack) и "пушит" их в appsrc GStreamer-пайплайна.
-
-Task 4.2: Отправка результата (Outbound)
-
-Написать цикл, который забирает готовые сжатые пакеты из appsink GStreamer'а.
-
-Отправлять эти пакеты через метод WriteRTP() в исходящие треки (RTCRtpSender) всем подключенным клиентам.
-
-Task 4.3: Очистка ресурсов (Teardown)
-
-Реализовать удаление пользователя из композитора (убрать его квадрат с экрана) и разрыв соединения, если он закрыл вкладку или отвалился по таймауту.
-
-Epic 5: Клиентская часть (Браузер)
-Простой фронтенд для тестирования всей этой магии.
-
-Task 5.1: Захват медиа
-
-HTML страница с двумя тегами: <video id="local"> (ваша камера) и <video id="remote"> (картинка от сервера).
-
-JS код: вызов navigator.mediaDevices.getUserMedia({ video: true, audio: true }).
-
-Task 5.2: Клиентская логика WebRTC
-
-Подключение к WebSocket серверу (написанному в Epic 1).
-
-Создание RTCPeerConnection в браузере, добавление локального трека, отправка Offer на сервер.
-
-Прием сжатого микса от сервера и вывод его в тег <video id="remote">.
+- Video tracks, compositor, x264enc
+- Recording / playback
+- Screen share
+- Noise suppression (`webrtcdsp` GStreamer element)
+- Scalable codecs (SVC, simulcast)
