@@ -2,6 +2,14 @@ pub mod service;
 pub mod voice_actor;
 
 use std::env;
+use std::sync::{Arc, OnceLock};
+
+use webrtc::api::media_engine::MediaEngine;
+use webrtc::api::setting_engine::SettingEngine;
+use webrtc::api::{API, APIBuilder};
+use webrtc::ice::udp_network::{EphemeralUDP, UDPNetwork};
+use webrtc::ice_transport::ice_candidate_type::RTCIceCandidateType;
+use webrtc::peer_connection::configuration::RTCConfiguration;
 
 pub struct VoiceConfig {
     pub public_ip: String,
@@ -39,6 +47,54 @@ impl VoiceConfig {
 
 pub fn init() {
     gstreamer::init().expect("GStreamer initialization failed");
+}
+
+/// Shared WebRTC context — built once at startup from [`VoiceConfig`] and
+/// reused for every peer connection.
+pub struct VoiceRtcContext {
+    pub api: Arc<API>,
+    pub config: RTCConfiguration,
+}
+
+static VOICE_RTC: OnceLock<VoiceRtcContext> = OnceLock::new();
+
+/// Build the shared WebRTC `API` + `RTCConfiguration` from the given [`VoiceConfig`].
+/// Must be called once at startup before any peer connection is created.
+pub fn init_rtc(cfg: &VoiceConfig) {
+    let mut media_engine = MediaEngine::default();
+    media_engine
+        .register_default_codecs()
+        .expect("failed to register default WebRTC codecs");
+
+    let mut setting_engine = SettingEngine::default();
+    // Always announce PUBLIC_IP in ICE candidates instead of the VPS's private NIC address.
+    setting_engine.set_nat_1to1_ips(vec![cfg.public_ip.clone()], RTCIceCandidateType::Host);
+    setting_engine.set_udp_network(UDPNetwork::Ephemeral(
+        EphemeralUDP::new(cfg.rtp_port_min, cfg.rtp_port_max)
+            .expect("invalid RTP_PORT_MIN/RTP_PORT_MAX range"),
+    ));
+
+    let api = APIBuilder::new()
+        .with_media_engine(media_engine)
+        .with_setting_engine(setting_engine)
+        .build();
+
+    let config = RTCConfiguration {
+        ice_servers: vec![], // no external STUN needed — NAT1To1IPs handles it
+        ..Default::default()
+    };
+
+    let _ = VOICE_RTC.set(VoiceRtcContext {
+        api: Arc::new(api),
+        config,
+    });
+}
+
+/// Access the shared WebRTC context. Panics if [`init_rtc`] was not called at startup.
+pub fn rtc_context() -> &'static VoiceRtcContext {
+    VOICE_RTC
+        .get()
+        .expect("voice RTC context not initialized; call voice::init_rtc() at startup")
 }
 
 #[cfg(test)]

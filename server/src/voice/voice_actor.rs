@@ -1,9 +1,19 @@
 use actix::{AsyncContext, Handler};
 use actix_web_actors::ws;
 use log::{info, warn};
+use std::sync::Arc;
 
-use crate::voice::service::{self as voice_service, VoiceSessionState, MAX_VOICE_PARTICIPANTS_PER_ROOM};
+use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
+use webrtc::peer_connection::RTCPeerConnection;
+use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
+use webrtc::rtp_transceiver::rtp_codec::RTPCodecType;
+use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
+
 use crate::pages::chat::chat_actor::{CHAT_ROOMS, ChatWs, PushEvent};
+use crate::voice::service::{
+    self as voice_service, MAX_VOICE_PARTICIPANTS_PER_ROOM, PeerHandle, VoiceSessionState,
+};
 
 // ── Actor message: ask a ChatWs for its voice participant info ─────────────────
 
@@ -73,6 +83,7 @@ impl ChatWs {
         self.session.voice = Some(VoiceSessionState {
             sender_id: sender_id.clone(),
             sender_name: sender_name.clone(),
+            peer: None,
         });
 
         info!(
@@ -115,14 +126,24 @@ impl ChatWs {
 
     /// Called both from on_voice_leave and from stopped() on disconnect.
     pub(crate) fn do_voice_leave(&mut self) {
-        if self.session.voice.take().is_none() {
+        let Some(voice) = self.session.voice.take() else {
             return;
-        }
+        };
         let room_id = self.room_id.clone();
         info!(
             "event=voice_leave room_id={} sender_id={}",
             room_id, self.sender_id
         );
+        if let Some(peer) = voice.peer {
+            actix::spawn(async move {
+                if let Err(e) = peer.peer_connection.close().await {
+                    warn!(
+                        "event=voice_peer_close_error peer_id={} error={}",
+                        peer.peer_id, e
+                    );
+                }
+            });
+        }
         actix::spawn(async move {
             let participants = voice_participants_in_room(&room_id).await;
             let payload = voice_service::voice_state_payload(participants);
@@ -143,14 +164,29 @@ impl ChatWs {
             ));
             return;
         }
-        warn!(
-            "event=voice_offer_stub room_id={} sender_id={} sdp_len={}",
-            self.room_id, self.sender_id, sdp.len()
-        );
-        ctx.binary(voice_service::voice_answer_payload(
-            request_id.as_deref(),
-            "stub-answer",
-        ));
+        let peer_id = self.sender_id.clone();
+        let room_id = self.room_id.clone();
+        let addr = ctx.address();
+
+        actix::spawn(async move {
+            let result = negotiate_offer(&peer_id, &room_id, sdp, addr.clone()).await;
+            match result {
+                Ok((peer_connection, answer_sdp)) => {
+                    addr.do_send(VoiceOfferReady {
+                        request_id,
+                        peer: PeerHandle {
+                            peer_connection,
+                            peer_id,
+                        },
+                        answer_sdp,
+                    });
+                }
+                Err(e) => {
+                    warn!("event=voice_offer_error peer_id={} error={}", peer_id, e);
+                    addr.do_send(VoiceOfferFailed { request_id });
+                }
+            }
+        });
     }
 
     pub(crate) fn on_voice_ice(
@@ -161,17 +197,145 @@ impl ChatWs {
         sdp_mline_idx: u32,
         ctx: &mut ws::WebsocketContext<Self>,
     ) {
-        if self.session.voice.is_none() {
+        let Some(voice) = self.session.voice.as_ref() else {
             ctx.binary(voice_service::voice_error_payload(
                 request_id.as_deref(),
                 "VOICE_NOT_JOINED",
             ));
             return;
+        };
+        let Some(peer) = voice.peer.as_ref() else {
+            // ICE arriving before the offer/answer exchange completed — ignore.
+            return;
+        };
+        let peer_connection = peer.peer_connection.clone();
+        let peer_id = self.sender_id.clone();
+
+        actix::spawn(async move {
+            let candidate_init = RTCIceCandidateInit {
+                candidate,
+                sdp_mid: Some(sdp_mid),
+                sdp_mline_index: Some(sdp_mline_idx as u16),
+                username_fragment: None,
+            };
+            if let Err(e) = peer_connection.add_ice_candidate(candidate_init).await {
+                warn!(
+                    "event=voice_ice_error peer_id={} error={}",
+                    peer_id, e
+                );
+            }
+        });
+    }
+}
+
+/// Perform the SDP offer/answer exchange and wire up ICE/track callbacks for a new peer.
+/// Returns the connected `RTCPeerConnection` and the SDP answer to send back to the client.
+async fn negotiate_offer(
+    peer_id: &str,
+    room_id: &str,
+    offer_sdp: String,
+    addr: actix::Addr<ChatWs>,
+) -> Result<(Arc<RTCPeerConnection>, String), webrtc::Error> {
+    let rtc = crate::voice::rtc_context();
+    let peer_connection = Arc::new(rtc.api.new_peer_connection(rtc.config.clone()).await?);
+
+    // Audio-only, receive-only transceiver so the SDP advertises audio receive capability.
+    peer_connection
+        .add_transceiver_from_kind(
+            RTPCodecType::Audio,
+            Some(RTCRtpTransceiverInit {
+                direction: RTCRtpTransceiverDirection::Recvonly,
+                send_encodings: vec![],
+            }),
+        )
+        .await?;
+
+    let peer_id_for_ice = peer_id.to_string();
+    let addr_for_ice = addr.clone();
+    peer_connection.on_ice_candidate(Box::new(move |candidate| {
+        let peer_id = peer_id_for_ice.clone();
+        let addr = addr_for_ice.clone();
+        Box::pin(async move {
+            let Some(candidate) = candidate else {
+                return;
+            };
+            let Ok(init) = candidate.to_json() else {
+                warn!("event=voice_ice_serialize_error peer_id={}", peer_id);
+                return;
+            };
+            addr.do_send(PushEvent(voice_service::voice_ice_payload(
+                &init.candidate,
+                init.sdp_mid.as_deref().unwrap_or(""),
+                init.sdp_mline_index.unwrap_or(0) as u32,
+            )));
+        })
+    }));
+
+    let peer_id_for_track = peer_id.to_string();
+    let room_id_for_track = room_id.to_string();
+    peer_connection.on_track(Box::new(move |track, _receiver, _transceiver| {
+        let peer_id = peer_id_for_track.clone();
+        let room_id = room_id_for_track.clone();
+        Box::pin(async move {
+            info!(
+                "event=voice_track_received room_id={} peer_id={} kind={} codec={} ssrc={}",
+                room_id,
+                peer_id,
+                track.kind(),
+                track.codec().capability.mime_type,
+                track.ssrc(),
+            );
+            // RTP reading loop will be added in VOICE-60.
+        })
+    }));
+
+    peer_connection
+        .set_remote_description(RTCSessionDescription::offer(offer_sdp)?)
+        .await?;
+    let answer = peer_connection.create_answer(None).await?;
+    peer_connection
+        .set_local_description(answer.clone())
+        .await?;
+
+    Ok((peer_connection, answer.sdp))
+}
+
+// ── Actor messages: async offer negotiation result delivery ───────────────────
+
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+struct VoiceOfferReady {
+    request_id: Option<String>,
+    peer: PeerHandle,
+    answer_sdp: String,
+}
+
+impl Handler<VoiceOfferReady> for ChatWs {
+    type Result = ();
+    fn handle(&mut self, msg: VoiceOfferReady, ctx: &mut Self::Context) {
+        if let Some(voice) = self.session.voice.as_mut() {
+            voice.peer = Some(msg.peer);
         }
-        info!(
-            "event=voice_ice_stub room_id={} sender_id={} candidate={} sdp_mid={} idx={}",
-            self.room_id, self.sender_id, candidate, sdp_mid, sdp_mline_idx
-        );
+        ctx.binary(voice_service::voice_answer_payload(
+            msg.request_id.as_deref(),
+            &msg.answer_sdp,
+        ));
+    }
+}
+
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+struct VoiceOfferFailed {
+    request_id: Option<String>,
+}
+
+impl Handler<VoiceOfferFailed> for ChatWs {
+    type Result = ();
+    fn handle(&mut self, msg: VoiceOfferFailed, ctx: &mut Self::Context) {
+        ctx.binary(voice_service::voice_error_payload(
+            msg.request_id.as_deref(),
+            "VOICE_OFFER_FAILED",
+        ));
     }
 }
 
@@ -209,6 +373,7 @@ mod tests {
         session.voice = Some(VoiceSessionState {
             sender_id: "id1".into(),
             sender_name: "Alice".into(),
+            peer: None,
         });
         assert!(session.voice.is_some());
         session.voice = None;

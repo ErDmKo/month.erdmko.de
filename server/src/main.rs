@@ -70,6 +70,7 @@ async fn main() -> std::io::Result<()> {
         "Voice config: public_ip={} rtp_ports={}–{}",
         voice_cfg.public_ip, voice_cfg.rtp_port_min, voice_cfg.rtp_port_max
     );
+    voice::init_rtc(&voice_cfg);
     let base_path = BASE_PATH.unwrap_or(&current_dir_str);
     let mut static_path = PathBuf::from(&base_path);
     let mut templates_path = PathBuf::from(&base_path);

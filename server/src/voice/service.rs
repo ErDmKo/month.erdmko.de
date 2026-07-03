@@ -1,4 +1,6 @@
 use prost::Message;
+use std::sync::Arc;
+use webrtc::peer_connection::RTCPeerConnection;
 
 use crate::generated::chat::{
     ServerFrame, ServerVoiceAnswer, ServerVoiceError, ServerVoiceIce, ServerVoiceState,
@@ -7,10 +9,16 @@ use crate::generated::chat::{
 
 pub const MAX_VOICE_PARTICIPANTS_PER_ROOM: usize = 8;
 
+/// A live WebRTC peer connection tied to one voice session.
+pub struct PeerHandle {
+    pub peer_connection: Arc<RTCPeerConnection>,
+    pub peer_id: String,
+}
+
 pub struct VoiceSessionState {
     pub sender_id: String,
     pub sender_name: String,
-    // peer_connection and task handles will be added in VOICE-40/VOICE-60
+    pub peer: Option<PeerHandle>,
 }
 
 // ── Server → Client voice payload builders ────────────────────────────────────
