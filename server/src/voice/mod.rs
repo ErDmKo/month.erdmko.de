@@ -11,8 +11,8 @@ pub struct VoiceConfig {
 
 impl VoiceConfig {
     pub fn from_env() -> Self {
-        let public_ip = env::var("PUBLIC_IP")
-            .expect("PUBLIC_IP must be set (public IPv4 of the VPS)");
+        let public_ip =
+            env::var("PUBLIC_IP").unwrap_or_else(|_| "127.0.0.1".to_string());
 
         let rtp_port_min: u16 = env::var("RTP_PORT_MIN")
             .unwrap_or_else(|_| "50000".to_string())
@@ -76,11 +76,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "PUBLIC_IP must be set")]
-    fn voice_config_panics_without_public_ip() {
+    fn voice_config_defaults_public_ip() {
         unsafe {
             std::env::remove_var("PUBLIC_IP");
         }
-        VoiceConfig::from_env();
+        let cfg = VoiceConfig::from_env();
+        assert_eq!(cfg.public_ip, "127.0.0.1");
     }
 }

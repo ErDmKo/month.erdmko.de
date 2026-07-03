@@ -65,15 +65,11 @@ async fn main() -> std::io::Result<()> {
     let current_dir_str = current_dir.to_str().unwrap();
     info!("Starting http server from directory '{}'", &current_dir_str);
     voice::init();
-    if env::var("PUBLIC_IP").is_ok() {
-        let voice_cfg = voice::VoiceConfig::from_env();
-        info!(
-            "Voice config: public_ip={} rtp_ports={}–{}",
-            voice_cfg.public_ip, voice_cfg.rtp_port_min, voice_cfg.rtp_port_max
-        );
-    } else {
-        info!("PUBLIC_IP not set — voice WebRTC disabled (local dev mode)");
-    }
+    let voice_cfg = voice::VoiceConfig::from_env();
+    info!(
+        "Voice config: public_ip={} rtp_ports={}–{}",
+        voice_cfg.public_ip, voice_cfg.rtp_port_min, voice_cfg.rtp_port_max
+    );
     let base_path = BASE_PATH.unwrap_or(&current_dir_str);
     let mut static_path = PathBuf::from(&base_path);
     let mut templates_path = PathBuf::from(&base_path);
