@@ -1,3 +1,4 @@
+pub mod gst;
 pub mod service;
 pub mod voice_actor;
 

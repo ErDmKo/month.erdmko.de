@@ -236,6 +236,11 @@ macro_rules! spawn_server {
                 .app_data(sctx.clone())
                 .service(chat_ws_page_handler)
         })
+        // Tests never rely on graceful drain of in-flight connections — all
+        // assertions run before `handle.stop(true)` is called. Without this,
+        // actix-web's default 30s shutdown_timeout makes every test that
+        // still has an open WS connection at teardown take ~30s longer.
+        .shutdown_timeout(0)
         .listen(listener)
         .unwrap()
         .run();

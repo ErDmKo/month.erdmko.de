@@ -21,6 +21,9 @@ async fn join_sends_joined_and_history() {
             .app_data(sctx.clone())
             .service(chat_ws_page_handler)
     })
+    // See spawn_server! macro comment in helpers.rs — avoids actix-web's
+    // default 30s graceful-shutdown wait for the still-open WS connection.
+    .shutdown_timeout(0)
     .listen(listener)
     .unwrap()
     .run();

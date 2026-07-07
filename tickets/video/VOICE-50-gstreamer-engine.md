@@ -94,6 +94,102 @@ impl RoomPipeline {
 - Unit: `push_rtp` with malformed bytes does not panic (appsrc error handling)
 
 ## Acceptance
-- Two-participant pipeline: PCM pushed into `src-A` appears (after decode → mix → encode) at `sink-B`
-- Dynamic join/leave does not crash or deadlock the pipeline
-- `cargo test -p server voice::gst` passes
+- Two-participant pipeline: PCM pushed into `src-A` appears (after decode → mix → encode) at `sink-B` ✅
+- Dynamic join/leave does not crash or deadlock the pipeline ✅
+- `cargo test -p server voice::gst` passes ✅ (all 3 tests, none `#[ignore]`d)
+
+## Resolved: `audiomixer` stall on post-`Playing` dynamic pad linking
+
+**Original symptom:** `RoomPipeline::add_participant` requests a new
+`audiomixer` sink pad (`request_pad_simple("sink_%u")`) and links it *after*
+the room's `Pipeline` is already `Playing` (participants join at arbitrary
+times, not all at pipeline creation). Pad probes showed buffers reaching the
+source `tee` fine (30/30) but only 1–3 reaching the destination `audiomixer`
+sink pad before stalling indefinitely.
+
+This turned out to be **two separate, unrelated bugs**, found by attaching
+`lldb` to a genuinely hung test process and reading real thread backtraces
+(log-based `GST_DEBUG` tracing alone couldn't distinguish "waiting on a
+condvar" from "deadlocked on a mutex" — a live debugger could).
+
+### Bug 1 — `audiomixer` self-deadlock via `start-time-selection=now`
+
+A GStreamer Discourse thread describing a similar-looking symptom
+(https://discourse.gstreamer.org/t/bug-in-audiomixer-element-or-just-strange-behaviour/4958)
+was answered by a GStreamer maintainer recommending
+`start-time-selection=now`, a mode added in
+[`aggregator: implement start-time-selection=now` (!9394)](https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/9394)
+specifically for late-linked live sources. Trying it changed the failure from
+"3 buffers then stall" to "1 buffer then stall" — worse, and still broken.
+
+Attaching `lldb` to the hung process and pulling `thread backtrace all`
+showed the mixer's src-pad task thread genuinely deadlocked (not waiting on
+a signal) inside `gst_element_get_base_time`'s `g_mutex_lock`. Reading
+`gstreamer/subprojects/gstreamer/libs/gst/base/gstaggregator.c` confirmed why:
+
+```c
+// gst_aggregator_pad_chain_internal():
+GST_OBJECT_LOCK (self);                 // locked here, self = the audiomixer
+...
+case GST_AGGREGATOR_START_TIME_SELECTION_NOW:
+  start_time = gst_element_get_current_running_time (GST_ELEMENT (self));
+  break;
+
+// gst_element_get_current_running_time() -> gst_element_get_base_time():
+GST_OBJECT_LOCK (element);              // same `self`, same non-recursive lock — deadlock
+```
+
+`start-time-selection=now` makes `gst_aggregator_pad_chain_internal` call
+`gst_element_get_current_running_time(self)` while it already holds
+`GST_OBJECT_LOCK(self)` from earlier in the same function. That function
+re-locks the identical, non-recursive `GST_OBJECT_LOCK` on the same element —
+a deterministic self-deadlock, confirmed as a genuine GStreamer bug in this
+version (1.28.3/1.28.4), not a timing race.
+
+**Fix:** use `start-time-selection=first` instead (`participant.rs`,
+`audiomixer` creation). It never calls `gst_element_get_current_running_time`;
+it locks the *pad's* own object lock (a distinct mutex from the aggregator's),
+and `gst_aggregator_wait_and_check` also special-cases `FIRST` mode to use a
+plain cond-wait instead of the clock-deadline wait for a pad's first buffer —
+which happens to sidestep the original "stalls after a few buffers" theory
+too.
+
+### Bug 2 — `appsink` needs a preroll buffer to reach `Playing`
+
+Separately, `add_then_remove_participant_keeps_pipeline_playing` failed fast
+(not hung) with the pipeline settling at `Paused` instead of `Playing`.
+`GST_DEBUG=GST_STATES:6` showed both participants' `appsink` elements stuck
+in an `ASYNC` state transition. `appsink`'s `async` property defaults to
+`true` ("go asynchronously to PAUSED"), meaning it needs one real buffer to
+finish preroll — but this test never pushes any RTP, so it never could.
+
+**Fix:** `.property("async", false)` on `appsink` (`participant.rs`) — a
+freshly-joined participant who hasn't spoken yet shouldn't block the whole
+room's pipeline from reaching `Playing`.
+
+### Dead ends (tried, not needed once the above were found)
+- `min-upstream-latency` and `force-live=true` on `audiomixer` — seemed to
+  help initially (changed the failure mode) but were band-aids around Bug 1
+  before its real cause was found. Removed once `start-time-selection=first`
+  fixed things directly; `force-live=true` in particular made every mixer
+  busy-loop recalculating a clock deadline every ~10ms for its entire
+  lifetime (even with no data), which measurably slowed the whole test suite.
+- Inserting a `queue` element between each `tee` and `audiomixer` sink pad —
+  still needed (fixes a real, separate stall: `tee` has no thread of its own),
+  kept in `mixer.rs`.
+- `pipeline.recalculate_latency()` after every `add_participant` — harmless,
+  not required for the actual fix, left in place.
+
+### Also fixed along the way (unrelated to `audiomixer`)
+- Missing `payload` field (96–127 range) in the `appsrc` RTP caps — `rtpopusdepay`
+  requires it and was rejecting every buffer with "not-negotiated" until added.
+- Test harness was reusing one captured RTP packet with a duplicate sequence
+  number 30 times — `rtpopusdepay` correctly dropped repeats as "old packet".
+  Fixed by capturing a real sequence of 30 distinct packets instead.
+- (Outside this ticket's scope, found while investigating suite runtime)
+  `server/src/pages/chat/tests/*`: `handle.stop(true)` graceful shutdown
+  combined with actix-web's default 30s `shutdown_timeout` made any chat
+  integration test that left a WS connection open at teardown take ~30s
+  longer than necessary. Fixed with `.shutdown_timeout(0)` on the test
+  `HttpServer` builders — full server test suite went from ~61s to ~3.5s.
+
