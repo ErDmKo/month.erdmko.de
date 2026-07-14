@@ -335,7 +335,11 @@ async fn negotiate_offer(
                 track.codec().capability.mime_type,
                 track.ssrc(),
             );
-            let handle = actix::spawn(async move {
+            // `on_track` is invoked by webrtc-rs's own executor, not necessarily on
+            // this actix worker's LocalSet, so `actix::spawn` (== spawn_local) would
+            // panic with "called from outside of a task::LocalSet" here — use plain
+            // tokio::spawn, which needs no LocalSet (everything captured is Send).
+            let handle = tokio::spawn(async move {
                 loop {
                     match track.read_rtp().await {
                         Ok((packet, _attributes)) => {
@@ -382,7 +386,9 @@ async fn negotiate_offer(
     // `RoomPipeline::get_participant`'s doc comment).
     let peer_id_for_outbound = peer_id.to_string();
     let room_id_for_outbound = room_id.to_string();
-    let outbound_handle = actix::spawn(async move {
+    // Same reasoning as the inbound loop above — use plain tokio::spawn rather
+    // than actix::spawn/spawn_local.
+    let outbound_handle = tokio::spawn(async move {
         loop {
             let Some(participant) =
                 crate::voice::get_participant(&room_id_for_outbound, &peer_id_for_outbound)
