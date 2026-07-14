@@ -15,6 +15,7 @@ import type { ChatUiObs } from './chat-ui/events';
 import { initMessages } from './messages/init';
 import type { MsgsObs } from './messages/handler';
 import { initAttachments } from './attachments/init';
+import { initVoice } from './voice/index';
 
 declare global {
     interface Window {
@@ -33,7 +34,7 @@ const initTemplate = (ctx: Window, root: Element) => {
     pipe(
         initChatUi(ctx, root, socket),
         taskFork(
-            (chatUiObs: ChatUiObs) =>
+            (chatUiObs: ChatUiObs) => {
                 pipe(
                     initMessages(ctx, socket, chatUiObs),
                     taskChain((msgsObs: MsgsObs) =>
@@ -47,7 +48,22 @@ const initTemplate = (ctx: Window, root: Element) => {
                             )
                         )
                     )
-                ),
+                );
+                // Voice is independent of the messages/attachments chain —
+                // it only needs `chatUiObs` (VOICE-20's signaling is carried
+                // over the same chat WS, no separate init dependency).
+                pipe(
+                    initVoice(ctx, socket, chatUiObs),
+                    taskFork(noop, (err) =>
+                        chatUiObs(
+                            bindArg(
+                                [CHAT_UI_ERROR, String(err)] as const,
+                                trigger
+                            )
+                        )
+                    )
+                );
+            },
             (err) => {
                 throw err;
             }

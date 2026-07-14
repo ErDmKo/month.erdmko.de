@@ -19,6 +19,9 @@ import {
     $chat__messages,
     $chat__counter,
     $chat__upload_preview,
+    $chat__voice_bar,
+    $chat__voice_status,
+    $chat__voice_participants,
 } from '@month/gen/styles';
 
 export const CHAT_REF_STATUS = 0 as const;
@@ -36,6 +39,12 @@ export const CHAT_REF_SEND = 11 as const;
 export const CHAT_REF_ATTACH_BUTTON = 12 as const;
 export const CHAT_REF_FILE_INPUT = 13 as const;
 export const CHAT_REF_UPLOAD_PREVIEW = 14 as const;
+export const CHAT_REF_VOICE_JOIN = 15 as const;
+export const CHAT_REF_VOICE_MUTE = 16 as const;
+export const CHAT_REF_VOICE_LEAVE = 17 as const;
+export const CHAT_REF_VOICE_STATUS = 18 as const;
+export const CHAT_REF_VOICE_PARTICIPANTS = 19 as const;
+export const CHAT_REF_VOICE_REMOTE_AUDIO = 20 as const;
 
 export type ChatUiRefs = {
     [CHAT_REF_STATUS]: HTMLElement;
@@ -53,6 +62,12 @@ export type ChatUiRefs = {
     [CHAT_REF_ATTACH_BUTTON]: HTMLButtonElement;
     [CHAT_REF_FILE_INPUT]: HTMLInputElement;
     [CHAT_REF_UPLOAD_PREVIEW]: HTMLDivElement;
+    [CHAT_REF_VOICE_JOIN]: HTMLButtonElement;
+    [CHAT_REF_VOICE_MUTE]: HTMLButtonElement;
+    [CHAT_REF_VOICE_LEAVE]: HTMLButtonElement;
+    [CHAT_REF_VOICE_STATUS]: HTMLSpanElement;
+    [CHAT_REF_VOICE_PARTICIPANTS]: HTMLUListElement;
+    [CHAT_REF_VOICE_REMOTE_AUDIO]: HTMLAudioElement;
 };
 
 export const chatUiTemplate = (maxMessageLen: number) =>
@@ -119,6 +134,45 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                 'div',
                 [genRef(CHAT_REF_CHAT_SCREEN), genAttr('hidden', 'hidden')],
                 [
+                    genTagName(
+                        'div',
+                        [genClass($chat__voice_bar)],
+                        [
+                            genTagName('button', [
+                                genClass($chat__button),
+                                genRef(CHAT_REF_VOICE_JOIN),
+                                genAttr('type', 'button'),
+                                genText('Join voice'),
+                            ]),
+                            genTagName('button', [
+                                genClass($chat__button),
+                                genRef(CHAT_REF_VOICE_MUTE),
+                                genAttr('type', 'button'),
+                                genAttr('hidden', 'hidden'),
+                                genText('Mute'),
+                            ]),
+                            genTagName('button', [
+                                genClass($chat__button),
+                                genRef(CHAT_REF_VOICE_LEAVE),
+                                genAttr('type', 'button'),
+                                genAttr('hidden', 'hidden'),
+                                genText('Leave'),
+                            ]),
+                            genTagName('span', [
+                                genClass($chat__voice_status),
+                                genRef(CHAT_REF_VOICE_STATUS),
+                            ]),
+                            genTagName('ul', [
+                                genClass($chat__voice_participants),
+                                genRef(CHAT_REF_VOICE_PARTICIPANTS),
+                            ]),
+                            genTagName('audio', [
+                                genRef(CHAT_REF_VOICE_REMOTE_AUDIO),
+                                genAttr('autoplay', 'autoplay'),
+                                genAttr('hidden', 'hidden'),
+                            ]),
+                        ]
+                    ),
                     genTagName('ul', [
                         genClass($chat__messages),
                         genRef(CHAT_REF_MESSAGES),
