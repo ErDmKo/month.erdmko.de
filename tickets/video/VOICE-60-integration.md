@@ -100,3 +100,49 @@ In `VoiceWs::stopped()`:
 - Participant leaving does not crash the server or silence remaining participants
 - Server memory does not grow unboundedly after repeated join/leave cycles
   (check with `top` — `RoomPipeline` is dropped when room empties)
+
+## Follow-up cleanup: safe dynamic branch removal in `mixer::unlink`
+
+**Not required for this ticket's acceptance criteria, but worth doing here**
+since VOICE-60 is the first place `remove_participant` gets exercised with
+*real, continuously-flowing* audio (VOICE-50's tests remove a participant
+with little or no data in flight — a fast, low-risk case that doesn't
+exercise this).
+
+`mixer::unlink` (`server/src/voice/gst/mixer.rs`) currently unlinks a
+participant's mix-minus pads directly:
+
+```rust
+pub fn unlink(link: &MixLink, pipeline: &gstreamer::Pipeline, tee: &Element, mixer: &Element) {
+    let _ = link.tee_pad.unlink(&queue_sink);
+    let _ = queue_src.unlink(&link.mixer_pad);
+    tee.release_request_pad(&link.tee_pad);
+    mixer.release_request_pad(&link.mixer_pad);
+    let _ = link.queue.set_state(gstreamer::State::Null);
+    let _ = pipeline.remove(&link.queue);
+}
+```
+
+There's no synchronization guaranteeing a buffer isn't mid-flight through
+that `tee → queue → mixer` branch at the exact moment this runs — with
+someone actively talking when they disconnect (the realistic VOICE-60
+scenario), that's a real race, not just a theoretical one.
+
+GStreamer's own "Dynamic Pipelines" pattern for safely removing a live
+branch (see the application-development manual,
+[Pipeline manipulation](https://gstreamer.freedesktop.org/documentation/application-development/advanced/pipeline-manipulation.html#changing-elements-in-a-pipeline)):
+
+1. Install a **blocking pad probe** (`PAD_PROBE_TYPE_BLOCK`) on the pad
+   feeding the branch (e.g. the `queue`'s sink pad, or `tee_pad` itself) —
+   this pauses new dataflow into the branch from that point on.
+2. Send an **EOS event** into just that branch (not the whole pipeline) so
+   anything already queued drains out cleanly.
+3. Wait for the EOS to actually reach the far end (e.g. via an event probe,
+   or the mixer's pad receiving EOS) before proceeding.
+4. Only then unlink the pads, `release_request_pad`, and tear down the
+   `queue` — as `unlink` does today.
+
+Implement this as the removal path once `remove_participant` is exercised
+under real load in this ticket's manual tests — if disconnecting a talking
+participant ever produces a GStreamer flow error, a stuck pipeline, or a
+crash in practice, this is the fix.

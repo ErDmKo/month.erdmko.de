@@ -1,5 +1,6 @@
+use actix_web::rt::task::JoinHandle;
 use prost::Message;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use webrtc::peer_connection::RTCPeerConnection;
 
 use crate::generated::chat::{
@@ -9,10 +10,37 @@ use crate::generated::chat::{
 
 pub const MAX_VOICE_PARTICIPANTS_PER_ROOM: usize = 8;
 
-/// A live WebRTC peer connection tied to one voice session.
+/// A live WebRTC peer connection tied to one voice session, plus the two
+/// background tokio tasks feeding audio between it and the room's
+/// `RoomPipeline` (see `crate::voice::gst`). Both are aborted on disconnect
+/// (see `ChatWs::do_voice_leave`) — cancellation is cooperative in the sense
+/// that `read_rtp()`/`pull_rtp()` loops also exit on their own once the
+/// track closes or the participant is removed from the room, but `abort()`
+/// guarantees they stop immediately rather than racing the natural exit.
+///
+/// `inbound_handle` is an `Arc<Mutex<..>>` rather than a plain `JoinHandle`
+/// because the inbound loop is only spawned once WebRTC's `on_track`
+/// callback actually fires — which happens asynchronously, after this
+/// `PeerHandle` is already constructed and stored on the session. The same
+/// `Arc` is handed to the `on_track` closure so it can populate the handle
+/// once the loop starts; `outbound_handle` has no such gap since it's spawned
+/// synchronously before `negotiate_offer` returns.
 pub struct PeerHandle {
     pub peer_connection: Arc<RTCPeerConnection>,
     pub peer_id: String,
+    pub inbound_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    pub outbound_handle: Option<JoinHandle<()>>,
+}
+
+impl Drop for PeerHandle {
+    fn drop(&mut self) {
+        if let Some(handle) = self.inbound_handle.lock().unwrap().take() {
+            handle.abort();
+        }
+        if let Some(handle) = self.outbound_handle.take() {
+            handle.abort();
+        }
+    }
 }
 
 pub struct VoiceSessionState {

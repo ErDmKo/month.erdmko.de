@@ -112,6 +112,24 @@ impl RoomPipeline {
     pub fn pull_rtp(&self, peer_id: &str) -> Option<Vec<u8>> {
         self.participants.get(peer_id)?.pull_rtp()
     }
+
+    /// Clone out a participant's handle. `ParticipantPipeline` is cheap to
+    /// clone (refcounted GStreamer handles), so callers holding the
+    /// `VOICE_GST` room-registry lock should use this to get their own copy
+    /// and drop the lock *before* calling `push_rtp`/`pull_rtp` on it —
+    /// `pull_rtp` in particular blocks the calling thread for up to 50ms
+    /// internally, and doing that while still holding the global room lock
+    /// would serialize every other participant's inbound/outbound loop (and
+    /// any join/leave) behind it.
+    pub fn get_participant(&self, peer_id: &str) -> Option<ParticipantPipeline> {
+        self.participants.get(peer_id).cloned()
+    }
+
+    /// Whether this room has no participants left (used to decide when to
+    /// drop the `RoomPipeline` from the global registry).
+    pub fn is_empty(&self) -> bool {
+        self.participants.is_empty()
+    }
 }
 
 impl Default for RoomPipeline {

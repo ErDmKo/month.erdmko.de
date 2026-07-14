@@ -1,14 +1,19 @@
 use actix::{AsyncContext, Handler};
+use actix_web::rt::task;
 use actix_web_actors::ws;
 use log::{info, warn};
 use std::sync::Arc;
 
+use webrtc::api::media_engine::MIME_TYPE_OPUS;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
-use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
+use webrtc::rtp::packet::Packet as RtpPacket;
 use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
-use webrtc::rtp_transceiver::rtp_codec::RTPCodecType;
+use webrtc::rtp_transceiver::rtp_codec::{RTCRtpCodecCapability, RTPCodecType};
 use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
+use webrtc::track::track_local::TrackLocalWriter;
+use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
+use webrtc_util::{Marshal, Unmarshal};
 
 use crate::pages::chat::chat_actor::{CHAT_ROOMS, ChatWs, PushEvent};
 use crate::voice::service::{
@@ -135,11 +140,20 @@ impl ChatWs {
             room_id, self.sender_id
         );
         if let Some(peer) = voice.peer {
+            let peer_id = peer.peer_id.clone();
+            let peer_connection = peer.peer_connection.clone();
+            // Dropping `peer` aborts its inbound/outbound RTP loops (see
+            // `PeerHandle`'s `Drop` impl) before we remove it from the
+            // room's GStreamer state, so neither loop can race
+            // `remove_participant` and grab a handle to a participant
+            // that's mid-teardown.
+            drop(peer);
+            crate::voice::leave_room(&room_id, &peer_id);
             actix::spawn(async move {
-                if let Err(e) = peer.peer_connection.close().await {
+                if let Err(e) = peer_connection.close().await {
                     warn!(
                         "event=voice_peer_close_error peer_id={} error={}",
-                        peer.peer_id, e
+                        peer_id, e
                     );
                 }
             });
@@ -171,13 +185,10 @@ impl ChatWs {
         actix::spawn(async move {
             let result = negotiate_offer(&peer_id, &room_id, sdp, addr.clone()).await;
             match result {
-                Ok((peer_connection, answer_sdp)) => {
+                Ok((peer, answer_sdp)) => {
                     addr.do_send(VoiceOfferReady {
                         request_id,
-                        peer: PeerHandle {
-                            peer_connection,
-                            peer_id,
-                        },
+                        peer,
                         answer_sdp,
                     });
                 }
@@ -229,13 +240,16 @@ impl ChatWs {
 }
 
 /// Perform the SDP offer/answer exchange and wire up ICE/track callbacks for a new peer.
-/// Returns the connected `RTCPeerConnection` and the SDP answer to send back to the client.
+/// Also joins `room_id`'s `RoomPipeline` (creating it if this is the first
+/// participant) and starts the inbound (`OnTrack` → `push_rtp`) and outbound
+/// (`pull_rtp` → outbound track) RTP loops. Returns the ready-to-use
+/// `PeerHandle` and the SDP answer to send back to the client.
 async fn negotiate_offer(
     peer_id: &str,
     room_id: &str,
     offer_sdp: String,
     addr: actix::Addr<ChatWs>,
-) -> Result<(Arc<RTCPeerConnection>, String), webrtc::Error> {
+) -> Result<(PeerHandle, String), webrtc::Error> {
     let rtc = crate::voice::rtc_context();
     let peer_connection = Arc::new(rtc.api.new_peer_connection(rtc.config.clone()).await?);
 
@@ -245,6 +259,32 @@ async fn negotiate_offer(
             RTPCodecType::Audio,
             Some(RTCRtpTransceiverInit {
                 direction: RTCRtpTransceiverDirection::Recvonly,
+                send_encodings: vec![],
+            }),
+        )
+        .await?;
+
+    // Send-only track carrying this participant's mix-minus output (everyone
+    // else in the room, minus their own audio). `webrtc-rs` has no
+    // `RTCRtpSender::send_rtp` — outbound RTP is written directly to the
+    // `TrackLocalStaticRTP` handle instead (`write_rtp`, used below in the
+    // outbound loop); `add_transceiver_from_track` is what actually wires it
+    // into the peer connection and SDP.
+    let outbound_track = Arc::new(TrackLocalStaticRTP::new(
+        RTCRtpCodecCapability {
+            mime_type: MIME_TYPE_OPUS.to_string(),
+            clock_rate: 48000,
+            channels: 1,
+            ..Default::default()
+        },
+        "audio".to_string(),
+        peer_id.to_string(),
+    ));
+    peer_connection
+        .add_transceiver_from_track(
+            outbound_track.clone(),
+            Some(RTCRtpTransceiverInit {
+                direction: RTCRtpTransceiverDirection::Sendonly,
                 send_encodings: vec![],
             }),
         )
@@ -271,11 +311,21 @@ async fn negotiate_offer(
         })
     }));
 
+    // Inbound loop: read RTP off the remote track and push it into this
+    // participant's GStreamer inbound pipeline. `on_track` only fires once
+    // negotiation/ICE has progressed far enough for media to actually flow,
+    // which is after `negotiate_offer` itself returns — so the resulting
+    // `JoinHandle` is written into `inbound_handle_cell` from inside the
+    // callback rather than returned directly (see `PeerHandle`'s doc comment).
+    let inbound_handle_cell: Arc<std::sync::Mutex<Option<task::JoinHandle<()>>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let inbound_handle_cell_for_track = inbound_handle_cell.clone();
     let peer_id_for_track = peer_id.to_string();
     let room_id_for_track = room_id.to_string();
     peer_connection.on_track(Box::new(move |track, _receiver, _transceiver| {
         let peer_id = peer_id_for_track.clone();
         let room_id = room_id_for_track.clone();
+        let inbound_handle_cell = inbound_handle_cell_for_track.clone();
         Box::pin(async move {
             info!(
                 "event=voice_track_received room_id={} peer_id={} kind={} codec={} ssrc={}",
@@ -285,7 +335,27 @@ async fn negotiate_offer(
                 track.codec().capability.mime_type,
                 track.ssrc(),
             );
-            // RTP reading loop will be added in VOICE-60.
+            let handle = actix::spawn(async move {
+                loop {
+                    match track.read_rtp().await {
+                        Ok((packet, _attributes)) => {
+                            let Ok(bytes) = packet.marshal() else {
+                                continue;
+                            };
+                            // Look up (and immediately drop the room lock behind)
+                            // a cloned participant handle rather than calling
+                            // push_rtp while holding `VOICE_GST`'s lock — see
+                            // `RoomPipeline::get_participant`'s doc comment.
+                            match crate::voice::get_participant(&room_id, &peer_id) {
+                                Some(participant) => participant.push_rtp(&bytes),
+                                None => break, // room/participant gone — normal on teardown races
+                            }
+                        }
+                        Err(_) => break, // track closed — normal on disconnect
+                    }
+                }
+            });
+            *inbound_handle_cell.lock().unwrap() = Some(handle);
         })
     }));
 
@@ -297,7 +367,59 @@ async fn negotiate_offer(
         .set_local_description(answer.clone())
         .await?;
 
-    Ok((peer_connection, answer.sdp))
+    // Only join the room's GStreamer pipeline once negotiation has fully
+    // succeeded — every step above this point is fallible (`?`), and joining
+    // any earlier would leak a `ParticipantPipeline` with no `PeerHandle`
+    // ever created to call `leave_room` on an error return.
+    crate::voice::join_room(room_id, peer_id);
+
+    // Outbound loop: pull this participant's mixed-and-encoded output and
+    // write it to the outbound track. `pull_rtp` is a real thread-blocking
+    // GStreamer call (up to 50ms per attempt), so it runs inside
+    // `spawn_blocking` rather than directly in this async task; the
+    // participant handle is cloned out of the room registry per-iteration so
+    // the room-wide lock is never held across that blocking call (again, see
+    // `RoomPipeline::get_participant`'s doc comment).
+    let peer_id_for_outbound = peer_id.to_string();
+    let room_id_for_outbound = room_id.to_string();
+    let outbound_handle = actix::spawn(async move {
+        loop {
+            let Some(participant) =
+                crate::voice::get_participant(&room_id_for_outbound, &peer_id_for_outbound)
+            else {
+                break; // participant removed from the room — normal on teardown
+            };
+            let bytes = match task::spawn_blocking(move || participant.pull_rtp()).await {
+                Ok(bytes) => bytes,
+                Err(_) => break, // blocking task panicked or was cancelled
+            };
+            let Some(bytes) = bytes else {
+                // Nothing ready this round; `pull_rtp`'s own internal 50ms
+                // timeout already provides backpressure, so loop straight
+                // back around rather than sleeping again on top of it.
+                continue;
+            };
+            let Ok(packet) = RtpPacket::unmarshal(&mut bytes.as_slice()) else {
+                continue;
+            };
+            if let Err(e) = outbound_track.write_rtp(&packet).await {
+                warn!(
+                    "event=voice_outbound_write_error peer_id={} error={}",
+                    peer_id_for_outbound, e
+                );
+            }
+        }
+    });
+
+    Ok((
+        PeerHandle {
+            peer_connection,
+            peer_id: peer_id.to_string(),
+            inbound_handle: inbound_handle_cell,
+            outbound_handle: Some(outbound_handle),
+        },
+        answer.sdp,
+    ))
 }
 
 // ── Actor messages: async offer negotiation result delivery ───────────────────

@@ -2,8 +2,11 @@ pub mod gst;
 pub mod service;
 pub mod voice_actor;
 
+use std::collections::HashMap;
 use std::env;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
+
+use gst::{ParticipantPipeline, RoomPipeline};
 
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::setting_engine::SettingEngine;
@@ -48,6 +51,50 @@ impl VoiceConfig {
 
 pub fn init() {
     gstreamer::init().expect("GStreamer initialization failed");
+}
+
+// ── Per-room GStreamer pipeline registry ──────────────────────────────────────
+
+/// One `RoomPipeline` per active voice room. Created on first participant
+/// join, dropped when the last participant leaves (see `leave_room`).
+static VOICE_GST: LazyLock<Mutex<HashMap<String, RoomPipeline>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Join `peer_id` to `room_id`'s voice pipeline, creating the room's
+/// `RoomPipeline` if this is the first participant. Returns the new
+/// participant's GStreamer handle (cheap to clone, used by the caller's
+/// inbound/outbound RTP loops).
+pub fn join_room(room_id: &str, peer_id: &str) -> ParticipantPipeline {
+    let mut rooms = VOICE_GST.lock().unwrap();
+    let room = rooms
+        .entry(room_id.to_string())
+        .or_insert_with(RoomPipeline::new);
+    room.add_participant(peer_id)
+}
+
+/// Remove `peer_id` from `room_id`'s voice pipeline. Drops the room's
+/// `RoomPipeline` entirely if it was the last participant.
+pub fn leave_room(room_id: &str, peer_id: &str) {
+    let mut rooms = VOICE_GST.lock().unwrap();
+    let Some(room) = rooms.get_mut(room_id) else {
+        return;
+    };
+    room.remove_participant(peer_id);
+    if room.is_empty() {
+        rooms.remove(room_id);
+    }
+}
+
+/// Look up a live participant's GStreamer handle without holding the
+/// registry lock any longer than the lookup+clone itself. Callers must not
+/// call GStreamer methods on the handle while still holding `VOICE_GST`'s
+/// lock — see the comment on `RoomPipeline::get_participant`.
+pub fn get_participant(room_id: &str, peer_id: &str) -> Option<ParticipantPipeline> {
+    VOICE_GST
+        .lock()
+        .unwrap()
+        .get(room_id)?
+        .get_participant(peer_id)
 }
 
 /// Shared WebRTC context — built once at startup from [`VoiceConfig`] and
@@ -139,5 +186,51 @@ mod tests {
         }
         let cfg = VoiceConfig::from_env();
         assert_eq!(cfg.public_ip, "127.0.0.1");
+    }
+
+    // `VOICE_GST` is a single process-wide registry shared by every test in
+    // this binary (tests run in parallel by default), so each test below
+    // uses its own unique room_id to avoid interfering with the others.
+
+    #[test]
+    fn join_room_creates_pipeline_and_get_participant_finds_it() {
+        init();
+        let room_id = "test-room-join-room-creates-pipeline";
+        join_room(room_id, "A");
+        assert!(get_participant(room_id, "A").is_some());
+        assert!(get_participant(room_id, "does-not-exist").is_none());
+        leave_room(room_id, "A"); // cleanup so this room doesn't linger for other test runs
+    }
+
+    #[test]
+    fn leave_room_removes_participant_and_drops_empty_room() {
+        init();
+        let room_id = "test-room-leave-room-removes-participant";
+        join_room(room_id, "A");
+        join_room(room_id, "B");
+
+        leave_room(room_id, "A");
+        assert!(get_participant(room_id, "A").is_none());
+        assert!(
+            get_participant(room_id, "B").is_some(),
+            "B should still be in the room after A leaves"
+        );
+
+        leave_room(room_id, "B");
+        // Room is now empty and should have been dropped from the registry;
+        // any lookup on it (even for a peer that never existed) is a no-op.
+        assert!(get_participant(room_id, "B").is_none());
+        assert!(!VOICE_GST.lock().unwrap().contains_key(room_id));
+    }
+
+    #[test]
+    fn leave_room_on_unknown_room_or_peer_does_not_panic() {
+        init();
+        leave_room("test-room-that-was-never-joined", "A");
+        let room_id = "test-room-leave-unknown-peer";
+        join_room(room_id, "A");
+        leave_room(room_id, "does-not-exist");
+        assert!(get_participant(room_id, "A").is_some());
+        leave_room(room_id, "A");
     }
 }
