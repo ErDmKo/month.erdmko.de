@@ -20,18 +20,19 @@ export type VoicePeerEvent =
     | readonly [type: typeof VOICE_PEER_REMOTE_TRACK, stream: MediaStream]
     | readonly [type: typeof VOICE_PEER_ICE_STATE, state: RTCIceConnectionState];
 
-// ── VoicePeer tuple: pc + its event stream ────────────────────────────────────
+// ── VoicePeer tuple: peerConnection + its event stream ────────────────────────
 
-const PEER_PC = 0 as const;
+const PEER_CONNECTION = 0 as const;
 const PEER_EVENTS = 1 as const;
 
 export type VoicePeer = readonly [
-    pc: RTCPeerConnection,
+    peerConnection: RTCPeerConnection,
     events: ObserverInstance<VoicePeerEvent>,
 ];
 
 export const voicePeerConnection = (peer: VoicePeer): RTCPeerConnection =>
-    peer[PEER_PC];
+    peer[PEER_CONNECTION];
+
 export const voicePeerEvents = (
     peer: VoicePeer
 ): ObserverInstance<VoicePeerEvent> => peer[PEER_EVENTS];
@@ -40,7 +41,7 @@ export const createVoicePeerConnection = (
     ctx: Window,
     localStream: MediaStream
 ): VoicePeer => {
-    const pc = new ctx.RTCPeerConnection({ iceServers: [] });
+    const peerConnection = new ctx.RTCPeerConnection({ iceServers: [] });
     const events = observer<VoicePeerEvent>();
 
     const localTracks = localStream.getAudioTracks();
@@ -56,10 +57,10 @@ export const createVoicePeerConnection = (
         }))
     );
     for (const track of localTracks) {
-        pc.addTrack(track, localStream);
+        peerConnection.addTrack(track, localStream);
     }
 
-    pc.onicecandidate = (e: RTCPeerConnectionIceEvent) => {
+    peerConnection.onicecandidate = (e: RTCPeerConnectionIceEvent) => {
         voiceLog(
             ctx,
             'onicecandidate',
@@ -75,7 +76,7 @@ export const createVoicePeerConnection = (
         }
     };
 
-    pc.ontrack = (e: RTCTrackEvent) => {
+    peerConnection.ontrack = (e: RTCTrackEvent) => {
         voiceLog(ctx, 'ontrack fired', {
             trackKind: e.track.kind,
             trackId: e.track.id,
@@ -93,37 +94,37 @@ export const createVoicePeerConnection = (
         }
     };
 
-    pc.oniceconnectionstatechange = () => {
-        voiceLog(ctx, 'iceConnectionState ->', pc.iceConnectionState);
+    peerConnection.oniceconnectionstatechange = () => {
+        voiceLog(ctx, 'iceConnectionState ->', peerConnection.iceConnectionState);
         events(
             bindArg(
-                [VOICE_PEER_ICE_STATE, pc.iceConnectionState] as const,
+                [VOICE_PEER_ICE_STATE, peerConnection.iceConnectionState] as const,
                 trigger
             )
         );
     };
 
-    pc.onsignalingstatechange = () =>
-        voiceLog(ctx, 'signalingState ->', pc.signalingState);
-    pc.onconnectionstatechange = () =>
-        voiceLog(ctx, 'connectionState ->', pc.connectionState);
+    peerConnection.onsignalingstatechange = () =>
+        voiceLog(ctx, 'signalingState ->', peerConnection.signalingState);
+    peerConnection.onconnectionstatechange = () =>
+        voiceLog(ctx, 'connectionState ->', peerConnection.connectionState);
 
-    return [pc, events] as const;
+    return [peerConnection, events] as const;
 };
 
 // ── SDP offer/answer, as Tasks ────────────────────────────────────────────────
 //
-// `pc.createOffer`/`setLocalDescription`/`setRemoteDescription` are native
+// `peerConnection.createOffer`/`setLocalDescription`/`setRemoteDescription` are native
 // Promise-returning WebRTC APIs; each Task below wraps exactly one such
 // boundary with `.then(resolve, reject)` (no further chaining), the same
 // pattern `readFileAsArrayBuffer` uses to wrap `FileReader`'s callback API.
 
 export const createVoiceOfferTask =
-    (ctx: Window, pc: RTCPeerConnection): Task<string> =>
+    (ctx: Window, peerConnection: RTCPeerConnection): Task<string> =>
     (resolve, reject) => {
-        pc.createOffer().then((offer) => {
+        peerConnection.createOffer().then((offer) => {
             voiceLog(ctx, 'created offer, sdp length', offer.sdp?.length ?? 0);
-            pc.setLocalDescription(offer).then(
+            peerConnection.setLocalDescription(offer).then(
                 () => resolve(offer.sdp ?? ''),
                 reject
             );
@@ -131,10 +132,10 @@ export const createVoiceOfferTask =
     };
 
 export const applyVoiceAnswerTask =
-    (ctx: Window, pc: RTCPeerConnection, sdp: string): Task<void> =>
+    (ctx: Window, peerConnection: RTCPeerConnection, sdp: string): Task<void> =>
     (resolve, reject) => {
         voiceLog(ctx, 'received answer, sdp length', sdp.length, sdp);
-        pc.setRemoteDescription({ type: 'answer', sdp }).then(() => {
+        peerConnection.setRemoteDescription({ type: 'answer', sdp }).then(() => {
             voiceLog(ctx, 'setRemoteDescription(answer) OK');
             resolve();
         }, reject);
@@ -143,14 +144,14 @@ export const applyVoiceAnswerTask =
 export const addVoiceIceCandidateTask =
     (
         ctx: Window,
-        pc: RTCPeerConnection,
+        peerConnection: RTCPeerConnection,
         candidate: string,
         sdpMid: string,
         sdpMLineIndex: number
     ): Task<void> =>
     (resolve, reject) => {
         voiceLog(ctx, 'received remote ICE candidate', candidate);
-        pc.addIceCandidate({ candidate, sdpMid, sdpMLineIndex }).then(
+        peerConnection.addIceCandidate({ candidate, sdpMid, sdpMLineIndex }).then(
             resolve,
             reject
         );
@@ -176,10 +177,10 @@ export const playVoiceRemoteAudioTask =
     };
 
 export const closeVoicePeerConnection = (
-    pc: RTCPeerConnection | null,
+    peerConnection: RTCPeerConnection | null,
     stream: MediaStream | null
 ): void => {
-    if (pc) pc.close();
+    if (peerConnection) peerConnection.close();
     if (stream) stream.getTracks().forEach((t) => t.stop());
 };
 

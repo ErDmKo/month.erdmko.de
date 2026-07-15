@@ -253,11 +253,11 @@ async fn negotiate_offer(
     let peer_connection = Arc::new(rtc.api.new_peer_connection(rtc.config.clone()).await?);
 
     // The browser's offer has exactly one `m=audio` line (its mic track,
-    // `sendrecv` by default from a plain `pc.addTrack`). An SDP answer must
-    // have the same number of m-lines, in the same order, as the offer —
-    // so we must NOT create a second, separate transceiver here for our
-    // outbound mixed audio: `set_remote_description` below will
-    // auto-create the one transceiver matching that single offered
+    // `sendrecv` by default from a plain `peerConnection.addTrack`). An SDP
+    // answer must have the same number of m-lines, in the same order, as
+    // the offer — so we must NOT create a second, separate transceiver
+    // here for our outbound mixed audio: `set_remote_description` below
+    // will auto-create the one transceiver matching that single offered
     // section, and we attach our outbound track to *that same*
     // transceiver's sender afterwards (see `replace_track` below).
     // (An earlier version of this code called both
@@ -265,9 +265,9 @@ async fn negotiate_offer(
     // `add_transceiver_from_track(.., Sendonly)` here, which silently
     // produced an SDP answer with only the recvonly transceiver bound to
     // the offer's one m=audio section — the sendonly one was orphaned and
-    // never appeared in the answer at all, so `pc.ontrack` never fired
-    // client-side and no audio ever reached the browser, even though the
-    // GStreamer side worked perfectly.)
+    // never appeared in the answer at all, so `peerConnection.ontrack`
+    // never fired client-side and no audio ever reached the browser, even
+    // though the GStreamer side worked perfectly.)
 
     // Outbound track carrying this participant's mix-minus output
     // (everyone else in the room, minus their own audio). `webrtc-rs` has
