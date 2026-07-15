@@ -67,6 +67,20 @@ impl RoomPipeline {
         // downstream live aggregators (audiomixer) with a stale latency figure;
         // force a recalculation so they don't stall waiting on the wrong deadline.
         let _ = self.pipeline.recalculate_latency();
+
+        // Diagnostic: play a short sine tone directly into the new
+        // participant's own mixer. This proves the GStreamer side (mixer →
+        // encode → appsink → outbound RTP → browser) works end-to-end,
+        // independent of microphone input or any other participant's link —
+        // if you don't hear this on join, the problem is downstream of
+        // GStreamer (browser audio element, ICE/RTP delivery), not the
+        // mixing pipeline itself.
+        let _ = mixer::play_test_tone(
+            &self.pipeline,
+            &new_participant.mixer,
+            std::time::Duration::from_secs(2),
+        );
+
         new_participant
     }
 

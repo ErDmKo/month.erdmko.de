@@ -4,59 +4,176 @@
 // NAT1To1IPs (see server/src/voice/mod.rs's `init_rtc`), so ICE candidates
 // from `iceServers: []` are sufficient.
 
-export type VoicePeerCallbacks = {
-    onIceCandidate: (candidate: RTCIceCandidate) => void;
-    onRemoteTrack: (stream: MediaStream) => void;
-    onIceStateChange: (state: RTCIceConnectionState) => void;
-};
+import { bindArg, createLogger, observer, trigger } from '../../utils';
+import type { ObserverInstance, Task } from '../../utils';
+
+const voiceLog = createLogger('voice');
+
+// ── Peer event tuple ──────────────────────────────────────────────────────────
+
+export const VOICE_PEER_ICE_CANDIDATE = 0 as const;
+export const VOICE_PEER_REMOTE_TRACK = 1 as const;
+export const VOICE_PEER_ICE_STATE = 2 as const;
+
+export type VoicePeerEvent =
+    | readonly [type: typeof VOICE_PEER_ICE_CANDIDATE, candidate: RTCIceCandidate]
+    | readonly [type: typeof VOICE_PEER_REMOTE_TRACK, stream: MediaStream]
+    | readonly [type: typeof VOICE_PEER_ICE_STATE, state: RTCIceConnectionState];
+
+// ── VoicePeer tuple: pc + its event stream ────────────────────────────────────
+
+const PEER_PC = 0 as const;
+const PEER_EVENTS = 1 as const;
+
+export type VoicePeer = readonly [
+    pc: RTCPeerConnection,
+    events: ObserverInstance<VoicePeerEvent>,
+];
+
+export const voicePeerConnection = (peer: VoicePeer): RTCPeerConnection =>
+    peer[PEER_PC];
+export const voicePeerEvents = (
+    peer: VoicePeer
+): ObserverInstance<VoicePeerEvent> => peer[PEER_EVENTS];
 
 export const createVoicePeerConnection = (
     ctx: Window,
-    localStream: MediaStream,
-    callbacks: VoicePeerCallbacks
-): RTCPeerConnection => {
+    localStream: MediaStream
+): VoicePeer => {
     const pc = new ctx.RTCPeerConnection({ iceServers: [] });
+    const events = observer<VoicePeerEvent>();
 
-    for (const track of localStream.getAudioTracks()) {
+    const localTracks = localStream.getAudioTracks();
+    voiceLog(
+        ctx,
+        'local mic tracks:',
+        localTracks.length,
+        localTracks.map((t) => ({
+            id: t.id,
+            label: t.label,
+            enabled: t.enabled,
+            readyState: t.readyState,
+        }))
+    );
+    for (const track of localTracks) {
         pc.addTrack(track, localStream);
     }
 
     pc.onicecandidate = (e: RTCPeerConnectionIceEvent) => {
-        if (e.candidate) callbacks.onIceCandidate(e.candidate);
+        voiceLog(
+            ctx,
+            'onicecandidate',
+            e.candidate ? e.candidate.candidate : '(end of candidates)'
+        );
+        if (e.candidate) {
+            events(
+                bindArg(
+                    [VOICE_PEER_ICE_CANDIDATE, e.candidate] as const,
+                    trigger
+                )
+            );
+        }
     };
 
     pc.ontrack = (e: RTCTrackEvent) => {
-        if (e.streams[0]) callbacks.onRemoteTrack(e.streams[0]);
+        voiceLog(ctx, 'ontrack fired', {
+            trackKind: e.track.kind,
+            trackId: e.track.id,
+            trackReadyState: e.track.readyState,
+            streamCount: e.streams.length,
+            streamTrackCount: e.streams[0]?.getTracks().length ?? 0,
+        });
+        if (e.streams[0]) {
+            events(
+                bindArg(
+                    [VOICE_PEER_REMOTE_TRACK, e.streams[0]] as const,
+                    trigger
+                )
+            );
+        }
     };
 
     pc.oniceconnectionstatechange = () => {
-        callbacks.onIceStateChange(pc.iceConnectionState);
+        voiceLog(ctx, 'iceConnectionState ->', pc.iceConnectionState);
+        events(
+            bindArg(
+                [VOICE_PEER_ICE_STATE, pc.iceConnectionState] as const,
+                trigger
+            )
+        );
     };
 
-    return pc;
+    pc.onsignalingstatechange = () =>
+        voiceLog(ctx, 'signalingState ->', pc.signalingState);
+    pc.onconnectionstatechange = () =>
+        voiceLog(ctx, 'connectionState ->', pc.connectionState);
+
+    return [pc, events] as const;
 };
 
-export const createVoiceOffer = async (
-    pc: RTCPeerConnection
-): Promise<string> => {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    return offer.sdp ?? '';
-};
+// ── SDP offer/answer, as Tasks ────────────────────────────────────────────────
+//
+// `pc.createOffer`/`setLocalDescription`/`setRemoteDescription` are native
+// Promise-returning WebRTC APIs; each Task below wraps exactly one such
+// boundary with `.then(resolve, reject)` (no further chaining), the same
+// pattern `readFileAsArrayBuffer` uses to wrap `FileReader`'s callback API.
 
-export const applyVoiceAnswer = (
-    pc: RTCPeerConnection,
-    sdp: string
-): Promise<void> =>
-    pc.setRemoteDescription({ type: 'answer', sdp });
+export const createVoiceOfferTask =
+    (ctx: Window, pc: RTCPeerConnection): Task<string> =>
+    (resolve, reject) => {
+        pc.createOffer().then((offer) => {
+            voiceLog(ctx, 'created offer, sdp length', offer.sdp?.length ?? 0);
+            pc.setLocalDescription(offer).then(
+                () => resolve(offer.sdp ?? ''),
+                reject
+            );
+        }, reject);
+    };
 
-export const addVoiceIceCandidate = (
-    pc: RTCPeerConnection,
-    candidate: string,
-    sdpMid: string,
-    sdpMLineIndex: number
-): Promise<void> =>
-    pc.addIceCandidate({ candidate, sdpMid, sdpMLineIndex });
+export const applyVoiceAnswerTask =
+    (ctx: Window, pc: RTCPeerConnection, sdp: string): Task<void> =>
+    (resolve, reject) => {
+        voiceLog(ctx, 'received answer, sdp length', sdp.length, sdp);
+        pc.setRemoteDescription({ type: 'answer', sdp }).then(() => {
+            voiceLog(ctx, 'setRemoteDescription(answer) OK');
+            resolve();
+        }, reject);
+    };
+
+export const addVoiceIceCandidateTask =
+    (
+        ctx: Window,
+        pc: RTCPeerConnection,
+        candidate: string,
+        sdpMid: string,
+        sdpMLineIndex: number
+    ): Task<void> =>
+    (resolve, reject) => {
+        voiceLog(ctx, 'received remote ICE candidate', candidate);
+        pc.addIceCandidate({ candidate, sdpMid, sdpMLineIndex }).then(
+            resolve,
+            reject
+        );
+    };
+
+export const getVoiceUserMediaTask =
+    (ctx: Window): Task<MediaStream> =>
+    (resolve, reject) => {
+        ctx.navigator.mediaDevices
+            .getUserMedia({ audio: true, video: false })
+            .then(resolve, reject);
+    };
+
+export const playVoiceRemoteAudioTask =
+    (ctx: Window, audioEl: HTMLAudioElement, stream: MediaStream): Task<void> =>
+    (resolve, reject) => {
+        voiceLog(ctx, 'setting <audio> srcObject from remote stream', stream.id);
+        audioEl.srcObject = stream;
+        audioEl.play().then(() => {
+            voiceLog(ctx, '<audio>.play() resolved');
+            resolve();
+        }, reject);
+    };
 
 export const closeVoicePeerConnection = (
     pc: RTCPeerConnection | null,

@@ -4,19 +4,9 @@
 // Logs outgoing ClientFrame and incoming ServerFrame variants with their
 // decoded field values in a compact, readable format.
 
-// ── Enable check ──────────────────────────────────────────────────────────────
+import { createLogger } from './logger';
 
-const isEnabled = (): boolean => {
-    try {
-        return (
-            (globalThis as any).localStorage
-                ?.getItem('debug')
-                ?.includes('ws') ?? false
-        );
-    } catch {
-        return false;
-    }
-};
+const wsLog = createLogger('ws');
 
 // ── Variant name maps ─────────────────────────────────────────────────────────
 
@@ -73,26 +63,18 @@ export type FramePayload = readonly [
 const LOGGER_VARIANT = 0 as const;
 const LOGGER_VALUE = 1 as const;
 
-export const logOutgoingFrame = (payload: FramePayload): void => {
-    if (!isEnabled()) return;
+export const logOutgoingFrame = (ctx: Window, payload: FramePayload): void => {
     const name =
         CLIENT_VARIANT_NAMES[payload[LOGGER_VARIANT]] ??
         `unknown(${payload[LOGGER_VARIANT]})`;
     const extra = expandableArgs(payload[LOGGER_VALUE]);
-    console.log(
-        `[ws →] ${name}(${formatPayload(payload[LOGGER_VALUE])})`,
-        ...extra
-    );
+    wsLog(ctx, `→ ${name}(${formatPayload(payload[LOGGER_VALUE])})`, ...extra);
 };
 
-export const logIncomingFrame = (payload: FramePayload): void => {
-    if (!isEnabled()) return;
+export const logIncomingFrame = (ctx: Window, payload: FramePayload): void => {
     const name =
         SERVER_VARIANT_NAMES[payload[LOGGER_VARIANT]] ??
         `unknown(${payload[LOGGER_VARIANT]})`;
     const extra = expandableArgs(payload[LOGGER_VALUE]);
-    console.log(
-        `[ws ←] ${name}(${formatPayload(payload[LOGGER_VALUE])})`,
-        ...extra
-    );
+    wsLog(ctx, `← ${name}(${formatPayload(payload[LOGGER_VALUE])})`, ...extra);
 };

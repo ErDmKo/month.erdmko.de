@@ -1,6 +1,11 @@
 import {
     bindArg,
+    createLogger,
+    noop,
     on,
+    pipe,
+    taskChain,
+    taskFork,
     trigger,
     Task,
 } from '../../utils';
@@ -48,12 +53,20 @@ import {
 import type { ChatUiObs, ChatUiEvent } from '../chat-ui/events';
 import {
     createVoicePeerConnection,
-    createVoiceOffer,
-    applyVoiceAnswer,
-    addVoiceIceCandidate,
+    createVoiceOfferTask,
+    applyVoiceAnswerTask,
+    addVoiceIceCandidateTask,
+    getVoiceUserMediaTask,
+    playVoiceRemoteAudioTask,
     closeVoicePeerConnection,
     setVoiceMuted,
+    voicePeerConnection,
+    voicePeerEvents,
+    VOICE_PEER_ICE_CANDIDATE,
+    VOICE_PEER_REMOTE_TRACK,
+    VOICE_PEER_ICE_STATE,
 } from './peer';
+import type { VoicePeer, VoicePeerEvent } from './peer';
 import {
     setInCall,
     setStatus,
@@ -61,6 +74,8 @@ import {
     renderParticipants,
     resetVoiceUi,
 } from './ui';
+
+const voiceLog = createLogger('voice');
 
 // Note: `navigator` is already part of the standard `Window` interface in
 // this project's (trimmed) lib.dom typings, but `RTCPeerConnection` isn't —
@@ -85,7 +100,7 @@ export const initVoice =
 
         let refs: ChatUiRefs | null = null;
         let localStream: MediaStream | null = null;
-        let pc: RTCPeerConnection | null = null;
+        let peer: VoicePeer | null = null;
         let isMuted = false;
         let hasJoinedChat = false; // tracks whether we've ever seen a real senderId
 
@@ -96,7 +111,7 @@ export const initVoice =
         // ── Leave / cleanup ───────────────────────────────────────────────────
 
         const leaveVoice = (sendLeave: boolean) => {
-            if (!pc && !localStream) return; // not in a call — no-op
+            if (!peer && !localStream) return; // not in a call — no-op
             if (sendLeave) {
                 outgoing(
                     bindArg(
@@ -108,88 +123,126 @@ export const initVoice =
                     )
                 );
             }
-            closeVoicePeerConnection(pc, localStream);
-            pc = null;
+            closeVoicePeerConnection(peer ? voicePeerConnection(peer) : null, localStream);
+            peer = null;
             localStream = null;
             isMuted = false;
             if (refs) resetVoiceUi(ctx, refs);
         };
 
-        // ── Join ──────────────────────────────────────────────────────────────
+        // ── Peer event handling (ICE candidates, remote track, ICE state) ─────
 
-        const joinVoice = async () => {
-            if (!refs || pc || localStream) return; // already in a call
-            setStatus(refs, 'Requesting microphone...');
-            let stream: MediaStream;
-            try {
-                stream = await ctx.navigator.mediaDevices.getUserMedia({
-                    audio: true,
-                    video: false,
-                });
-            } catch (e) {
-                setStatus(refs, '');
-                showError(`Microphone access denied: ${String(e)}`);
-                return;
-            }
-            localStream = stream;
-            setInCall(refs, true);
-            setStatus(refs, 'Connecting...');
-
-            outgoing(
-                bindArg(
-                    [CLIENT_FRAME_VOICE_JOIN, [`voice-join-${Date.now()}`]] as const,
-                    trigger
-                )
-            );
-
-            pc = createVoicePeerConnection(ctx, stream, {
-                onIceCandidate: (candidate) => {
-                    outgoing(
-                        bindArg(
-                            [
-                                CLIENT_FRAME_VOICE_ICE,
-                                [
-                                    `voice-ice-${Date.now()}`,
-                                    candidate.candidate,
-                                    candidate.sdpMid ?? '',
-                                    candidate.sdpMLineIndex ?? 0,
-                                ],
-                            ] as const,
-                            trigger
-                        )
-                    );
-                },
-                onRemoteTrack: (remoteStream) => {
-                    if (!refs) return;
-                    refs[CHAT_REF_VOICE_REMOTE_AUDIO].srcObject = remoteStream;
-                },
-                onIceStateChange: (state) => {
-                    if (!refs) return;
-                    if (state === 'connected' || state === 'completed') {
-                        setStatus(refs, 'Connected');
-                    } else if (state === 'failed') {
-                        setStatus(refs, 'Connection failed');
-                    } else if (state === 'disconnected') {
-                        setStatus(refs, 'Reconnecting...');
-                    }
-                },
-            });
-
-            try {
-                const sdp = await createVoiceOffer(pc);
+        const handlePeerEvent = (event: VoicePeerEvent) => {
+            if (event[0] === VOICE_PEER_ICE_CANDIDATE) {
+                const candidate = event[1];
                 outgoing(
                     bindArg(
                         [
-                            CLIENT_FRAME_VOICE_OFFER,
-                            [`voice-offer-${Date.now()}`, sdp],
+                            CLIENT_FRAME_VOICE_ICE,
+                            [
+                                `voice-ice-${Date.now()}`,
+                                candidate.candidate,
+                                candidate.sdpMid ?? '',
+                                candidate.sdpMLineIndex ?? 0,
+                            ],
                         ] as const,
                         trigger
                     )
                 );
-            } catch (e) {
-                showError(`Failed to create voice offer: ${String(e)}`);
-                leaveVoice(true);
+                return;
             }
+            if (event[0] === VOICE_PEER_REMOTE_TRACK) {
+                if (!refs) return;
+                pipe(
+                    playVoiceRemoteAudioTask(
+                        ctx,
+                        refs[CHAT_REF_VOICE_REMOTE_AUDIO],
+                        event[1]
+                    ),
+                    taskFork(noop, (e) =>
+                        voiceLog(ctx, '<audio>.play() rejected', e)
+                    )
+                );
+                return;
+            }
+            if (event[0] === VOICE_PEER_ICE_STATE) {
+                if (!refs) return;
+                const state = event[1];
+                if (state === 'connected' || state === 'completed') {
+                    setStatus(refs, 'Connected');
+                } else if (state === 'failed') {
+                    setStatus(refs, 'Connection failed');
+                } else if (state === 'disconnected') {
+                    setStatus(refs, 'Reconnecting...');
+                }
+            }
+        };
+
+        // ── Join ──────────────────────────────────────────────────────────────
+
+        const joinVoice = (): void => {
+            if (!refs || peer || localStream) return; // already in a call
+            setStatus(refs, 'Requesting microphone...');
+            pipe(
+                getVoiceUserMediaTask(ctx),
+                taskChain(
+                    (stream: MediaStream): Task<string> =>
+                        (resolveOffer, rejectOffer) => {
+                            if (!refs) {
+                                rejectOffer(new Error('voice UI not ready'));
+                                return;
+                            }
+                            localStream = stream;
+                            setInCall(refs, true);
+                            setStatus(refs, 'Connecting...');
+                            outgoing(
+                                bindArg(
+                                    [
+                                        CLIENT_FRAME_VOICE_JOIN,
+                                        [`voice-join-${Date.now()}`],
+                                    ] as const,
+                                    trigger
+                                )
+                            );
+                            peer = createVoicePeerConnection(ctx, stream);
+                            voicePeerEvents(peer)(bindArg(handlePeerEvent, on));
+                            createVoiceOfferTask(ctx, voicePeerConnection(peer))(
+                                resolveOffer,
+                                rejectOffer
+                            );
+                        }
+                ),
+                taskChain(
+                    (sdp: string): Task<void> =>
+                        (resolveSend) => {
+                            outgoing(
+                                bindArg(
+                                    [
+                                        CLIENT_FRAME_VOICE_OFFER,
+                                        [`voice-offer-${Date.now()}`, sdp],
+                                    ] as const,
+                                    trigger
+                                )
+                            );
+                            resolveSend();
+                        }
+                ),
+                taskFork(noop, (e) => {
+                    if (e instanceof Error && e.message === 'voice UI not ready') {
+                        return;
+                    }
+                    // Distinguish "mic denied" (getUserMedia rejected before
+                    // any peer connection exists) from later offer/negotiation
+                    // failures, matching the ticket's two distinct error paths.
+                    if (!peer) {
+                        if (refs) setStatus(refs, '');
+                        showError(`Microphone access denied: ${String(e)}`);
+                        return;
+                    }
+                    showError(`Failed to create voice offer: ${String(e)}`);
+                    leaveVoice(true);
+                })
+            );
         };
 
         // ── Mute ──────────────────────────────────────────────────────────────
@@ -219,11 +272,14 @@ export const initVoice =
             }
 
             if (variant === SERVER_FRAME_VOICE_ANSWER) {
-                if (!pc) return;
+                if (!peer) return;
                 const sdp =
                     event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_VOICE_ANSWER_SDP];
-                applyVoiceAnswer(pc, sdp).catch((e) =>
-                    showError(`Failed to apply voice answer: ${String(e)}`)
+                pipe(
+                    applyVoiceAnswerTask(ctx, voicePeerConnection(peer), sdp),
+                    taskFork(noop, (e) =>
+                        showError(`Failed to apply voice answer: ${String(e)}`)
+                    )
                 );
                 void event[SERVER_FRAME_PAYLOAD_VALUE][
                     SERVER_VOICE_ANSWER_REQUEST_ID
@@ -232,15 +288,19 @@ export const initVoice =
             }
 
             if (variant === SERVER_FRAME_VOICE_ICE) {
-                if (!pc) return;
+                if (!peer) return;
                 const value = event[SERVER_FRAME_PAYLOAD_VALUE];
-                addVoiceIceCandidate(
-                    pc,
-                    value[SERVER_VOICE_ICE_CANDIDATE],
-                    value[SERVER_VOICE_ICE_SDP_MID],
-                    value[SERVER_VOICE_ICE_SDP_MLINE_IDX]
-                ).catch((e) =>
-                    showError(`Failed to add voice ICE candidate: ${String(e)}`)
+                pipe(
+                    addVoiceIceCandidateTask(
+                        ctx,
+                        voicePeerConnection(peer),
+                        value[SERVER_VOICE_ICE_CANDIDATE],
+                        value[SERVER_VOICE_ICE_SDP_MID],
+                        value[SERVER_VOICE_ICE_SDP_MLINE_IDX]
+                    ),
+                    taskFork(noop, (e) =>
+                        showError(`Failed to add voice ICE candidate: ${String(e)}`)
+                    )
                 );
                 return;
             }
@@ -265,17 +325,17 @@ export const initVoice =
                     refs = event[CHAT_UI_INIT_REFS];
                     resetVoiceUi(ctx, refs);
 
-                    refs[CHAT_REF_VOICE_JOIN].addEventListener('click', () => {
-                        joinVoice().catch((e) =>
-                            showError(`Failed to join voice: ${String(e)}`)
-                        );
-                    });
+                    refs[CHAT_REF_VOICE_JOIN].addEventListener(
+                        'click',
+                        joinVoice
+                    );
                     refs[CHAT_REF_VOICE_MUTE].addEventListener(
                         'click',
                         toggleMute
                     );
-                    refs[CHAT_REF_VOICE_LEAVE].addEventListener('click', () =>
-                        leaveVoice(true)
+                    refs[CHAT_REF_VOICE_LEAVE].addEventListener(
+                        'click',
+                        bindArg(true, leaveVoice)
                     );
 
                     resolve();

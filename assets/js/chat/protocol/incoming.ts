@@ -27,6 +27,6 @@ export const parseBinaryFrame = (
     if (buf.length === 0) return null;
     const frame = decodeServerFrame(ctx, buf);
     if (!frame) return null;
-    logIncomingFrame(frame);
+    logIncomingFrame(ctx, frame);
     return frame;
 };

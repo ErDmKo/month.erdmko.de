@@ -20,7 +20,7 @@ export const serializeCommand = (
     ctx: Window,
     command: ClientFramePayload
 ): ArrayBuffer => {
-    logOutgoingFrame(command);
+    logOutgoingFrame(ctx, command);
     return encodeClientFrame(ctx, command).buffer as ArrayBuffer;
 };
 

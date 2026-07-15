@@ -8,7 +8,6 @@ use webrtc::api::media_engine::MIME_TYPE_OPUS;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::rtp::packet::Packet as RtpPacket;
-use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
 use webrtc::rtp_transceiver::rtp_codec::{RTCRtpCodecCapability, RTPCodecType};
 use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
 use webrtc::track::track_local::TrackLocalWriter;
@@ -253,23 +252,28 @@ async fn negotiate_offer(
     let rtc = crate::voice::rtc_context();
     let peer_connection = Arc::new(rtc.api.new_peer_connection(rtc.config.clone()).await?);
 
-    // Audio-only, receive-only transceiver so the SDP advertises audio receive capability.
-    peer_connection
-        .add_transceiver_from_kind(
-            RTPCodecType::Audio,
-            Some(RTCRtpTransceiverInit {
-                direction: RTCRtpTransceiverDirection::Recvonly,
-                send_encodings: vec![],
-            }),
-        )
-        .await?;
+    // The browser's offer has exactly one `m=audio` line (its mic track,
+    // `sendrecv` by default from a plain `pc.addTrack`). An SDP answer must
+    // have the same number of m-lines, in the same order, as the offer —
+    // so we must NOT create a second, separate transceiver here for our
+    // outbound mixed audio: `set_remote_description` below will
+    // auto-create the one transceiver matching that single offered
+    // section, and we attach our outbound track to *that same*
+    // transceiver's sender afterwards (see `replace_track` below).
+    // (An earlier version of this code called both
+    // `add_transceiver_from_kind(.., Recvonly)` and
+    // `add_transceiver_from_track(.., Sendonly)` here, which silently
+    // produced an SDP answer with only the recvonly transceiver bound to
+    // the offer's one m=audio section — the sendonly one was orphaned and
+    // never appeared in the answer at all, so `pc.ontrack` never fired
+    // client-side and no audio ever reached the browser, even though the
+    // GStreamer side worked perfectly.)
 
-    // Send-only track carrying this participant's mix-minus output (everyone
-    // else in the room, minus their own audio). `webrtc-rs` has no
-    // `RTCRtpSender::send_rtp` — outbound RTP is written directly to the
-    // `TrackLocalStaticRTP` handle instead (`write_rtp`, used below in the
-    // outbound loop); `add_transceiver_from_track` is what actually wires it
-    // into the peer connection and SDP.
+    // Outbound track carrying this participant's mix-minus output
+    // (everyone else in the room, minus their own audio). `webrtc-rs` has
+    // no `RTCRtpSender::send_rtp` — outbound RTP is written directly to
+    // this `TrackLocalStaticRTP` handle instead (`write_rtp`, used below
+    // in the outbound loop).
     let outbound_track = Arc::new(TrackLocalStaticRTP::new(
         RTCRtpCodecCapability {
             mime_type: MIME_TYPE_OPUS.to_string(),
@@ -280,15 +284,6 @@ async fn negotiate_offer(
         "audio".to_string(),
         peer_id.to_string(),
     ));
-    peer_connection
-        .add_transceiver_from_track(
-            outbound_track.clone(),
-            Some(RTCRtpTransceiverInit {
-                direction: RTCRtpTransceiverDirection::Sendonly,
-                send_encodings: vec![],
-            }),
-        )
-        .await?;
 
     let peer_id_for_ice = peer_id.to_string();
     let addr_for_ice = addr.clone();
@@ -366,6 +361,40 @@ async fn negotiate_offer(
     peer_connection
         .set_remote_description(RTCSessionDescription::offer(offer_sdp)?)
         .await?;
+
+    // Attach our outbound mixed-audio track to the transceiver that
+    // `set_remote_description` just auto-created/matched for the offer's
+    // one `m=audio` section, making that section carry both directions
+    // (the browser's mic in, our mix-minus output out) instead of creating
+    // a second, unmatched transceiver — see the comment above this
+    // function's `outbound_track` construction for why that's required.
+    let audio_transceiver = peer_connection
+        .get_transceivers()
+        .await
+        .into_iter()
+        .find(|t| t.kind() == RTPCodecType::Audio)
+        .ok_or_else(|| {
+            webrtc::Error::new(
+                "no audio transceiver found after set_remote_description".to_string(),
+            )
+        })?;
+    audio_transceiver
+        .sender()
+        .await
+        .replace_track(Some(outbound_track.clone()))
+        .await?;
+    // `set_remote_description` creates/matches transceivers with a direction
+    // inferred conservatively (observed to default to `Recvonly` even though
+    // the offer's m=audio section was `sendrecv`) — attaching a track via
+    // `replace_track` alone does NOT change the negotiated SDP direction, so
+    // without this the answer keeps `a=recvonly` and the browser correctly
+    // never fires `ontrack` for audio we never actually offered to send.
+    // Confirmed via a live browser console log showing exactly `a=recvonly`
+    // in the answer before this fix was added.
+    audio_transceiver
+        .set_direction(RTCRtpTransceiverDirection::Sendrecv)
+        .await;
+
     let answer = peer_connection.create_answer(None).await?;
     peer_connection
         .set_local_description(answer.clone())
@@ -389,6 +418,7 @@ async fn negotiate_offer(
     // Same reasoning as the inbound loop above — use plain tokio::spawn rather
     // than actix::spawn/spawn_local.
     let outbound_handle = tokio::spawn(async move {
+        let mut sent_count: u64 = 0;
         loop {
             let Some(participant) =
                 crate::voice::get_participant(&room_id_for_outbound, &peer_id_for_outbound)
@@ -408,11 +438,25 @@ async fn negotiate_offer(
             let Ok(packet) = RtpPacket::unmarshal(&mut bytes.as_slice()) else {
                 continue;
             };
-            if let Err(e) = outbound_track.write_rtp(&packet).await {
-                warn!(
-                    "event=voice_outbound_write_error peer_id={} error={}",
-                    peer_id_for_outbound, e
-                );
+            match outbound_track.write_rtp(&packet).await {
+                Ok(_) => {
+                    sent_count += 1;
+                    // Log the first packet immediately (proves the outbound
+                    // path is alive at all) then a heartbeat every 100
+                    // packets (~2s of Opus audio) rather than every packet.
+                    if sent_count == 1 || sent_count % 100 == 0 {
+                        info!(
+                            "event=voice_outbound_sent peer_id={} count={}",
+                            peer_id_for_outbound, sent_count
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "event=voice_outbound_write_error peer_id={} error={}",
+                        peer_id_for_outbound, e
+                    );
+                }
             }
         }
     });
