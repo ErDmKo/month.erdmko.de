@@ -1,3 +1,11 @@
+---
+title: "Voice VPS and Network"
+ticket: "VOICE-30"
+status: "completed"
+draft: false
+weight: 30
+---
+
 # VOICE-30 VPS & Network
 
 ## Depends on

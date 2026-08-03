@@ -1,3 +1,11 @@
+---
+title: "Voice Signaling Server"
+ticket: "VOICE-20"
+status: "completed"
+draft: false
+weight: 20
+---
+
 # VOICE-20 Signaling Server
 
 ## Depends on

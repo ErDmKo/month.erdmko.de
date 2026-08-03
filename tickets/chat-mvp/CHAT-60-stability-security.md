@@ -1,3 +1,11 @@
+---
+title: "Chat MVP Stability and Security"
+ticket: "CHAT-60"
+status: "completed"
+draft: false
+weight: 70
+---
+
 # CHAT-60 Stability & Security
 
 ## Depends on

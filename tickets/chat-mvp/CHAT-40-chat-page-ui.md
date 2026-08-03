@@ -1,3 +1,11 @@
+---
+title: "Chat MVP Chat Page UI"
+ticket: "CHAT-40"
+status: "completed"
+draft: false
+weight: 50
+---
+
 # CHAT-40 Chat Page UI
 
 ## Depends on

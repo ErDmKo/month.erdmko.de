@@ -1,3 +1,11 @@
+---
+title: "Assets UI"
+ticket: "ASSETS-40"
+status: "completed"
+draft: false
+weight: 50
+---
+
 # ASSETS-40 UI
 
 ## Depends on

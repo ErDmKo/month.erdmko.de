@@ -1,3 +1,11 @@
+---
+title: "Assets Data Layer"
+ticket: "ASSETS-20"
+status: "completed"
+draft: false
+weight: 30
+---
+
 # ASSETS-20 Data Layer
 
 ## Depends on

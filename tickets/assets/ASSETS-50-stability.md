@@ -1,3 +1,11 @@
+---
+title: "Assets Stability and Security"
+ticket: "ASSETS-50"
+status: "completed"
+draft: false
+weight: 60
+---
+
 # ASSETS-50 Stability & Security
 
 ## Depends on
@@ -93,4 +101,3 @@ Log events (key=value формат) — реализовано в `server/src/pa
 - [x] Log pending upload cancellations on disconnect
 - [x] Verify/document BAD_PAYLOAD flow (connection survival)
 - [ ] Написать тесты (список выше)
-

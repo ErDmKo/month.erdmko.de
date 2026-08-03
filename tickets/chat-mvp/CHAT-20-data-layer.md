@@ -1,3 +1,11 @@
+---
+title: "Chat MVP Data Layer"
+ticket: "CHAT-20"
+status: "completed"
+draft: false
+weight: 30
+---
+
 # CHAT-20 Data Layer
 
 ## Depends on

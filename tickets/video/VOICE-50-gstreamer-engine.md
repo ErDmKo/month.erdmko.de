@@ -1,3 +1,11 @@
+---
+title: "Voice GStreamer Audio Engine"
+ticket: "VOICE-50"
+status: "completed"
+draft: false
+weight: 50
+---
+
 # VOICE-50 GStreamer Audio Engine
 
 ## Depends on
@@ -192,4 +200,3 @@ room's pipeline from reaching `Playing`.
   integration test that left a WS connection open at teardown take ~30s
   longer than necessary. Fixed with `.shutdown_timeout(0)` on the test
   `HttpServer` builders — full server test suite went from ~61s to ~3.5s.
-

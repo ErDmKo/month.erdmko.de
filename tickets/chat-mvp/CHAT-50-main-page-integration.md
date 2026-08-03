@@ -1,3 +1,11 @@
+---
+title: "Chat MVP Main Page Integration"
+ticket: "CHAT-50"
+status: "completed"
+draft: false
+weight: 60
+---
+
 # CHAT-50 Main Page Integration
 
 ## Depends on

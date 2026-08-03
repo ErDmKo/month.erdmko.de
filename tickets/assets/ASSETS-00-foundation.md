@@ -1,3 +1,11 @@
+---
+title: "Assets Foundation"
+ticket: "ASSETS-00"
+status: "completed"
+draft: false
+weight: 10
+---
+
 # ASSETS-00 Foundation
 
 ## Depends on

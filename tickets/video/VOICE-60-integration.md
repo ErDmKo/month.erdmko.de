@@ -1,3 +1,11 @@
+---
+title: "Voice Integration"
+ticket: "VOICE-60"
+status: "completed"
+draft: false
+weight: 60
+---
+
 # VOICE-60 Integration
 
 ## Depends on

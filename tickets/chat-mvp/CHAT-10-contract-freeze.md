@@ -1,3 +1,11 @@
+---
+title: "Chat MVP API Contract Freeze"
+ticket: "CHAT-10"
+status: "completed"
+draft: false
+weight: 20
+---
+
 # CHAT-10 API Contract Freeze
 
 ## Depends on

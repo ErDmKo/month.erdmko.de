@@ -1,3 +1,11 @@
+---
+title: "Assets WebSocket Protocol"
+ticket: "ASSETS-30"
+status: "completed"
+draft: false
+weight: 40
+---
+
 # ASSETS-30 WebSocket Protocol
 
 ## Depends on

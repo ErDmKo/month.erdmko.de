@@ -1,3 +1,11 @@
+---
+title: "Voice Dependencies"
+ticket: "VOICE-10"
+status: "completed"
+draft: false
+weight: 10
+---
+
 # VOICE-10 Dependencies
 
 ## Depends on

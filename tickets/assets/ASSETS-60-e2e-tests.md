@@ -1,3 +1,11 @@
+---
+title: "Assets E2E Integration Tests"
+ticket: "ASSETS-60"
+status: "in-progress"
+draft: true
+weight: 70
+---
+
 # ASSETS-60 E2E Integration Tests
 
 ## Status: IN PROGRESS — blocked by ASSETS-61

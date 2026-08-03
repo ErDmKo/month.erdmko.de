@@ -1,3 +1,11 @@
+---
+title: "Voice Browser Client"
+ticket: "VOICE-70"
+status: "completed"
+draft: false
+weight: 70
+---
+
 # VOICE-70 Browser Client
 
 ## Depends on

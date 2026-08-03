@@ -1,3 +1,11 @@
+---
+title: "Assets Contract Freeze"
+ticket: "ASSETS-10"
+status: "completed"
+draft: false
+weight: 20
+---
+
 # ASSETS-10 Contract Freeze
 
 ## Depends on

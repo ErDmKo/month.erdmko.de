@@ -1,3 +1,11 @@
+---
+title: "Chat MVP QA and Release"
+ticket: "CHAT-70"
+status: "pending"
+draft: true
+weight: 80
+---
+
 # CHAT-70 QA & Release
 
 ## Depends on

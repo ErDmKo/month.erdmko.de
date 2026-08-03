@@ -1,3 +1,11 @@
+---
+title: "Chat MVP WebSocket Room Hub"
+ticket: "CHAT-30"
+status: "completed"
+draft: false
+weight: 40
+---
+
 # CHAT-30 WebSocket Room Hub
 
 ## Depends on

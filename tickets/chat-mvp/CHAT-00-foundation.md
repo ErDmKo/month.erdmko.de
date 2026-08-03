@@ -1,3 +1,11 @@
+---
+title: "Chat MVP Foundation"
+ticket: "CHAT-00"
+status: "completed"
+draft: false
+weight: 10
+---
+
 # CHAT-00 Foundation
 
 ## Depends on

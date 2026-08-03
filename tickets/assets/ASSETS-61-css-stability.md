@@ -1,3 +1,11 @@
+---
+title: "Assets CSS Class Stability"
+ticket: "ASSETS-61"
+status: "partially-completed"
+draft: true
+weight: 80
+---
+
 # ASSETS-61 CSS Class Stability for E2E Selectors
 
 ## Status: PARTIALLY DONE
