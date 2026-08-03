@@ -2,7 +2,10 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ClientFrame {
-    #[prost(oneof = "client_frame::Payload", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
+    #[prost(
+        oneof = "client_frame::Payload",
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11"
+    )]
     pub payload: ::core::option::Option<client_frame::Payload>,
 }
 /// Nested message and enum types in `ClientFrame`.

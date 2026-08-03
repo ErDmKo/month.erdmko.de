@@ -58,19 +58,17 @@ impl ChatWs {
     ) {
         let request_id_ref = request_id.as_deref();
 
-        let (sender_id, sender_name) = match (
-            self.session.sender_name(),
-            Some(self.sender_id.clone()),
-        ) {
-            (Some(name), Some(id)) => (id, name),
-            _ => {
-                ctx.binary(voice_service::voice_error_payload(
-                    request_id_ref,
-                    "VOICE_NO_NICKNAME",
-                ));
-                return;
-            }
-        };
+        let (sender_id, sender_name) =
+            match (self.session.sender_name(), Some(self.sender_id.clone())) {
+                (Some(name), Some(id)) => (id, name),
+                _ => {
+                    ctx.binary(voice_service::voice_error_payload(
+                        request_id_ref,
+                        "VOICE_NO_NICKNAME",
+                    ));
+                    return;
+                }
+            };
 
         if self.session.voice.is_some() {
             ctx.binary(voice_service::voice_error_payload(
@@ -229,10 +227,7 @@ impl ChatWs {
                 username_fragment: None,
             };
             if let Err(e) = peer_connection.add_ice_candidate(candidate_init).await {
-                warn!(
-                    "event=voice_ice_error peer_id={} error={}",
-                    peer_id, e
-                );
+                warn!("event=voice_ice_error peer_id={} error={}", peer_id, e);
             }
         });
     }

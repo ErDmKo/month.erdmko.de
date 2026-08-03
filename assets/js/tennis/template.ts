@@ -6,7 +6,14 @@ import {
     genTagName,
     genText,
 } from '@month/utils';
-import { $wrapper, $pOneL, $score, $pOneR, $voice, $time } from '@month/gen/styles';
+import {
+    $wrapper,
+    $pOneL,
+    $score,
+    $pOneR,
+    $voice,
+    $time,
+} from '@month/gen/styles';
 import {
     GameState,
     SERVE,

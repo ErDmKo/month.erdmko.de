@@ -26,7 +26,10 @@ impl ParticipantPipeline {
     /// Build the elements for a new participant and add them to `pipeline`.
     /// Elements are linked internally but not yet connected to any other
     /// participant's tee/mixer — that is done by `mixer::link_participants`.
-    pub fn new(pipeline: &gstreamer::Pipeline, peer_id: &str) -> Result<Self, gstreamer::glib::BoolError> {
+    pub fn new(
+        pipeline: &gstreamer::Pipeline,
+        peer_id: &str,
+    ) -> Result<Self, gstreamer::glib::BoolError> {
         let caps = gstreamer::Caps::builder("application/x-rtp")
             .field("media", "audio")
             .field("encoding-name", "OPUS")
@@ -98,8 +101,12 @@ impl ParticipantPipeline {
             .dynamic_cast::<AppSink>()
             .expect("appsink factory must build an AppSink");
 
-        let outbound_elements: Vec<Element> =
-            vec![mixer.clone(), encode.clone(), pay.clone(), appsink.clone().upcast()];
+        let outbound_elements: Vec<Element> = vec![
+            mixer.clone(),
+            encode.clone(),
+            pay.clone(),
+            appsink.clone().upcast(),
+        ];
         for el in &outbound_elements {
             pipeline.add(el)?;
         }
@@ -151,7 +158,11 @@ impl ParticipantPipeline {
     /// Tear down this participant's elements: drain with EOS, set to Null, remove from pipeline.
     pub fn teardown(&self, pipeline: &gstreamer::Pipeline) {
         let _ = self.appsrc.end_of_stream();
-        for el in self.inbound_elements.iter().chain(self.outbound_elements.iter()) {
+        for el in self
+            .inbound_elements
+            .iter()
+            .chain(self.outbound_elements.iter())
+        {
             let _ = el.set_state(gstreamer::State::Null);
             // Block until the Null transition actually completes before removing
             // the element from the pipeline, otherwise the pipeline can be left

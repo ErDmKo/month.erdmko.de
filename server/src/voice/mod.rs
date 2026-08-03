@@ -23,8 +23,7 @@ pub struct VoiceConfig {
 
 impl VoiceConfig {
     pub fn from_env() -> Self {
-        let public_ip =
-            env::var("PUBLIC_IP").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let public_ip = env::var("PUBLIC_IP").unwrap_or_else(|_| "127.0.0.1".to_string());
 
         let rtp_port_min: u16 = env::var("RTP_PORT_MIN")
             .unwrap_or_else(|_| "50000".to_string())

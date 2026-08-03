@@ -16,9 +16,15 @@ export const VOICE_PEER_REMOTE_TRACK = 1 as const;
 export const VOICE_PEER_ICE_STATE = 2 as const;
 
 export type VoicePeerEvent =
-    | readonly [type: typeof VOICE_PEER_ICE_CANDIDATE, candidate: RTCIceCandidate]
+    | readonly [
+          type: typeof VOICE_PEER_ICE_CANDIDATE,
+          candidate: RTCIceCandidate,
+      ]
     | readonly [type: typeof VOICE_PEER_REMOTE_TRACK, stream: MediaStream]
-    | readonly [type: typeof VOICE_PEER_ICE_STATE, state: RTCIceConnectionState];
+    | readonly [
+          type: typeof VOICE_PEER_ICE_STATE,
+          state: RTCIceConnectionState,
+      ];
 
 // ── VoicePeer tuple: peerConnection + its event stream ────────────────────────
 
@@ -45,45 +51,32 @@ export const createVoicePeerConnection = (
     const events = observer<VoicePeerEvent>();
 
     const localTracks = localStream.getAudioTracks();
-    voiceLog(
-        ctx,
-        'local mic tracks:',
-        localTracks.length,
-        localTracks.map((t) => ({
-            id: t.id,
-            label: t.label,
-            enabled: t.enabled,
-            readyState: t.readyState,
-        }))
-    );
+    voiceLog(ctx, 'local mic tracks:', localTracks.length);
     for (const track of localTracks) {
         peerConnection.addTrack(track, localStream);
     }
 
-    peerConnection.onicecandidate = (e: RTCPeerConnectionIceEvent) => {
-        voiceLog(
-            ctx,
-            'onicecandidate',
-            e.candidate ? e.candidate.candidate : '(end of candidates)'
-        );
-        if (e.candidate) {
-            events(
-                bindArg(
-                    [VOICE_PEER_ICE_CANDIDATE, e.candidate] as const,
-                    trigger
-                )
+    peerConnection.addEventListener(
+        'icecandidate',
+        (e: RTCPeerConnectionIceEvent) => {
+            voiceLog(
+                ctx,
+                'onicecandidate',
+                e.candidate ? e.candidate.candidate : '(end of candidates)'
             );
+            if (e.candidate) {
+                events(
+                    bindArg(
+                        [VOICE_PEER_ICE_CANDIDATE, e.candidate] as const,
+                        trigger
+                    )
+                );
+            }
         }
-    };
+    );
 
-    peerConnection.ontrack = (e: RTCTrackEvent) => {
-        voiceLog(ctx, 'ontrack fired', {
-            trackKind: e.track.kind,
-            trackId: e.track.id,
-            trackReadyState: e.track.readyState,
-            streamCount: e.streams.length,
-            streamTrackCount: e.streams[0]?.getTracks().length ?? 0,
-        });
+    peerConnection.addEventListener('track', (e: RTCTrackEvent) => {
+        voiceLog(ctx, 'ontrack fired');
         if (e.streams[0]) {
             events(
                 bindArg(
@@ -92,22 +85,20 @@ export const createVoicePeerConnection = (
                 )
             );
         }
-    };
+    });
 
-    peerConnection.oniceconnectionstatechange = () => {
-        voiceLog(ctx, 'iceConnectionState ->', peerConnection.iceConnectionState);
+    peerConnection.addEventListener('iceconnectionstatechange', () => {
+        voiceLog(ctx, 'iceConnectionState');
         events(
             bindArg(
-                [VOICE_PEER_ICE_STATE, peerConnection.iceConnectionState] as const,
+                [
+                    VOICE_PEER_ICE_STATE,
+                    peerConnection.iceConnectionState,
+                ] as const,
                 trigger
             )
         );
-    };
-
-    peerConnection.onsignalingstatechange = () =>
-        voiceLog(ctx, 'signalingState ->', peerConnection.signalingState);
-    peerConnection.onconnectionstatechange = () =>
-        voiceLog(ctx, 'connectionState ->', peerConnection.connectionState);
+    });
 
     return [peerConnection, events] as const;
 };
@@ -124,10 +115,9 @@ export const createVoiceOfferTask =
     (resolve, reject) => {
         peerConnection.createOffer().then((offer) => {
             voiceLog(ctx, 'created offer, sdp length', offer.sdp?.length ?? 0);
-            peerConnection.setLocalDescription(offer).then(
-                () => resolve(offer.sdp ?? ''),
-                reject
-            );
+            peerConnection
+                .setLocalDescription(offer)
+                .then(() => resolve(offer.sdp ?? ''), reject);
         }, reject);
     };
 
@@ -135,10 +125,12 @@ export const applyVoiceAnswerTask =
     (ctx: Window, peerConnection: RTCPeerConnection, sdp: string): Task<void> =>
     (resolve, reject) => {
         voiceLog(ctx, 'received answer, sdp length', sdp.length, sdp);
-        peerConnection.setRemoteDescription({ type: 'answer', sdp }).then(() => {
-            voiceLog(ctx, 'setRemoteDescription(answer) OK');
-            resolve();
-        }, reject);
+        peerConnection
+            .setRemoteDescription({ type: 'answer', sdp })
+            .then(() => {
+                voiceLog(ctx, 'setRemoteDescription(answer) OK');
+                resolve();
+            }, reject);
     };
 
 export const addVoiceIceCandidateTask =
@@ -151,10 +143,9 @@ export const addVoiceIceCandidateTask =
     ): Task<void> =>
     (resolve, reject) => {
         voiceLog(ctx, 'received remote ICE candidate', candidate);
-        peerConnection.addIceCandidate({ candidate, sdpMid, sdpMLineIndex }).then(
-            resolve,
-            reject
-        );
+        peerConnection
+            .addIceCandidate({ candidate, sdpMid, sdpMLineIndex })
+            .then(resolve, reject);
     };
 
 export const getVoiceUserMediaTask =
@@ -168,7 +159,11 @@ export const getVoiceUserMediaTask =
 export const playVoiceRemoteAudioTask =
     (ctx: Window, audioEl: HTMLAudioElement, stream: MediaStream): Task<void> =>
     (resolve, reject) => {
-        voiceLog(ctx, 'setting <audio> srcObject from remote stream', stream.id);
+        voiceLog(
+            ctx,
+            'setting <audio> srcObject from remote stream',
+            stream.id
+        );
         audioEl.srcObject = stream;
         audioEl.play().then(() => {
             voiceLog(ctx, '<audio>.play() resolved');

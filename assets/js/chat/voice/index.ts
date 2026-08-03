@@ -123,7 +123,10 @@ export const initVoice =
                     )
                 );
             }
-            closeVoicePeerConnection(peer ? voicePeerConnection(peer) : null, localStream);
+            closeVoicePeerConnection(
+                peer ? voicePeerConnection(peer) : null,
+                localStream
+            );
             peer = null;
             localStream = null;
             isMuted = false;
@@ -206,29 +209,29 @@ export const initVoice =
                             );
                             peer = createVoicePeerConnection(ctx, stream);
                             voicePeerEvents(peer)(bindArg(handlePeerEvent, on));
-                            createVoiceOfferTask(ctx, voicePeerConnection(peer))(
-                                resolveOffer,
-                                rejectOffer
-                            );
+                            createVoiceOfferTask(
+                                ctx,
+                                voicePeerConnection(peer)
+                            )(resolveOffer, rejectOffer);
                         }
                 ),
-                taskChain(
-                    (sdp: string): Task<void> =>
-                        (resolveSend) => {
-                            outgoing(
-                                bindArg(
-                                    [
-                                        CLIENT_FRAME_VOICE_OFFER,
-                                        [`voice-offer-${Date.now()}`, sdp],
-                                    ] as const,
-                                    trigger
-                                )
-                            );
-                            resolveSend();
-                        }
-                ),
+                taskChain((sdp: string): Task<void> => (resolveSend) => {
+                    outgoing(
+                        bindArg(
+                            [
+                                CLIENT_FRAME_VOICE_OFFER,
+                                [`voice-offer-${Date.now()}`, sdp],
+                            ] as const,
+                            trigger
+                        )
+                    );
+                    resolveSend();
+                }),
                 taskFork(noop, (e) => {
-                    if (e instanceof Error && e.message === 'voice UI not ready') {
+                    if (
+                        e instanceof Error &&
+                        e.message === 'voice UI not ready'
+                    ) {
                         return;
                     }
                     // Distinguish "mic denied" (getUserMedia rejected before
@@ -299,7 +302,9 @@ export const initVoice =
                         value[SERVER_VOICE_ICE_SDP_MLINE_IDX]
                     ),
                     taskFork(noop, (e) =>
-                        showError(`Failed to add voice ICE candidate: ${String(e)}`)
+                        showError(
+                            `Failed to add voice ICE candidate: ${String(e)}`
+                        )
                     )
                 );
                 return;

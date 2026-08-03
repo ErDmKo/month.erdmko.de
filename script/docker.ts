@@ -1,29 +1,37 @@
 import { exec } from 'node:child_process';
-import { stat, chmod, readdir, cp } from 'node:fs/promises'
+import { stat, chmod, readdir, cp } from 'node:fs/promises';
 import { join } from 'node:path';
 
+type CommandOutput = {
+    stdout: string;
+    stderr: string;
+};
 
-const execAsync = async (fn) => {
-    console.log(`Exceuting '${fn}'`);
-    const childProc = exec(fn);
+type BuildSecrets = {
+    apiToken?: string;
+};
+
+const execAsync = async (command: string): Promise<CommandOutput> => {
+    console.log(`Executing '${command}'`);
+    const childProc = exec(command);
     childProc.stdout.pipe(process.stdout);
     childProc.stderr.pipe(process.stderr);
-    return new Promise((resolve, reject) => {
-        const out = {
+    return new Promise<CommandOutput>((resolve, reject) => {
+        const output: CommandOutput = {
             stdout: '',
             stderr: '',
         };
         childProc.stdout.on('data', (eventData) => {
-            out.stdout += eventData;
+            output.stdout += eventData;
         });
         childProc.stderr.on('data', (eventData) => {
-            out.stderr += eventData;
+            output.stderr += eventData;
         });
         childProc.on('exit', (code) => {
             if (code === 0) {
-                resolve(out);
+                resolve(output);
             } else {
-                reject(out);
+                reject(output);
             }
         });
     });
@@ -33,16 +41,15 @@ const PROJECT_NAME = 'what_amonth';
 const TMP_DIR = '_tmp';
 
 // Helper function to recursively change permissions
-async function makeReadWriteRecursive(targetPath) {
+async function makeReadWriteRecursive(targetPath: string): Promise<void> {
     const stats = await stat(targetPath);
-    
+
     // Directories need "execute" permission (7) to open/traverse them.
     // Files just need read/write (6).
     const mode = stats.isDirectory() ? 0o777 : 0o666;
     await chmod(targetPath, mode);
 
     if (stats.isDirectory()) {
-
         const items = await readdir(targetPath);
         for (const item of items) {
             // Recursively run this for every file/folder inside
@@ -51,21 +58,23 @@ async function makeReadWriteRecursive(targetPath) {
     }
 }
 
-async function copyAndMakeReadWrite(staticDir, tmpDir) {
-      console.log('Static dir', staticDir);
+async function copyAndMakeReadWrite(
+    staticDir: string,
+    tmpDir: string
+): Promise<void> {
+    console.log('Static dir', staticDir);
 
-      // 1. Copy the directory recursively
-      // 'dereference: true' resolves symbolic links, acting like '-L'
-      await cp(staticDir, tmpDir, { recursive: true, dereference: true });
-      console.log(`Copied directory to ${tmpDir}`);
+    // 1. Copy the directory recursively
+    // 'dereference: true' resolves symbolic links, acting like '-L'
+    await cp(staticDir, tmpDir, { recursive: true, dereference: true });
+    console.log(`Copied directory to ${tmpDir}`);
 
-      // 2. Give the new copy Read & Write permissions recursively
-      await makeReadWriteRecursive(tmpDir);
-      console.log(`Granted read/write permissions to ${tmpDir}`);
-
+    // 2. Give the new copy Read & Write permissions recursively
+    await makeReadWriteRecursive(tmpDir);
+    console.log(`Granted read/write permissions to ${tmpDir}`);
 }
 
-const main = async () => {
+const main = async (): Promise<void> => {
     await execAsync(`rm -rf ./${TMP_DIR}`);
     await execAsync(`bazel build //server`);
     const { stdout: files } = await execAsync(
@@ -73,12 +82,12 @@ const main = async () => {
     );
     const [serverDeps] = files.trim().split('\n');
     const staticDir = `${serverDeps}.runfiles/_main/assets`;
-    let secrets = {};
+    let secrets: BuildSecrets = {};
     try {
         ({ default: secrets } = await import('./secret.json', {
             assert: { type: 'json' },
         }));
-    } catch (e) {
+    } catch {
         console.log('No secrets build');
     }
     /**

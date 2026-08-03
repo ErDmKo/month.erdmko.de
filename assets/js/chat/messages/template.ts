@@ -60,7 +60,7 @@ export const chatMessageTemplate = (
             genTagName('div', [genClass($chat__message_body), genText(body)]),
             ...(attachments.length > 0
                 ? [
-                       genTagName('ul', [
+                      genTagName('ul', [
                           genClass($chat__attachments),
                           genRef(MESSAGE_REF_ATTACHMENTS),
                       ]),

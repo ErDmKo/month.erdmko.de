@@ -1,679 +1,679 @@
 {
-  "messages": [
-    {
-      "fields": [],
-      "name": "ClientFrame",
-      "oneofs": [
+    "messages": [
         {
-          "name": "payload",
-          "variants": [
-            {
-              "message_type": "ClientJoin",
-              "name": "join",
-              "number": 1
-            },
-            {
-              "message_type": "ClientMessage",
-              "name": "message",
-              "number": 2
-            },
-            {
-              "message_type": "ClientDelete",
-              "name": "delete",
-              "number": 3
-            },
-            {
-              "message_type": "ClientUploadStart",
-              "name": "upload_start",
-              "number": 4
-            },
-            {
-              "message_type": "ClientUploadEnd",
-              "name": "upload_end",
-              "number": 5
-            },
-            {
-              "message_type": "ClientDownloadRequest",
-              "name": "download_request",
-              "number": 6
-            },
-            {
-              "message_type": "UploadChunk",
-              "name": "upload_chunk",
-              "number": 7
-            },
-            {
-              "message_type": "ClientVoiceJoin",
-              "name": "voice_join",
-              "number": 8
-            },
-            {
-              "message_type": "ClientVoiceLeave",
-              "name": "voice_leave",
-              "number": 9
-            },
-            {
-              "message_type": "ClientVoiceOffer",
-              "name": "voice_offer",
-              "number": 10
-            },
-            {
-              "message_type": "ClientVoiceIce",
-              "name": "voice_ice",
-              "number": 11
-            }
-          ]
+            "fields": [],
+            "name": "ClientFrame",
+            "oneofs": [
+                {
+                    "name": "payload",
+                    "variants": [
+                        {
+                            "message_type": "ClientJoin",
+                            "name": "join",
+                            "number": 1
+                        },
+                        {
+                            "message_type": "ClientMessage",
+                            "name": "message",
+                            "number": 2
+                        },
+                        {
+                            "message_type": "ClientDelete",
+                            "name": "delete",
+                            "number": 3
+                        },
+                        {
+                            "message_type": "ClientUploadStart",
+                            "name": "upload_start",
+                            "number": 4
+                        },
+                        {
+                            "message_type": "ClientUploadEnd",
+                            "name": "upload_end",
+                            "number": 5
+                        },
+                        {
+                            "message_type": "ClientDownloadRequest",
+                            "name": "download_request",
+                            "number": 6
+                        },
+                        {
+                            "message_type": "UploadChunk",
+                            "name": "upload_chunk",
+                            "number": 7
+                        },
+                        {
+                            "message_type": "ClientVoiceJoin",
+                            "name": "voice_join",
+                            "number": 8
+                        },
+                        {
+                            "message_type": "ClientVoiceLeave",
+                            "name": "voice_leave",
+                            "number": 9
+                        },
+                        {
+                            "message_type": "ClientVoiceOffer",
+                            "name": "voice_offer",
+                            "number": 10
+                        },
+                        {
+                            "message_type": "ClientVoiceIce",
+                            "name": "voice_ice",
+                            "number": 11
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "fields": [],
+            "name": "ServerFrame",
+            "oneofs": [
+                {
+                    "name": "payload",
+                    "variants": [
+                        {
+                            "message_type": "ServerJoined",
+                            "name": "joined",
+                            "number": 1
+                        },
+                        {
+                            "message_type": "ServerHistory",
+                            "name": "history",
+                            "number": 2
+                        },
+                        {
+                            "message_type": "ServerMessage",
+                            "name": "message",
+                            "number": 3
+                        },
+                        {
+                            "message_type": "ServerDeleted",
+                            "name": "deleted",
+                            "number": 4
+                        },
+                        {
+                            "message_type": "ServerError",
+                            "name": "error",
+                            "number": 5
+                        },
+                        {
+                            "message_type": "ServerUploadReady",
+                            "name": "upload_ready",
+                            "number": 6
+                        },
+                        {
+                            "message_type": "ServerUploadDone",
+                            "name": "upload_done",
+                            "number": 7
+                        },
+                        {
+                            "message_type": "ServerDownloadStart",
+                            "name": "download_start",
+                            "number": 8
+                        },
+                        {
+                            "message_type": "ServerDownloadEnd",
+                            "name": "download_end",
+                            "number": 9
+                        },
+                        {
+                            "message_type": "DownloadChunk",
+                            "name": "download_chunk",
+                            "number": 10
+                        },
+                        {
+                            "message_type": "ServerVoiceState",
+                            "name": "voice_state",
+                            "number": 11
+                        },
+                        {
+                            "message_type": "ServerVoiceAnswer",
+                            "name": "voice_answer",
+                            "number": 12
+                        },
+                        {
+                            "message_type": "ServerVoiceIce",
+                            "name": "voice_ice",
+                            "number": 13
+                        },
+                        {
+                            "message_type": "ServerVoiceError",
+                            "name": "voice_error",
+                            "number": 14
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "nickname",
+                    "number": 2,
+                    "type": "string"
+                }
+            ],
+            "name": "ClientJoin"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "body",
+                    "number": 2,
+                    "type": "string"
+                }
+            ],
+            "name": "ClientMessage"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "message_id",
+                    "number": 2,
+                    "type": "int64"
+                }
+            ],
+            "name": "ClientDelete"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "message_id",
+                    "number": 2,
+                    "type": "int64"
+                },
+                {
+                    "name": "filename",
+                    "number": 3,
+                    "type": "string"
+                },
+                {
+                    "name": "size",
+                    "number": 4,
+                    "type": "uint32"
+                },
+                {
+                    "name": "mime_type",
+                    "number": 5,
+                    "type": "string"
+                }
+            ],
+            "name": "ClientUploadStart"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "upload_id",
+                    "number": 2,
+                    "type": "uint32"
+                }
+            ],
+            "name": "ClientUploadEnd"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "attachment_id",
+                    "number": 2,
+                    "type": "int64"
+                }
+            ],
+            "name": "ClientDownloadRequest"
+        },
+        {
+            "fields": [
+                {
+                    "name": "upload_id",
+                    "number": 1,
+                    "type": "uint32"
+                },
+                {
+                    "name": "index",
+                    "number": 2,
+                    "type": "uint32"
+                },
+                {
+                    "name": "data",
+                    "number": 3,
+                    "type": "bytes"
+                }
+            ],
+            "name": "UploadChunk"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "sender_id",
+                    "number": 2,
+                    "type": "string"
+                },
+                {
+                    "name": "sender_name",
+                    "number": 3,
+                    "type": "string"
+                }
+            ],
+            "name": "ServerJoined"
+        },
+        {
+            "fields": [
+                {
+                    "name": "id",
+                    "number": 1,
+                    "type": "int64"
+                },
+                {
+                    "name": "filename",
+                    "number": 2,
+                    "type": "string"
+                },
+                {
+                    "name": "size",
+                    "number": 3,
+                    "type": "int64"
+                },
+                {
+                    "name": "mime_type",
+                    "number": 4,
+                    "type": "string"
+                }
+            ],
+            "name": "AttachmentItem"
+        },
+        {
+            "fields": [
+                {
+                    "name": "id",
+                    "number": 1,
+                    "type": "int64"
+                },
+                {
+                    "name": "room_id",
+                    "number": 2,
+                    "type": "string"
+                },
+                {
+                    "name": "sender_id",
+                    "number": 3,
+                    "type": "string"
+                },
+                {
+                    "name": "sender_name",
+                    "number": 4,
+                    "type": "string"
+                },
+                {
+                    "name": "body",
+                    "number": 5,
+                    "type": "string"
+                },
+                {
+                    "name": "created_at",
+                    "number": 6,
+                    "type": "string"
+                },
+                {
+                    "message_type": "AttachmentItem",
+                    "name": "attachments",
+                    "number": 7,
+                    "repeated": true,
+                    "type": "message"
+                }
+            ],
+            "name": "ChatItem"
+        },
+        {
+            "fields": [
+                {
+                    "message_type": "ChatItem",
+                    "name": "items",
+                    "number": 1,
+                    "repeated": true,
+                    "type": "message"
+                }
+            ],
+            "name": "ServerHistory"
+        },
+        {
+            "fields": [
+                {
+                    "message_type": "ChatItem",
+                    "name": "item",
+                    "number": 1,
+                    "type": "message"
+                },
+                {
+                    "name": "request_id",
+                    "number": 2,
+                    "type": "string"
+                }
+            ],
+            "name": "ServerMessage"
+        },
+        {
+            "fields": [
+                {
+                    "name": "message_id",
+                    "number": 1,
+                    "type": "int64"
+                }
+            ],
+            "name": "ServerDeleted"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "code",
+                    "number": 2,
+                    "type": "string"
+                },
+                {
+                    "name": "message",
+                    "number": 3,
+                    "type": "string"
+                }
+            ],
+            "name": "ServerError"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "upload_id",
+                    "number": 2,
+                    "type": "uint32"
+                }
+            ],
+            "name": "ServerUploadReady"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "attachment_id",
+                    "number": 2,
+                    "type": "int64"
+                },
+                {
+                    "name": "filename",
+                    "number": 3,
+                    "type": "string"
+                },
+                {
+                    "name": "size",
+                    "number": 4,
+                    "type": "int64"
+                },
+                {
+                    "name": "mime_type",
+                    "number": 5,
+                    "type": "string"
+                },
+                {
+                    "name": "message_id",
+                    "number": 6,
+                    "type": "int64"
+                }
+            ],
+            "name": "ServerUploadDone"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "attachment_id",
+                    "number": 2,
+                    "type": "int64"
+                },
+                {
+                    "name": "filename",
+                    "number": 3,
+                    "type": "string"
+                },
+                {
+                    "name": "size",
+                    "number": 4,
+                    "type": "int64"
+                },
+                {
+                    "name": "mime_type",
+                    "number": 5,
+                    "type": "string"
+                },
+                {
+                    "name": "total_chunks",
+                    "number": 6,
+                    "type": "uint32"
+                }
+            ],
+            "name": "ServerDownloadStart"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "attachment_id",
+                    "number": 2,
+                    "type": "int64"
+                }
+            ],
+            "name": "ServerDownloadEnd"
+        },
+        {
+            "fields": [
+                {
+                    "name": "attachment_id",
+                    "number": 1,
+                    "type": "int64"
+                },
+                {
+                    "name": "index",
+                    "number": 2,
+                    "type": "uint32"
+                },
+                {
+                    "name": "data",
+                    "number": 3,
+                    "type": "bytes"
+                }
+            ],
+            "name": "DownloadChunk"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                }
+            ],
+            "name": "ClientVoiceJoin"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                }
+            ],
+            "name": "ClientVoiceLeave"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "sdp",
+                    "number": 2,
+                    "type": "string"
+                }
+            ],
+            "name": "ClientVoiceOffer"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "candidate",
+                    "number": 2,
+                    "type": "string"
+                },
+                {
+                    "name": "sdp_mid",
+                    "number": 3,
+                    "type": "string"
+                },
+                {
+                    "name": "sdp_mline_idx",
+                    "number": 4,
+                    "type": "uint32"
+                }
+            ],
+            "name": "ClientVoiceIce"
+        },
+        {
+            "fields": [
+                {
+                    "name": "sender_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "sender_name",
+                    "number": 2,
+                    "type": "string"
+                }
+            ],
+            "name": "VoiceParticipant"
+        },
+        {
+            "fields": [
+                {
+                    "message_type": "VoiceParticipant",
+                    "name": "participants",
+                    "number": 1,
+                    "repeated": true,
+                    "type": "message"
+                }
+            ],
+            "name": "ServerVoiceState"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "sdp",
+                    "number": 2,
+                    "type": "string"
+                }
+            ],
+            "name": "ServerVoiceAnswer"
+        },
+        {
+            "fields": [
+                {
+                    "name": "candidate",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "sdp_mid",
+                    "number": 2,
+                    "type": "string"
+                },
+                {
+                    "name": "sdp_mline_idx",
+                    "number": 3,
+                    "type": "uint32"
+                }
+            ],
+            "name": "ServerVoiceIce"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                },
+                {
+                    "name": "code",
+                    "number": 2,
+                    "type": "string"
+                }
+            ],
+            "name": "ServerVoiceError"
         }
-      ]
-    },
-    {
-      "fields": [],
-      "name": "ServerFrame",
-      "oneofs": [
-        {
-          "name": "payload",
-          "variants": [
-            {
-              "message_type": "ServerJoined",
-              "name": "joined",
-              "number": 1
-            },
-            {
-              "message_type": "ServerHistory",
-              "name": "history",
-              "number": 2
-            },
-            {
-              "message_type": "ServerMessage",
-              "name": "message",
-              "number": 3
-            },
-            {
-              "message_type": "ServerDeleted",
-              "name": "deleted",
-              "number": 4
-            },
-            {
-              "message_type": "ServerError",
-              "name": "error",
-              "number": 5
-            },
-            {
-              "message_type": "ServerUploadReady",
-              "name": "upload_ready",
-              "number": 6
-            },
-            {
-              "message_type": "ServerUploadDone",
-              "name": "upload_done",
-              "number": 7
-            },
-            {
-              "message_type": "ServerDownloadStart",
-              "name": "download_start",
-              "number": 8
-            },
-            {
-              "message_type": "ServerDownloadEnd",
-              "name": "download_end",
-              "number": 9
-            },
-            {
-              "message_type": "DownloadChunk",
-              "name": "download_chunk",
-              "number": 10
-            },
-            {
-              "message_type": "ServerVoiceState",
-              "name": "voice_state",
-              "number": 11
-            },
-            {
-              "message_type": "ServerVoiceAnswer",
-              "name": "voice_answer",
-              "number": 12
-            },
-            {
-              "message_type": "ServerVoiceIce",
-              "name": "voice_ice",
-              "number": 13
-            },
-            {
-              "message_type": "ServerVoiceError",
-              "name": "voice_error",
-              "number": 14
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "nickname",
-          "number": 2,
-          "type": "string"
-        }
-      ],
-      "name": "ClientJoin"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "body",
-          "number": 2,
-          "type": "string"
-        }
-      ],
-      "name": "ClientMessage"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "message_id",
-          "number": 2,
-          "type": "int64"
-        }
-      ],
-      "name": "ClientDelete"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "message_id",
-          "number": 2,
-          "type": "int64"
-        },
-        {
-          "name": "filename",
-          "number": 3,
-          "type": "string"
-        },
-        {
-          "name": "size",
-          "number": 4,
-          "type": "uint32"
-        },
-        {
-          "name": "mime_type",
-          "number": 5,
-          "type": "string"
-        }
-      ],
-      "name": "ClientUploadStart"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "upload_id",
-          "number": 2,
-          "type": "uint32"
-        }
-      ],
-      "name": "ClientUploadEnd"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "attachment_id",
-          "number": 2,
-          "type": "int64"
-        }
-      ],
-      "name": "ClientDownloadRequest"
-    },
-    {
-      "fields": [
-        {
-          "name": "upload_id",
-          "number": 1,
-          "type": "uint32"
-        },
-        {
-          "name": "index",
-          "number": 2,
-          "type": "uint32"
-        },
-        {
-          "name": "data",
-          "number": 3,
-          "type": "bytes"
-        }
-      ],
-      "name": "UploadChunk"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "sender_id",
-          "number": 2,
-          "type": "string"
-        },
-        {
-          "name": "sender_name",
-          "number": 3,
-          "type": "string"
-        }
-      ],
-      "name": "ServerJoined"
-    },
-    {
-      "fields": [
-        {
-          "name": "id",
-          "number": 1,
-          "type": "int64"
-        },
-        {
-          "name": "filename",
-          "number": 2,
-          "type": "string"
-        },
-        {
-          "name": "size",
-          "number": 3,
-          "type": "int64"
-        },
-        {
-          "name": "mime_type",
-          "number": 4,
-          "type": "string"
-        }
-      ],
-      "name": "AttachmentItem"
-    },
-    {
-      "fields": [
-        {
-          "name": "id",
-          "number": 1,
-          "type": "int64"
-        },
-        {
-          "name": "room_id",
-          "number": 2,
-          "type": "string"
-        },
-        {
-          "name": "sender_id",
-          "number": 3,
-          "type": "string"
-        },
-        {
-          "name": "sender_name",
-          "number": 4,
-          "type": "string"
-        },
-        {
-          "name": "body",
-          "number": 5,
-          "type": "string"
-        },
-        {
-          "name": "created_at",
-          "number": 6,
-          "type": "string"
-        },
-        {
-          "message_type": "AttachmentItem",
-          "name": "attachments",
-          "number": 7,
-          "repeated": true,
-          "type": "message"
-        }
-      ],
-      "name": "ChatItem"
-    },
-    {
-      "fields": [
-        {
-          "message_type": "ChatItem",
-          "name": "items",
-          "number": 1,
-          "repeated": true,
-          "type": "message"
-        }
-      ],
-      "name": "ServerHistory"
-    },
-    {
-      "fields": [
-        {
-          "message_type": "ChatItem",
-          "name": "item",
-          "number": 1,
-          "type": "message"
-        },
-        {
-          "name": "request_id",
-          "number": 2,
-          "type": "string"
-        }
-      ],
-      "name": "ServerMessage"
-    },
-    {
-      "fields": [
-        {
-          "name": "message_id",
-          "number": 1,
-          "type": "int64"
-        }
-      ],
-      "name": "ServerDeleted"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "code",
-          "number": 2,
-          "type": "string"
-        },
-        {
-          "name": "message",
-          "number": 3,
-          "type": "string"
-        }
-      ],
-      "name": "ServerError"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "upload_id",
-          "number": 2,
-          "type": "uint32"
-        }
-      ],
-      "name": "ServerUploadReady"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "attachment_id",
-          "number": 2,
-          "type": "int64"
-        },
-        {
-          "name": "filename",
-          "number": 3,
-          "type": "string"
-        },
-        {
-          "name": "size",
-          "number": 4,
-          "type": "int64"
-        },
-        {
-          "name": "mime_type",
-          "number": 5,
-          "type": "string"
-        },
-        {
-          "name": "message_id",
-          "number": 6,
-          "type": "int64"
-        }
-      ],
-      "name": "ServerUploadDone"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "attachment_id",
-          "number": 2,
-          "type": "int64"
-        },
-        {
-          "name": "filename",
-          "number": 3,
-          "type": "string"
-        },
-        {
-          "name": "size",
-          "number": 4,
-          "type": "int64"
-        },
-        {
-          "name": "mime_type",
-          "number": 5,
-          "type": "string"
-        },
-        {
-          "name": "total_chunks",
-          "number": 6,
-          "type": "uint32"
-        }
-      ],
-      "name": "ServerDownloadStart"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "attachment_id",
-          "number": 2,
-          "type": "int64"
-        }
-      ],
-      "name": "ServerDownloadEnd"
-    },
-    {
-      "fields": [
-        {
-          "name": "attachment_id",
-          "number": 1,
-          "type": "int64"
-        },
-        {
-          "name": "index",
-          "number": 2,
-          "type": "uint32"
-        },
-        {
-          "name": "data",
-          "number": 3,
-          "type": "bytes"
-        }
-      ],
-      "name": "DownloadChunk"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        }
-      ],
-      "name": "ClientVoiceJoin"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        }
-      ],
-      "name": "ClientVoiceLeave"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "sdp",
-          "number": 2,
-          "type": "string"
-        }
-      ],
-      "name": "ClientVoiceOffer"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "candidate",
-          "number": 2,
-          "type": "string"
-        },
-        {
-          "name": "sdp_mid",
-          "number": 3,
-          "type": "string"
-        },
-        {
-          "name": "sdp_mline_idx",
-          "number": 4,
-          "type": "uint32"
-        }
-      ],
-      "name": "ClientVoiceIce"
-    },
-    {
-      "fields": [
-        {
-          "name": "sender_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "sender_name",
-          "number": 2,
-          "type": "string"
-        }
-      ],
-      "name": "VoiceParticipant"
-    },
-    {
-      "fields": [
-        {
-          "message_type": "VoiceParticipant",
-          "name": "participants",
-          "number": 1,
-          "repeated": true,
-          "type": "message"
-        }
-      ],
-      "name": "ServerVoiceState"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "sdp",
-          "number": 2,
-          "type": "string"
-        }
-      ],
-      "name": "ServerVoiceAnswer"
-    },
-    {
-      "fields": [
-        {
-          "name": "candidate",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "sdp_mid",
-          "number": 2,
-          "type": "string"
-        },
-        {
-          "name": "sdp_mline_idx",
-          "number": 3,
-          "type": "uint32"
-        }
-      ],
-      "name": "ServerVoiceIce"
-    },
-    {
-      "fields": [
-        {
-          "name": "request_id",
-          "number": 1,
-          "type": "string"
-        },
-        {
-          "name": "code",
-          "number": 2,
-          "type": "string"
-        }
-      ],
-      "name": "ServerVoiceError"
-    }
-  ],
-  "package": "chat"
+    ],
+    "package": "chat"
 }

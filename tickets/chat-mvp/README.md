@@ -1,6 +1,6 @@
 # Chat MVP Tickets
 
-Источник: `/CHAT_MVP_PLAN.md`
+Источник: `CHAT_MVP_PLAN.md`
 
 ## Execution Order
 

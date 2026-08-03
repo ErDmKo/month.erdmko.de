@@ -177,7 +177,9 @@ mod tests {
             .build()
             .unwrap();
         let enc = gstreamer::ElementFactory::make("opusenc").build().unwrap();
-        let pay = gstreamer::ElementFactory::make("rtpopuspay").build().unwrap();
+        let pay = gstreamer::ElementFactory::make("rtpopuspay")
+            .build()
+            .unwrap();
         let sink = gstreamer::ElementFactory::make("appsink")
             .property("sync", false)
             .build()
@@ -199,7 +201,10 @@ mod tests {
             packets.push(buffer.map_readable().unwrap().as_slice().to_vec());
         }
         pipeline.set_state(gstreamer::State::Null).unwrap();
-        assert!(!packets.is_empty(), "failed to capture any test Opus RTP packets");
+        assert!(
+            !packets.is_empty(),
+            "failed to capture any test Opus RTP packets"
+        );
         packets
     }
 

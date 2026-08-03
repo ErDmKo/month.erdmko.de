@@ -90,7 +90,10 @@ async fn main() -> std::io::Result<()> {
             .map_err(|e| Error::new(ErrorKind::Other, format!("CSS map error: {e}")))?,
     )
     .map_err(|e| Error::new(ErrorKind::Other, format!("CSS map parse error: {e}")))?;
-    info!("CSS map loaded ({} classes)", css.as_object().map_or(0, |m| m.len()));
+    info!(
+        "CSS map loaded ({} classes)",
+        css.as_object().map_or(0, |m| m.len())
+    );
     let mut base_dir = templates_path.clone();
     templates_path.push(&TEMPLATES_GLOB);
     let host = env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());

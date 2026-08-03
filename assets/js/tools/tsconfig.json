@@ -6,6 +6,6 @@
         "moduleResolution": "NodeNext",
         "declaration": true,
         "skipLibCheck": true,
-        "types": ["node"],
-    },
+        "types": ["node"]
+    }
 }

@@ -4,15 +4,16 @@
     "description": "ErDmKo home page",
     "main": "index.js",
     "type": "module",
+    "packageManager": "pnpm@9.15.9",
     "directories": {
         "lib": "lib",
         "test": "test"
     },
     "scripts": {
         "test": "bazel test //...",
-        "build": "node script/docker.js",
-        "gen": "npx tsx script/gen.ts",
-        "e2e": "npx tsx script/e2e.ts",
+        "build": "node --experimental-strip-types script/docker.ts",
+        "gen": "node --experimental-strip-types script/gen.ts",
+        "e2e": "node --experimental-strip-types script/e2e.ts",
         "save": "docker save what_amonth -o image.tar",
         "pub": "npm run build && npm run save && uvx --from ansible-core ansible-playbook ansible/push.yaml -i ansible/inventory.yaml",
         "start": "docker run --rm -p 8080:8080 what_amonth"
@@ -34,10 +35,10 @@
         "postcss-cli": "^11.0.0",
         "postcss-modules": "^6.0.1",
         "prettier": "^3.5.3",
-        "typescript": "^6.0.3"
+        "typescript": "7.0.2"
     },
     "dependencies": {
-        "pnpm": "^8.15.4"
+        "pnpm": "9.15.9"
     },
     "pnpm": {
         "onlyBuiltDependencies": []

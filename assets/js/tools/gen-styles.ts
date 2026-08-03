@@ -10,11 +10,12 @@
 // keeping the original class name strings out of the bundle entirely.
 import * as fs from 'fs';
 
-const [,, input, output] = process.argv;
-const mapping: Record<string, string> = JSON.parse(fs.readFileSync(input, 'utf8'));
+const [, , input, output] = process.argv;
+const mapping: Record<string, string> = JSON.parse(
+    fs.readFileSync(input, 'utf8')
+);
 
-const toIdent = (key: string): string =>
-    '$' + key.replace(/-/g, '_');
+const toIdent = (key: string): string => '$' + key.replace(/-/g, '_');
 
 const lines = [
     '// AUTO-GENERATED — do not edit. Rebuild //assets/css:css_build to regenerate.',

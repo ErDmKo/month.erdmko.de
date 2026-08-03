@@ -6,8 +6,8 @@ package(default_visibility = ["//visibility:public"])
 postcss_bin.postcss(
     name = "css_build",
     srcs = [
-        "style.css",
         "postcss.config.js",
+        "style.css",
         "//:node_modules/cssnano",
         "//:node_modules/postcss-modules",
     ],

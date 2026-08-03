@@ -83,7 +83,9 @@ async function openAndJoin(roomId: string, nickname: string): Promise<Page> {
     await page.click(SEL.joinButton);
 
     // Wait for chat screen to appear
-    await page.waitForSelector(SEL.messageTextarea, { timeout: PAGE_TIMEOUT_MS });
+    await page.waitForSelector(SEL.messageTextarea, {
+        timeout: PAGE_TIMEOUT_MS,
+    });
     return page;
 }
 
@@ -97,8 +99,7 @@ describe('attachments UI (Puppeteer)', () => {
 
         try {
             const fileInput = (await page.$(SEL.fileInput)) as
-                | import('puppeteer').ElementHandle<HTMLInputElement>
-                | null;
+                import('puppeteer').ElementHandle<HTMLInputElement> | null;
             expect(fileInput).not.toBeNull();
             await fileInput!.uploadFile(tmpFile);
 
@@ -124,8 +125,7 @@ describe('attachments UI (Puppeteer)', () => {
 
         try {
             const fileInput = (await page.$(SEL.fileInput)) as
-                | import('puppeteer').ElementHandle<HTMLInputElement>
-                | null;
+                import('puppeteer').ElementHandle<HTMLInputElement> | null;
             await fileInput!.uploadFile(tmpFile);
             await page.waitForSelector(SEL.uploadPreviewFilename, {
                 timeout: PAGE_TIMEOUT_MS,
@@ -156,8 +156,7 @@ describe('attachments UI (Puppeteer)', () => {
             await page.type(SEL.messageTextarea, 'message with attachment');
 
             const fileInput = (await page.$(SEL.fileInput)) as
-                | import('puppeteer').ElementHandle<HTMLInputElement>
-                | null;
+                import('puppeteer').ElementHandle<HTMLInputElement> | null;
             await fileInput!.uploadFile(tmpFile);
             await page.waitForSelector(SEL.uploadPreviewFilename, {
                 timeout: PAGE_TIMEOUT_MS,
@@ -165,10 +164,12 @@ describe('attachments UI (Puppeteer)', () => {
 
             // Submit the form
             await page.focus(SEL.messageTextarea);
-            await page.keyboard.press("Enter");
+            await page.keyboard.press('Enter');
 
             // The attachment item should appear in the message list
-            await page.waitForSelector(SEL.attachmentItem, { timeout: PAGE_TIMEOUT_MS });
+            await page.waitForSelector(SEL.attachmentItem, {
+                timeout: PAGE_TIMEOUT_MS,
+            });
 
             const attachmentName = await page.$eval(
                 SEL.attachmentName,
@@ -195,8 +196,7 @@ describe('attachments UI (Puppeteer)', () => {
             await page.type(SEL.messageTextarea, 'progress test');
 
             const fileInput = (await page.$(SEL.fileInput)) as
-                | import('puppeteer').ElementHandle<HTMLInputElement>
-                | null;
+                import('puppeteer').ElementHandle<HTMLInputElement> | null;
             await fileInput!.uploadFile(tmpFile);
             await page.waitForSelector(SEL.uploadPreviewFilename, {
                 timeout: PAGE_TIMEOUT_MS,
@@ -220,10 +220,12 @@ describe('attachments UI (Puppeteer)', () => {
             }, SEL.uploadProgress);
 
             await page.focus(SEL.messageTextarea);
-            await page.keyboard.press("Enter");
+            await page.keyboard.press('Enter');
 
             // Wait for upload to complete (attachment appears)
-            await page.waitForSelector(SEL.attachmentItem, { timeout: PAGE_TIMEOUT_MS });
+            await page.waitForSelector(SEL.attachmentItem, {
+                timeout: PAGE_TIMEOUT_MS,
+            });
 
             const captured = await page.evaluate(
                 () => (window as any).__progressTexts as string[]
@@ -256,8 +258,7 @@ describe('attachments UI (Puppeteer)', () => {
         try {
             await page.type(SEL.messageTextarea, 'msg for download');
             const fileInput = (await page.$(SEL.fileInput)) as
-                | import('puppeteer').ElementHandle<HTMLInputElement>
-                | null;
+                import('puppeteer').ElementHandle<HTMLInputElement> | null;
             await fileInput!.uploadFile(tmpFile);
             await page.waitForSelector(SEL.uploadPreviewFilename, {
                 timeout: PAGE_TIMEOUT_MS,
@@ -265,7 +266,9 @@ describe('attachments UI (Puppeteer)', () => {
             await page.focus(SEL.messageTextarea);
             await page.keyboard.press('Enter');
 
-            await page.waitForSelector(SEL.downloadButton, { timeout: PAGE_TIMEOUT_MS });
+            await page.waitForSelector(SEL.downloadButton, {
+                timeout: PAGE_TIMEOUT_MS,
+            });
 
             // Tell Chrome to accept downloads silently — prevents the "leave site?" dialog
             const cdp = await page.createCDPSession();
@@ -288,7 +291,9 @@ describe('attachments UI (Puppeteer)', () => {
                     const url = origCreate(blob);
                     const reader = new FileReader();
                     reader.onload = () => {
-                        (window as any).__downloadedBase64 = (reader.result as string).split(',')[1];
+                        (window as any).__downloadedBase64 = (
+                            reader.result as string
+                        ).split(',')[1];
                     };
                     reader.readAsDataURL(blob);
                     return url;

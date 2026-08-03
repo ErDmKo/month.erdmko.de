@@ -3,13 +3,9 @@
     "compilerOptions": {
         "target": "esNext",
         "module": "ES2022",
-        "esModuleInterop": false,
         "moduleResolution": "bundler",
         "declaration": true,
-        "alwaysStrict": false,
         "skipLibCheck": true,
-        "ignoreDeprecations": "6.0",
-        "baseUrl": "./",
         "paths": {
             "@month/*": ["./*"]
         },

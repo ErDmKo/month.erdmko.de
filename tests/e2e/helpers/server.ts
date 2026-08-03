@@ -23,7 +23,10 @@ function freePort(): Promise<number> {
 }
 
 /** Poll until TCP connect succeeds or timeout expires. */
-function waitForPort(port: number, timeoutMs = SERVER_READY_TIMEOUT_MS): Promise<void> {
+function waitForPort(
+    port: number,
+    timeoutMs = SERVER_READY_TIMEOUT_MS
+): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     return new Promise((resolve, reject) => {
         const attempt = () => {

@@ -193,7 +193,9 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                                 [
                                     genTagName('span', [genText('Message')]),
                                     genTagName('textarea', [
-                                        genClass(`${$chat__input} ${$chat__textarea}`),
+                                        genClass(
+                                            `${$chat__input} ${$chat__textarea}`
+                                        ),
                                         genRef(CHAT_REF_MESSAGE),
                                         genAttr('maxlength', maxMessageLen),
                                         genAttr(

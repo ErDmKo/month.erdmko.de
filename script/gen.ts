@@ -12,10 +12,18 @@ const run = (cmd: string): Promise<string> => {
         const child = exec(cmd, { cwd: ROOT });
         let stdout = '';
         let stderr = '';
-        child.stdout?.on('data', (d: string) => { process.stdout.write(d); stdout += d; });
-        child.stderr?.on('data', (d: string) => { process.stderr.write(d); stderr += d; });
+        child.stdout?.on('data', (d: string) => {
+            process.stdout.write(d);
+            stdout += d;
+        });
+        child.stderr?.on('data', (d: string) => {
+            process.stderr.write(d);
+            stderr += d;
+        });
         child.on('exit', (code) =>
-            code === 0 ? resolve(stdout) : reject(new Error(stderr || `exit ${code}`))
+            code === 0
+                ? resolve(stdout)
+                : reject(new Error(stderr || `exit ${code}`))
         );
     });
 };

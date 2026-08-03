@@ -1,6 +1,17 @@
 use gstreamer::prelude::*;
-use gstreamer::{Element, ElementFactory, Pad};
+use gstreamer::{Element, ElementFactory, Pad, PadProbeData, PadProbeReturn, PadProbeType};
+use std::sync::Mutex as StdMutex;
+use std::sync::mpsc;
 use std::time::Duration;
+
+/// How long to wait for the blocking pad probe to actually fire, and for the
+/// drain EOS to reach the far end of the branch, before giving up and tearing
+/// the branch down anyway. Both events are local (in-process pad probe
+/// callbacks, no network hop), so they should resolve in well under a
+/// millisecond in practice — this is only a safety net against a wedged
+/// pipeline blocking `remove_participant` (and therefore the global
+/// `VOICE_GST` room-registry lock) indefinitely.
+const DRAIN_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// A single mix-minus link: participant `source`'s decoded audio (from their `tee`)
 /// feeding into participant `dest`'s personal `audiomixer`.
@@ -61,9 +72,76 @@ pub fn link_tee_to_mixer(
     })
 }
 
+/// Safely detach a live mix-minus branch before it's unlinked and torn down.
+///
+/// Unlinking `tee_pad -> queue -> mixer_pad` directly, with no synchronization,
+/// is a real race whenever a buffer might already be mid-flight through the
+/// branch (see the "Dynamic Pipelines" pattern in GStreamer's
+/// application-development manual): a buffer already inside the `queue`, or
+/// one about to be pushed from `tee`, can land on half-unlinked pads.
+///
+/// 1. Install a blocking pad probe on `tee_pad` — this stops new buffers from
+///    entering the branch from this point on.
+/// 2. Once blocked, push an EOS event into the branch via the queue's sink pad.
+/// 3. Wait (bounded by `DRAIN_TIMEOUT`) for that EOS to reach the queue's src
+///    pad, meaning everything already queued has drained out.
+///
+/// Only after this returns is it safe to unlink and release the pads.
+fn drain_branch(link: &MixLink) {
+    let Some(queue_sink) = link.queue.static_pad("sink") else {
+        return;
+    };
+    let Some(queue_src) = link.queue.static_pad("src") else {
+        return;
+    };
+
+    let (blocked_tx, blocked_rx) = mpsc::channel::<()>();
+    let blocked_tx = StdMutex::new(Some(blocked_tx));
+    let block_probe = link
+        .tee_pad
+        .add_probe(PadProbeType::BLOCK_DOWNSTREAM, move |_, _| {
+            if let Ok(mut tx) = blocked_tx.lock() {
+                if let Some(tx) = tx.take() {
+                    let _ = tx.send(());
+                }
+            }
+            PadProbeReturn::Ok
+        });
+    // Bounded wait: this only guards against a wedged pipeline, the callback
+    // above fires as soon as GStreamer's streaming thread reaches this pad.
+    let _ = blocked_rx.recv_timeout(DRAIN_TIMEOUT);
+
+    let (drained_tx, drained_rx) = mpsc::channel::<()>();
+    let drained_tx = StdMutex::new(Some(drained_tx));
+    let drain_probe = queue_src.add_probe(PadProbeType::EVENT_DOWNSTREAM, move |_, info| {
+        if let Some(PadProbeData::Event(event)) = &info.data {
+            if event.type_() == gstreamer::EventType::Eos {
+                if let Ok(mut tx) = drained_tx.lock() {
+                    if let Some(tx) = tx.take() {
+                        let _ = tx.send(());
+                    }
+                }
+            }
+        }
+        PadProbeReturn::Ok
+    });
+
+    queue_sink.send_event(gstreamer::event::Eos::new());
+    let _ = drained_rx.recv_timeout(DRAIN_TIMEOUT);
+
+    if let Some(id) = block_probe {
+        link.tee_pad.remove_probe(id);
+    }
+    if let Some(id) = drain_probe {
+        queue_src.remove_probe(id);
+    }
+}
+
 /// Unlink and release the request pads created by `link_tee_to_mixer`, and
 /// tear down the intermediate queue.
 pub fn unlink(link: &MixLink, pipeline: &gstreamer::Pipeline, tee: &Element, mixer: &Element) {
+    drain_branch(link);
+
     if let Some(queue_sink) = link.queue.static_pad("sink") {
         let _ = link.tee_pad.unlink(&queue_sink);
     }

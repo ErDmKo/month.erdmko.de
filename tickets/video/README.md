@@ -9,6 +9,7 @@
 5. `VOICE-50` GStreamer Audio Engine
 6. `VOICE-60` Integration
 7. `VOICE-70` Browser Client
+8. `VOICE-80` Server Inbound RTP Jitter Buffer
 
 ## Dependency Map
 
@@ -19,6 +20,7 @@
 - `VOICE-50` → `VOICE-10`
 - `VOICE-60` → `VOICE-40`, `VOICE-50`
 - `VOICE-70` → `VOICE-20`, `VOICE-60`
+- `VOICE-80` → `VOICE-60`
 
 ## Ticket Files
 
@@ -29,6 +31,7 @@
 - `VOICE-50-gstreamer-engine.md`
 - `VOICE-60-integration.md`
 - `VOICE-70-browser-client.md`
+- `VOICE-80-server-inbound-rtp-jitter-buffer.md`
 
 ## Epics
 
@@ -64,6 +67,13 @@ Includes teardown logic for disconnecting participants.
 Voice controls embedded inside the existing chat room UI — no new page or route.
 "Join voice" button, mute toggle, participant list, and a hidden `<audio>` element for the mixed stream.
 Uses the existing chat WebSocket connection for all signaling.
+
+### Epic 6: Server Inbound RTP Jitter Buffer
+`VOICE-80`
+
+Stabilize RTP arrival before Opus decode and server-side mixing. This absorbs
+network jitter and reorders recoverable packets from a browser before its
+audio is mixed into every other participant's output.
 
 ## Key Design Decisions
 

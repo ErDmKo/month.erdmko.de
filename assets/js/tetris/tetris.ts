@@ -12,7 +12,16 @@ import {
     genText,
     on,
 } from '@month/utils';
-import { $tetris, $c, $info, $wrapper, $s, $start, $rotateR, $rotateL } from '@month/gen/styles';
+import {
+    $tetris,
+    $c,
+    $info,
+    $wrapper,
+    $s,
+    $start,
+    $rotateR,
+    $rotateL,
+} from '@month/gen/styles';
 import {
     FieldInstance,
     drawField,
