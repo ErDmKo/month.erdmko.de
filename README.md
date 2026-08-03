@@ -4,6 +4,14 @@ My homepage app
 
 ## Deploy command sequence
 
+Requires Docker, Node.js `24.14.1` (pinned in `.tool-versions`), Bazel, and
+SSH access to the Ansible inventory host.
+
+The container image builds `//server:server` with Bazel inside a Linux Docker
+builder. This packages the Bazel binary and its runfiles, including frontend
+assets, templates, generated protocol code, and the GStreamer runtime needed
+for voice calls.
+
 ```bash
 npm run build
 npm run save
@@ -48,11 +56,16 @@ The chat WebSocket protocol is defined in `contracts/chat/chat.proto`. After edi
 bazel build //contracts/chat:chat_rs
 ```
 
-**TypeScript** (generate then copy into the source tree):
+**TypeScript** (Bazel build outputs):
 
 ```bash
-bazel build //assets/js/tools:gen_chat_proto
-cp bazel-bin/assets/js/tools/chat.ts assets/js/chat/generated/chat.ts
+bazel build //assets/js:styles_ts //assets/js:chat_ts
+```
+
+For editor-only copies of those generated files in `assets/js/gen/`, run:
+
+```bash
+npm run gen
 ```
 
 ### Run Bazel tests
@@ -103,12 +116,6 @@ This command will run a http server on port 8080
 
 ```bash
 bazel run //server:server
-```
-
-### Run npm commands in bazel
-
-```bash
-bazel run @nodejs_host//:npm -- version
 ```
 
 ### Build docker container
