@@ -27,7 +27,7 @@
       path: "{{ install_dirr }}"
       state: directory
   - name: push image
-    ansible.posix.synchronize:
+    ansible.builtin.copy:
       src: './../image.tar'
       dest: '{{ install_dirr }}'
   - name: Stop docker container
