@@ -46,8 +46,12 @@
     ansible.builtin.shell: |
       docker run \
       --publish 8080:8080 \
+      --publish {{ voice_rtp_port_min }}-{{ voice_rtp_port_max }}:{{ voice_rtp_port_min }}-{{ voice_rtp_port_max }}/udp \
+      --env PUBLIC_IP={{ voice_public_ip }} \
+      --env RTP_PORT_MIN={{ voice_rtp_port_min }} \
+      --env RTP_PORT_MAX={{ voice_rtp_port_max }} \
       -d \
-       --mount source=edk,target=/app/server/db  \
+      --mount source=edk,target=/app/server/db \
       --name {{ app_name }} \
       --restart unless-stopped \
       {{ image_name }}

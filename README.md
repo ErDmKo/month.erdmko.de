@@ -15,7 +15,9 @@ for voice calls.
 ```bash
 npm run build
 npm run save
-ansible-playbook ansible/push.yaml -i ansible/inventory.yaml
+uvx --from ansible-core ansible-playbook ansible/push.yaml \
+  -i ansible/inventory.yaml \
+  --private-key ~/.ssh/id_rsa_legacy
 ```
 
 Or just
@@ -23,6 +25,39 @@ Or just
 ```bash
 npm run pub
 ```
+
+`npm run pub` does not include the private-key argument. Use the explicit
+commands above when deploying to `root@erdmko.dev`.
+
+### Voice deployment requirements
+
+Voice runtime settings are defined in `ansible/inventory.yaml`. The deployment
+publishes TCP `8080` and UDP `50000:50100`, and injects `PUBLIC_IP`,
+`RTP_PORT_MIN`, and `RTP_PORT_MAX` into the container. Keep the public IP and
+port range in inventory rather than in the image.
+
+Before deploying, allow UDP `50000:50100` in the VPS firewall and in the
+provider firewall/security group. On a UFW-managed VPS, run:
+
+```bash
+ufw allow 50000:50100/udp
+```
+
+The public site must use HTTPS for browser microphone access. Its reverse proxy
+must forward `/ws/chat/...` WebSocket upgrade connections without buffering or
+an idle timeout that interrupts reconnects.
+
+After deployment, verify the selected settings and port publishing:
+
+```bash
+ssh -i ~/.ssh/id_rsa_legacy root@erdmko.dev \
+  'docker inspect my_app --format "{{range .Config.Env}}{{println .}}{{end}}"; docker port my_app'
+```
+
+The application startup log includes the effective `Voice config` line. For an
+ICE failure, collect that log and browser ICE candidate details before changing
+WebRTC settings. Networks that require a relay are unsupported until a TURN
+service is explicitly introduced.
 
 ## Bazel static build
 

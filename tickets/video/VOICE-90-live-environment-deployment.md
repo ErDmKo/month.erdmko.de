@@ -1,8 +1,8 @@
 ---
 title: "Voice Live Environment Deployment"
 ticket: "VOICE-90"
-status: "pending"
-draft: true
+status: "completed"
+draft: false
 weight: 90
 ---
 

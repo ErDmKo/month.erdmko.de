@@ -1,4 +1,8 @@
 all:
+    vars:
+        voice_public_ip: 188.68.223.217
+        voice_rtp_port_min: 50000
+        voice_rtp_port_max: 50100
     children:
         web:
             hosts:
