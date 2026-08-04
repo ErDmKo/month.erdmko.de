@@ -1,0 +1,34 @@
+services:
+  app:
+    image: what_amonth
+    container_name: my_app
+    restart: unless-stopped
+    environment:
+      PUBLIC_IP: "${VOICE_PUBLIC_IP}"
+      RTP_PORT_MIN: "${VOICE_RTP_PORT_MIN}"
+      RTP_PORT_MAX: "${VOICE_RTP_PORT_MAX}"
+    ports:
+      - "8080:8080"
+      - "${VOICE_RTP_PORT_MIN}-${VOICE_RTP_PORT_MAX}:${VOICE_RTP_PORT_MIN}-${VOICE_RTP_PORT_MAX}/udp"
+    volumes:
+      - edk:/app/server/db
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    labels:
+      autoheal: "true"
+
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  edk:
+    external: true

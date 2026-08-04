@@ -59,6 +59,21 @@ ICE failure, collect that log and browser ICE candidate details before changing
 WebRTC settings. Networks that require a relay are unsupported until a TURN
 service is explicitly introduced.
 
+### Health check
+
+`GET /healthz` returns `200 OK` while the application HTTP process is accepting
+requests. Use it for external availability monitoring:
+
+```bash
+curl --fail --silent --show-error https://erdmko.dev/healthz
+```
+
+This endpoint does not verify active voice sessions or media connectivity.
+
+The Compose deployment also runs `autoheal`, which restarts `my_app` after
+three consecutive failed health checks. The watchdog has Docker socket access,
+so it is restricted to containers explicitly labelled `autoheal: "true"`.
+
 ## Bazel static build
 
 ### Format code

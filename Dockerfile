@@ -32,6 +32,7 @@ RUN apt-get update \
         libgstreamer-plugins-base1.0-0 \
         libgstreamer1.0-0 \
         libsqlite3-0 \
+        wget \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

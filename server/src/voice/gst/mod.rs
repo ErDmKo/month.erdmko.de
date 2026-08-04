@@ -38,26 +38,46 @@ impl RoomPipeline {
 
         for (other_id, other) in self.participants.iter() {
             // new participant's audio -> other's mixer
-            if let Ok(link) = mixer::link_tee_to_mixer(
+            match mixer::link_tee_to_mixer(
                 peer_id,
                 other_id,
                 &self.pipeline,
                 &new_participant.tee,
                 &other.mixer,
             ) {
-                self.links
-                    .insert((peer_id.to_string(), other_id.clone()), link);
+                Ok(link) => {
+                    self.links
+                        .insert((peer_id.to_string(), other_id.clone()), link);
+                }
+                Err(error) => {
+                    log::error!(
+                        "event=voice_mix_link_error source_peer_id={} dest_peer_id={} error={}",
+                        peer_id,
+                        other_id,
+                        error
+                    );
+                }
             }
             // other's audio -> new participant's mixer
-            if let Ok(link) = mixer::link_tee_to_mixer(
+            match mixer::link_tee_to_mixer(
                 other_id,
                 peer_id,
                 &self.pipeline,
                 &other.tee,
                 &new_participant.mixer,
             ) {
-                self.links
-                    .insert((other_id.clone(), peer_id.to_string()), link);
+                Ok(link) => {
+                    self.links
+                        .insert((other_id.clone(), peer_id.to_string()), link);
+                }
+                Err(error) => {
+                    log::error!(
+                        "event=voice_mix_link_error source_peer_id={} dest_peer_id={} error={}",
+                        other_id,
+                        peer_id,
+                        error
+                    );
+                }
             }
         }
 
@@ -235,6 +255,38 @@ mod tests {
         assert!(
             received.is_some(),
             "expected participant B's appsink to produce a buffer after A pushed audio"
+        );
+    }
+
+    #[test]
+    fn late_joiner_receives_existing_participant_audio() {
+        crate::voice::init();
+        let mut room = RoomPipeline::new();
+        room.add_participant("A");
+
+        let packets = make_opus_rtp_packets(60);
+        for packet in packets.iter().take(20) {
+            room.push_rtp("A", packet);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        room.add_participant("B");
+        for packet in packets.iter().skip(20) {
+            room.push_rtp("A", packet);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let mut received = None;
+        for _ in 0..40 {
+            if let Some(buf) = room.pull_rtp("B") {
+                received = Some(buf);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(
+            received.is_some(),
+            "expected late participant B to receive A's already-active audio"
         );
     }
 

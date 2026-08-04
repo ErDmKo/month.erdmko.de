@@ -47,7 +47,6 @@ pub fn link_tee_to_mixer(
 
     let queue = ElementFactory::make("queue").build()?;
     pipeline.add(&queue)?;
-    queue.sync_state_with_parent()?;
 
     let queue_sink = queue
         .static_pad("sink")
@@ -62,6 +61,10 @@ pub fn link_tee_to_mixer(
     queue_src
         .link(&mixer_pad)
         .map_err(|_| gstreamer::glib::bool_error!("failed to link queue to mixer pad"))?;
+    // A source may already be streaming when a participant joins. Do not start
+    // this queue until both pads are linked, otherwise its first buffer hits an
+    // unlinked src pad and the branch stops permanently.
+    queue.sync_state_with_parent()?;
 
     Ok(MixLink {
         source_peer_id: source_peer_id.to_string(),

@@ -18,10 +18,7 @@
             "max-file": "5"
           }
         }
-  - name: Restart docker daemon
-    ansible.builtin.systemd:
-      name: docker
-      state: restarted
+    notify: Restart docker daemon
   - name: directory exist
     ansible.builtin.file:
       path: "{{ install_dirr }}"
@@ -30,6 +27,19 @@
     ansible.builtin.copy:
       src: './../image.tar'
       dest: '{{ install_dirr }}'
+  - name: Copy Compose deployment configuration
+    ansible.builtin.copy:
+      src: ../docker-compose.yaml
+      dest: '{{ install_dirr }}/docker-compose.yaml'
+      mode: "0644"
+  - name: Write Compose environment
+    ansible.builtin.copy:
+      dest: '{{ install_dirr }}/.env'
+      mode: "0600"
+      content: |
+        VOICE_PUBLIC_IP={{ voice_public_ip }}
+        VOICE_RTP_PORT_MIN={{ voice_rtp_port_min }}
+        VOICE_RTP_PORT_MAX={{ voice_rtp_port_max }}
   - name: Stop docker container
     ansible.builtin.shell: |
       docker stop {{ app_name }} || true
@@ -42,16 +52,12 @@
     ansible.builtin.shell: docker load --input image.tar
     args:
       chdir: "{{ install_dirr }}"
-  - name: run app from docker
-    ansible.builtin.shell: |
-      docker run \
-      --publish 8080:8080 \
-      --publish {{ voice_rtp_port_min }}-{{ voice_rtp_port_max }}:{{ voice_rtp_port_min }}-{{ voice_rtp_port_max }}/udp \
-      --env PUBLIC_IP={{ voice_public_ip }} \
-      --env RTP_PORT_MIN={{ voice_rtp_port_min }} \
-      --env RTP_PORT_MAX={{ voice_rtp_port_max }} \
-      -d \
-      --mount source=edk,target=/app/server/db \
-      --name {{ app_name }} \
-      --restart unless-stopped \
-      {{ image_name }}
+  - name: Start Compose stack
+    ansible.builtin.command: docker compose up --detach
+    args:
+      chdir: "{{ install_dirr }}"
+  handlers:
+  - name: Restart docker daemon
+    ansible.builtin.systemd:
+      name: docker
+      state: restarted
