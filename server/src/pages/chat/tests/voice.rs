@@ -328,3 +328,109 @@ async fn voice_lifecycle_does_not_block_chat_messaging() {
 
     handle.stop(true).await;
 }
+
+#[actix_web::test]
+async fn multi_tab_voice_join_leave_and_chat_messaging() {
+    ensure_voice_init();
+    let ctx = setup_ctx();
+    let room_id = format!("voice-multi-tab-{}", random::<u64>());
+    chat_db::create_room_if_not_exists(&ctx, &room_id)
+        .await
+        .unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let sctx = ctx.clone();
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(sctx.clone())
+            .route(
+                "/healthz",
+                actix_web::web::get().to(actix_web::HttpResponse::Ok),
+            )
+            .service(chat_ws_page_handler)
+    })
+    .shutdown_timeout(0)
+    .listen(listener)
+    .unwrap()
+    .run();
+    let handle = server.handle();
+    actix_web::rt::spawn(server);
+
+    let mut tab1 = ws_join!(addr, room_id, "UserTab1");
+    let mut tab2 = ws_join!(addr, room_id, "UserTab2");
+
+    // Tab 1 joins voice
+    tab1.send(awc::ws::Message::Binary(encode_voice_join("v1").into()))
+        .await
+        .unwrap();
+    let _ = find_binary(&mut tab1, 5, |p| {
+        matches!(p, server_frame::Payload::VoiceState(_))
+    })
+    .await
+    .expect("Tab1 receives voice state");
+
+    // Tab 2 joins voice
+    tab2.send(awc::ws::Message::Binary(encode_voice_join("v2").into()))
+        .await
+        .unwrap();
+    let _ = find_binary(&mut tab2, 5, |p| {
+        matches!(p, server_frame::Payload::VoiceState(_))
+    })
+    .await
+    .expect("Tab2 receives voice state");
+
+    // Tab 2 leaves voice
+    tab2.send(awc::ws::Message::Binary(encode_voice_leave("v3").into()))
+        .await
+        .unwrap();
+    let _ = find_binary(&mut tab1, 5, |p| {
+        if let server_frame::Payload::VoiceState(s) = p {
+            s.participants.len() == 1
+        } else {
+            false
+        }
+    })
+    .await
+    .expect("Tab1 sees Tab2 leave voice");
+
+    // Tab 1 sends chat message
+    tab1.send(awc::ws::Message::Binary(
+        encode_message("m1", "tab1 talking").into(),
+    ))
+    .await
+    .unwrap();
+
+    let msg1 = find_binary(&mut tab2, 5, |p| {
+        matches!(p, server_frame::Payload::Message(_))
+    })
+    .await
+    .expect("Tab2 receives Tab1 message after Tab2 left voice");
+    if let server_frame::Payload::Message(m) = msg1 {
+        assert_eq!(m.item.as_ref().unwrap().body, "tab1 talking");
+    }
+
+    // Tab 2 sends chat message
+    tab2.send(awc::ws::Message::Binary(
+        encode_message("m2", "tab2 replies").into(),
+    ))
+    .await
+    .unwrap();
+
+    // Drain tab1 message echo first
+    let _ = find_binary(&mut tab1, 5, |p| {
+        matches!(p, server_frame::Payload::Message(_))
+    })
+    .await;
+
+    let msg2 = find_binary(&mut tab1, 5, |p| {
+        matches!(p, server_frame::Payload::Message(_))
+    })
+    .await
+    .expect("Tab1 receives Tab2 message");
+    if let server_frame::Payload::Message(m) = msg2 {
+        assert_eq!(m.item.as_ref().unwrap().body, "tab2 replies");
+    }
+
+    handle.stop(true).await;
+}

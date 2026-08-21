@@ -384,9 +384,7 @@ async fn negotiate_offer(
                 Err(_) => break, // blocking task panicked or was cancelled
             };
             let Some(bytes) = bytes else {
-                // Nothing ready this round; `pull_rtp`'s own internal 50ms
-                // timeout already provides backpressure, so loop straight
-                // back around rather than sleeping again on top of it.
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 continue;
             };
             let Ok(packet) = RtpPacket::unmarshal(&mut bytes.as_slice()) else {

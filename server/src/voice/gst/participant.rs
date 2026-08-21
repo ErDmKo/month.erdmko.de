@@ -141,14 +141,11 @@ impl ParticipantPipeline {
         }
     }
 
-    /// Try to pull one RTP/Opus buffer for this participant's mixed-and-encoded output.
+    /// Non-blocking pull of one RTP/Opus buffer for this participant's mixed output.
     pub fn pull_rtp(&self) -> Option<Vec<u8>> {
-        let timeout = gstreamer::ClockTime::from_mseconds(50);
-        // The first buffer of a stream can arrive as a "preroll" sample rather
-        // than a regular one; try both so we never silently miss it.
         let sample = self
             .appsink
-            .try_pull_sample(timeout)
+            .try_pull_sample(gstreamer::ClockTime::ZERO)
             .or_else(|| self.appsink.try_pull_preroll(gstreamer::ClockTime::ZERO))?;
         let buffer = sample.buffer()?;
         let map = buffer.map_readable().ok()?;
@@ -164,9 +161,6 @@ impl ParticipantPipeline {
             .chain(self.outbound_elements.iter())
         {
             let _ = el.set_state(gstreamer::State::Null);
-            // Wait bounded time for the Null transition before removing the element
-            // from the pipeline. Using a bounded timeout prevents deadlocking the caller.
-            let _ = el.state(gstreamer::ClockTime::from_mseconds(50));
             let _ = pipeline.remove(el);
         }
     }
