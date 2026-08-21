@@ -14,50 +14,8 @@ use webrtc::track::track_local::TrackLocalWriter;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
 use webrtc_util::{Marshal, Unmarshal};
 
-use crate::pages::chat::chat_actor::{CHAT_ROOMS, ChatWs, PushEvent};
-use crate::voice::service::{
-    self as voice_service, MAX_VOICE_PARTICIPANTS_PER_ROOM, PeerHandle, VoiceSessionState,
-};
-
-// ── Actor message: ask a ChatWs for its voice participant info ─────────────────
-
-#[derive(actix::Message)]
-#[rtype(result = "Option<(String, String)>")]
-pub(crate) struct GetVoiceParticipant;
-
-impl Handler<GetVoiceParticipant> for ChatWs {
-    type Result = Option<(String, String)>;
-    fn handle(&mut self, _: GetVoiceParticipant, _: &mut Self::Context) -> Self::Result {
-        self.session
-            .voice
-            .as_ref()
-            .map(|v| (v.sender_id.clone(), v.sender_name.clone()))
-    }
-}
-
-// ── Voice participant list helper ─────────────────────────────────────────────
-
-async fn voice_participants_in_room(room_id: &str) -> Vec<(String, String)> {
-    let addrs = CHAT_ROOMS.connected_recipients(room_id);
-    let mut participants = Vec::new();
-    for addr in addrs {
-        if let Ok(Some(p)) = addr.send(GetVoiceParticipant).await {
-            participants.push(p);
-        }
-    }
-    participants
-}
-
-async fn total_voice_participants() -> usize {
-    let addrs = CHAT_ROOMS.all_connected_recipients();
-    let mut count = 0;
-    for addr in addrs {
-        if let Ok(Some(_)) = addr.send(GetVoiceParticipant).await {
-            count += 1;
-        }
-    }
-    count
-}
+use crate::pages::chat::chat_actor::{ChatWs, PushEvent};
+use crate::voice::service::{self as voice_service, PeerHandle, VoiceSessionState};
 
 // ── Voice handlers ────────────────────────────────────────────────────────────
 
@@ -90,8 +48,12 @@ impl ChatWs {
         }
 
         let room_id = self.room_id.clone();
-        let sender_id_clone = sender_id.clone();
-        let sender_name_clone = sender_name.clone();
+        if let Err(code) =
+            crate::voice::register_voice_participant(&room_id, &sender_id, &sender_name)
+        {
+            ctx.binary(voice_service::voice_error_payload(request_id_ref, code));
+            return;
+        }
 
         self.session.voice = Some(VoiceSessionState {
             sender_id: sender_id.clone(),
@@ -104,41 +66,9 @@ impl ChatWs {
             room_id, sender_id, sender_name
         );
 
-        let addr = ctx.address();
-        let request_id_clone = request_id.clone();
-        actix::spawn(async move {
-            let total_count = total_voice_participants().await;
-            if total_count > voice_service::MAX_TOTAL_VOICE_PARTICIPANTS {
-                addr.do_send(PushEvent(voice_service::voice_error_payload(
-                    request_id_clone.as_deref(),
-                    "VOICE_SERVER_FULL",
-                )));
-                addr.do_send(RollbackVoiceJoin {
-                    reason: "VOICE_SERVER_FULL",
-                });
-                return;
-            }
-
-            let mut participants = voice_participants_in_room(&room_id).await;
-
-            if participants.len() > MAX_VOICE_PARTICIPANTS_PER_ROOM {
-                addr.do_send(PushEvent(voice_service::voice_error_payload(
-                    request_id_clone.as_deref(),
-                    "VOICE_ROOM_FULL",
-                )));
-                addr.do_send(RollbackVoiceJoin {
-                    reason: "VOICE_ROOM_FULL",
-                });
-                return;
-            }
-
-            if !participants.iter().any(|(id, _)| id == &sender_id_clone) {
-                participants.push((sender_id_clone, sender_name_clone));
-            }
-
-            let payload = voice_service::voice_state_payload(participants);
-            ChatWs::broadcast_to_room(&room_id, payload);
-        });
+        let participants = crate::voice::get_voice_participants_in_room(&room_id);
+        let payload = voice_service::voice_state_payload(participants);
+        ChatWs::broadcast_to_room(&room_id, payload);
     }
 
     pub(crate) fn on_voice_leave(
@@ -158,12 +88,13 @@ impl ChatWs {
             return;
         };
         let room_id = self.room_id.clone();
+        let peer_id = self.sender_id.clone();
+        crate::voice::unregister_voice_participant(&room_id, &peer_id);
         info!(
             "event=voice_leave room_id={} sender_id={}",
             room_id, self.sender_id
         );
         if let Some(peer) = voice.peer {
-            let peer_id = peer.peer_id.clone();
             let peer_connection = peer.peer_connection.clone();
             // Dropping `peer` aborts its inbound/outbound RTP loops (see
             // `PeerHandle`'s `Drop` impl) before we remove it from the
@@ -185,11 +116,9 @@ impl ChatWs {
                 }
             });
         }
-        actix::spawn(async move {
-            let participants = voice_participants_in_room(&room_id).await;
-            let payload = voice_service::voice_state_payload(participants);
-            ChatWs::broadcast_to_room(&room_id, payload);
-        });
+        let participants = crate::voice::get_voice_participants_in_room(&room_id);
+        let payload = voice_service::voice_state_payload(participants);
+        ChatWs::broadcast_to_room(&room_id, payload);
     }
 
     pub(crate) fn on_voice_offer(
@@ -521,6 +450,7 @@ impl Handler<VoiceOfferReady> for ChatWs {
             // clean up the GStreamer room pipeline that negotiate_offer joined.
             let room_id = self.room_id.clone();
             let peer_id = msg.peer.peer_id.clone();
+            crate::voice::unregister_voice_participant(&room_id, &peer_id);
             drop(msg.peer);
             task::spawn_blocking(move || {
                 crate::voice::leave_room(&room_id, &peer_id);
@@ -542,25 +472,6 @@ impl Handler<VoiceOfferFailed> for ChatWs {
             msg.request_id.as_deref(),
             "VOICE_OFFER_FAILED",
         ));
-    }
-}
-
-// ── Rollback message (room full after optimistic join) ────────────────────────
-
-#[derive(actix::Message)]
-#[rtype(result = "()")]
-struct RollbackVoiceJoin {
-    reason: &'static str,
-}
-
-impl Handler<RollbackVoiceJoin> for ChatWs {
-    type Result = ();
-    fn handle(&mut self, msg: RollbackVoiceJoin, _: &mut Self::Context) {
-        self.session.voice = None;
-        warn!(
-            "event=voice_join_rolled_back room_id={} sender_id={} reason={}",
-            self.room_id, self.sender_id, msg.reason
-        );
     }
 }
 

@@ -52,6 +52,47 @@ pub fn init() {
     gstreamer::init().expect("GStreamer initialization failed");
 }
 
+// ── Voice participant metadata registry ──────────────────────────────────────
+
+static VOICE_REGISTRY: LazyLock<Mutex<HashMap<String, HashMap<String, String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub fn register_voice_participant(
+    room_id: &str,
+    peer_id: &str,
+    sender_name: &str,
+) -> Result<(), &'static str> {
+    let mut registry = VOICE_REGISTRY.lock().unwrap();
+    let total: usize = registry.values().map(HashMap::len).sum();
+    if total >= service::MAX_TOTAL_VOICE_PARTICIPANTS {
+        return Err("VOICE_SERVER_FULL");
+    }
+    let room = registry.entry(room_id.to_string()).or_default();
+    if room.len() >= service::MAX_VOICE_PARTICIPANTS_PER_ROOM {
+        return Err("VOICE_ROOM_FULL");
+    }
+    room.insert(peer_id.to_string(), sender_name.to_string());
+    Ok(())
+}
+
+pub fn unregister_voice_participant(room_id: &str, peer_id: &str) {
+    let mut registry = VOICE_REGISTRY.lock().unwrap();
+    if let Some(room) = registry.get_mut(room_id) {
+        room.remove(peer_id);
+        if room.is_empty() {
+            registry.remove(room_id);
+        }
+    }
+}
+
+pub fn get_voice_participants_in_room(room_id: &str) -> Vec<(String, String)> {
+    let registry = VOICE_REGISTRY.lock().unwrap();
+    let Some(room) = registry.get(room_id) else {
+        return Vec::new();
+    };
+    room.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+}
+
 // ── Per-room GStreamer pipeline registry ──────────────────────────────────────
 
 /// One `RoomPipeline` per active voice room. Created on first participant
