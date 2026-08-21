@@ -9,6 +9,7 @@ use crate::generated::chat::{
 };
 
 pub const MAX_VOICE_PARTICIPANTS_PER_ROOM: usize = 8;
+pub const MAX_TOTAL_VOICE_PARTICIPANTS: usize = 16;
 
 /// A live WebRTC peer connection tied to one voice session, plus the two
 /// background tokio tasks feeding audio between it and the room's

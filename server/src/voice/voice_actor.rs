@@ -48,6 +48,17 @@ async fn voice_participants_in_room(room_id: &str) -> Vec<(String, String)> {
     participants
 }
 
+async fn total_voice_participants() -> usize {
+    let addrs = CHAT_ROOMS.all_connected_recipients();
+    let mut count = 0;
+    for addr in addrs {
+        if let Ok(Some(_)) = addr.send(GetVoiceParticipant).await {
+            count += 1;
+        }
+    }
+    count
+}
+
 // ── Voice handlers ────────────────────────────────────────────────────────────
 
 impl ChatWs {
@@ -94,15 +105,30 @@ impl ChatWs {
         );
 
         let addr = ctx.address();
+        let request_id_clone = request_id.clone();
         actix::spawn(async move {
+            let total_count = total_voice_participants().await;
+            if total_count > voice_service::MAX_TOTAL_VOICE_PARTICIPANTS {
+                addr.do_send(PushEvent(voice_service::voice_error_payload(
+                    request_id_clone.as_deref(),
+                    "VOICE_SERVER_FULL",
+                )));
+                addr.do_send(RollbackVoiceJoin {
+                    reason: "VOICE_SERVER_FULL",
+                });
+                return;
+            }
+
             let mut participants = voice_participants_in_room(&room_id).await;
 
             if participants.len() > MAX_VOICE_PARTICIPANTS_PER_ROOM {
                 addr.do_send(PushEvent(voice_service::voice_error_payload(
-                    None,
+                    request_id_clone.as_deref(),
                     "VOICE_ROOM_FULL",
                 )));
-                addr.do_send(RollbackVoiceJoin);
+                addr.do_send(RollbackVoiceJoin {
+                    reason: "VOICE_ROOM_FULL",
+                });
                 return;
             }
 
@@ -514,15 +540,17 @@ impl Handler<VoiceOfferFailed> for ChatWs {
 
 #[derive(actix::Message)]
 #[rtype(result = "()")]
-struct RollbackVoiceJoin;
+struct RollbackVoiceJoin {
+    reason: &'static str,
+}
 
 impl Handler<RollbackVoiceJoin> for ChatWs {
     type Result = ();
-    fn handle(&mut self, _: RollbackVoiceJoin, _: &mut Self::Context) {
+    fn handle(&mut self, msg: RollbackVoiceJoin, _: &mut Self::Context) {
         self.session.voice = None;
         warn!(
-            "event=voice_join_rolled_back room_id={} sender_id={} reason=VOICE_ROOM_FULL",
-            self.room_id, self.sender_id
+            "event=voice_join_rolled_back room_id={} sender_id={} reason={}",
+            self.room_id, self.sender_id, msg.reason
         );
     }
 }

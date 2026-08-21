@@ -143,3 +143,52 @@ async fn voice_disconnect_triggers_leave_and_serves_healthz() {
 
     handle.stop(true).await;
 }
+
+#[actix_web::test]
+async fn voice_room_full_rejects_and_rolls_back() {
+    ensure_voice_init();
+    let ctx = setup_ctx();
+    let room_id = format!("voice-full-{}", random::<u64>());
+    chat_db::create_room_if_not_exists(&ctx, &room_id)
+        .await
+        .unwrap();
+
+    let (addr, handle) = spawn_server!(ctx);
+    let mut sockets = Vec::new();
+
+    // Join 8 participants (the maximum per room)
+    for i in 0..8 {
+        let nick = format!("User{}", i);
+        let mut ws = ws_join!(addr, room_id, &nick);
+        ws.send(awc::ws::Message::Binary(encode_voice_join("v-join").into()))
+            .await
+            .unwrap();
+        let _ = find_binary(&mut ws, 5, |p| {
+            matches!(p, server_frame::Payload::VoiceState(_))
+        })
+        .await
+        .expect("Participant should join voice");
+        sockets.push(ws);
+    }
+
+    // 9th participant attempts to join voice
+    let mut ws9 = ws_join!(addr, room_id, "User9");
+    ws9.send(awc::ws::Message::Binary(
+        encode_voice_join("v-join-9").into(),
+    ))
+    .await
+    .unwrap();
+
+    let err = find_binary(&mut ws9, 5, |p| {
+        matches!(p, server_frame::Payload::VoiceError(_))
+    })
+    .await
+    .expect("9th participant should receive VoiceError");
+
+    if let server_frame::Payload::VoiceError(e) = err {
+        assert_eq!(e.code, "VOICE_ROOM_FULL");
+        assert_eq!(e.request_id, "v-join-9");
+    }
+
+    handle.stop(true).await;
+}

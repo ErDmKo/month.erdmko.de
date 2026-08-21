@@ -81,6 +81,19 @@ impl<A: Actor> RoomRegistry<A> {
         addresses.retain(Addr::connected);
         addresses.clone()
     }
+
+    pub fn all_connected_recipients(&self) -> Vec<Addr<A>> {
+        let mut rooms = self
+            .rooms
+            .write()
+            .expect("chat rooms lock should be available");
+        let mut all = Vec::new();
+        for addresses in rooms.values_mut() {
+            addresses.retain(Addr::connected);
+            all.extend(addresses.iter().cloned());
+        }
+        all
+    }
 }
 
 // ── Incoming client event (parsed from ClientFrame protobuf) ──────────────────
