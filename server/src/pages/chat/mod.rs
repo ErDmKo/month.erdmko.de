@@ -67,6 +67,7 @@ pub async fn chat_ws_page_handler(
             session: ChatSessionState::new(),
             is_registered: false,
             uploads: UploadSessionState::new(),
+            hb: std::time::Instant::now(),
         },
         &req,
         stream,

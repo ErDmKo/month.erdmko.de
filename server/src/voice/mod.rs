@@ -155,8 +155,11 @@ pub fn init_rtc(cfg: &VoiceConfig) {
         .expect("failed to register default WebRTC codecs");
 
     let mut setting_engine = SettingEngine::default();
-    // Always announce PUBLIC_IP in ICE candidates instead of the VPS's private NIC address.
-    setting_engine.set_nat_1to1_ips(vec![cfg.public_ip.clone()], RTCIceCandidateType::Host);
+    // Announce PUBLIC_IP in ICE candidates on deployed environments (VPS),
+    // while allowing normal local host candidate gathering during local development.
+    if cfg.public_ip != "127.0.0.1" && !cfg.public_ip.is_empty() {
+        setting_engine.set_nat_1to1_ips(vec![cfg.public_ip.clone()], RTCIceCandidateType::Host);
+    }
     setting_engine.set_udp_network(UDPNetwork::Ephemeral(
         EphemeralUDP::new(cfg.rtp_port_min, cfg.rtp_port_max)
             .expect("invalid RTP_PORT_MIN/RTP_PORT_MAX range"),

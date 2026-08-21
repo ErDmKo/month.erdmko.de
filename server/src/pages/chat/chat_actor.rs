@@ -1,12 +1,16 @@
-use actix::{Actor, Addr, AsyncContext, Handler, Message, StreamHandler};
+use actix::{Actor, ActorContext, Addr, AsyncContext, Handler, Message, StreamHandler};
 use actix_web::web;
 use actix_web_actors::ws;
 use log::{info, warn};
 use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 
 use crate::app::AppCtx;
 use crate::attachments::service::UploadSessionState;
 use crate::chat::service::{self as chat_service, ChatSessionState, RoomRegistry};
+
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 // Pull in impl blocks that extend ChatWs from their home modules
 use crate::chat::attachments_actor as _;
@@ -30,6 +34,7 @@ pub(crate) struct ChatWs {
     pub(crate) session: ChatSessionState,
     pub(crate) is_registered: bool,
     pub(crate) uploads: UploadSessionState,
+    pub(crate) hb: Instant,
 }
 
 // ── Room helpers ──────────────────────────────────────────────────────────────
@@ -67,6 +72,20 @@ impl ChatWs {
             addr.do_send(PushEvent(payload.clone()));
         }
     }
+
+    fn start_heartbeat(&self, ctx: &mut ws::WebsocketContext<Self>) {
+        ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
+            if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
+                info!(
+                    "event=chat_timeout room_id={} sender_id={} reason=heartbeat_failed",
+                    act.room_id, act.sender_id
+                );
+                ctx.stop();
+                return;
+            }
+            ctx.ping(b"");
+        });
+    }
 }
 
 // ── Actor lifecycle ───────────────────────────────────────────────────────────
@@ -75,6 +94,8 @@ impl Actor for ChatWs {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        self.hb = Instant::now();
+        self.start_heartbeat(ctx);
         if Self::register_connection(&self.room_id, ctx.address()) {
             self.is_registered = true;
             info!(
@@ -138,9 +159,21 @@ impl Handler<PushBinary> for ChatWs {
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ChatWs {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         match msg {
-            Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
-            Ok(ws::Message::Binary(bytes)) => self.on_binary(&bytes, ctx),
-            Ok(ws::Message::Close(reason)) => ctx.close(reason),
+            Ok(ws::Message::Ping(msg)) => {
+                self.hb = Instant::now();
+                ctx.pong(&msg);
+            }
+            Ok(ws::Message::Pong(_)) => {
+                self.hb = Instant::now();
+            }
+            Ok(ws::Message::Binary(bytes)) => {
+                self.hb = Instant::now();
+                self.on_binary(&bytes, ctx);
+            }
+            Ok(ws::Message::Close(reason)) => {
+                ctx.close(reason);
+                ctx.stop();
+            }
             Err(ws::ProtocolError::Overflow) => {
                 Self::send_error(
                     &self.room_id,
