@@ -102,7 +102,6 @@ export const initVoice =
         let localStream: MediaStream | null = null;
         let peer: VoicePeer | null = null;
         let isMuted = false;
-        let hasJoinedChat = false; // tracks whether we've ever seen a real senderId
 
         const showError = (message: string) => {
             chatUiObs(bindArg([CHAT_UI_ERROR, message] as const, trigger));
@@ -111,8 +110,7 @@ export const initVoice =
         // ── Leave / cleanup ───────────────────────────────────────────────────
 
         const leaveVoice = (sendLeave: boolean) => {
-            if (!peer && !localStream) return; // not in a call — no-op
-            if (sendLeave) {
+            if (sendLeave && (peer || localStream)) {
                 outgoing(
                     bindArg(
                         [
@@ -175,6 +173,8 @@ export const initVoice =
                     setStatus(refs, 'Connected');
                 } else if (state === 'failed') {
                     setStatus(refs, 'Connection failed');
+                    showError('Voice connection failed. Please try rejoining.');
+                    leaveVoice(true);
                 } else if (state === 'disconnected') {
                     setStatus(refs, 'Reconnecting...');
                 }
@@ -280,9 +280,10 @@ export const initVoice =
                     event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_VOICE_ANSWER_SDP];
                 pipe(
                     applyVoiceAnswerTask(ctx, voicePeerConnection(peer), sdp),
-                    taskFork(noop, (e) =>
-                        showError(`Failed to apply voice answer: ${String(e)}`)
-                    )
+                    taskFork(noop, (e) => {
+                        showError(`Failed to apply voice answer: ${String(e)}`);
+                        leaveVoice(true);
+                    })
                 );
                 void event[SERVER_FRAME_PAYLOAD_VALUE][
                     SERVER_VOICE_ANSWER_REQUEST_ID
@@ -350,18 +351,14 @@ export const initVoice =
                 if (event[CHAT_UI_EVENT_TYPE] === CHAT_UI_JOINED) {
                     const senderId = event[CHAT_UI_JOINED_SENDER_ID];
                     if (senderId !== null) {
-                        hasJoinedChat = true;
+                        if (!peer && !localStream && refs) {
+                            resetVoiceUi(ctx, refs);
+                        }
                         return;
                     }
                     // senderId === null: either the initial pre-join state, or
-                    // the chat socket just closed. Only the latter matters —
-                    // and only if we were actually mid-call — since closing
-                    // the chat WS also makes any further ClientVoiceLeave a
-                    // no-op send into a dead socket.
-                    if (hasJoinedChat) {
-                        hasJoinedChat = false;
-                        leaveVoice(false);
-                    }
+                    // the chat socket just closed.
+                    leaveVoice(false);
                 }
             }, on)
         );

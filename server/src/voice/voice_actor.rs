@@ -512,11 +512,20 @@ impl Handler<VoiceOfferReady> for ChatWs {
     fn handle(&mut self, msg: VoiceOfferReady, ctx: &mut Self::Context) {
         if let Some(voice) = self.session.voice.as_mut() {
             voice.peer = Some(msg.peer);
+            ctx.binary(voice_service::voice_answer_payload(
+                msg.request_id.as_deref(),
+                &msg.answer_sdp,
+            ));
+        } else {
+            // User left voice while negotiate_offer was in flight;
+            // clean up the GStreamer room pipeline that negotiate_offer joined.
+            let room_id = self.room_id.clone();
+            let peer_id = msg.peer.peer_id.clone();
+            drop(msg.peer);
+            task::spawn_blocking(move || {
+                crate::voice::leave_room(&room_id, &peer_id);
+            });
         }
-        ctx.binary(voice_service::voice_answer_payload(
-            msg.request_id.as_deref(),
-            &msg.answer_sdp,
-        ));
     }
 }
 
