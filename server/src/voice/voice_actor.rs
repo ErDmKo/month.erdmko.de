@@ -145,7 +145,11 @@ impl ChatWs {
             // `remove_participant` and grab a handle to a participant
             // that's mid-teardown.
             drop(peer);
-            crate::voice::leave_room(&room_id, &peer_id);
+            let room_id_for_leave = room_id.clone();
+            let peer_id_for_leave = peer_id.clone();
+            task::spawn_blocking(move || {
+                crate::voice::leave_room(&room_id_for_leave, &peer_id_for_leave);
+            });
             actix::spawn(async move {
                 if let Err(e) = peer_connection.close().await {
                     warn!(

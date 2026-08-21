@@ -11,7 +11,7 @@ use std::time::Duration;
 /// millisecond in practice — this is only a safety net against a wedged
 /// pipeline blocking `remove_participant` (and therefore the global
 /// `VOICE_GST` room-registry lock) indefinitely.
-const DRAIN_TIMEOUT: Duration = Duration::from_millis(200);
+const DRAIN_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// A single mix-minus link: participant `source`'s decoded audio (from their `tee`)
 /// feeding into participant `dest`'s personal `audiomixer`.
@@ -210,7 +210,7 @@ pub fn play_test_tone(
         mixer.release_request_pad(&mixer_pad);
         for el in &elements {
             let _ = el.set_state(gstreamer::State::Null);
-            let _ = el.state(gstreamer::ClockTime::NONE);
+            let _ = el.state(gstreamer::ClockTime::from_mseconds(50));
             let _ = pipeline.remove(el);
         }
     });

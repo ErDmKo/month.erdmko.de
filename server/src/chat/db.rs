@@ -360,15 +360,19 @@ mod tests {
     use crate::app::Pool;
     use r2d2_sqlite::SqliteConnectionManager;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
+
     fn setup_ctx() -> web::Data<AppCtx> {
+        let count = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
         let unique_suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time should be valid")
             .as_nanos();
         let mut db_path = std::env::temp_dir();
-        db_path.push(format!("month_chat_db_{unique_suffix}.sqlite"));
+        db_path.push(format!("month_chat_db_{unique_suffix}_{count}.sqlite"));
 
         let manager = SqliteConnectionManager::file(db_path);
         let pool = Pool::new(manager).expect("pool should be created");

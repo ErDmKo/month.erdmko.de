@@ -315,4 +315,40 @@ mod tests {
         // Also verify pushing to an unknown participant is a safe no-op.
         room.push_rtp("does-not-exist", &[0x00]);
     }
+
+    #[test]
+    fn remove_participant_under_active_streaming_does_not_deadlock() {
+        crate::voice::init();
+        let mut room = RoomPipeline::new();
+        room.add_participant("A");
+        room.add_participant("B");
+        room.add_participant("C");
+
+        let packets = make_opus_rtp_packets(20);
+        for packet in &packets {
+            room.push_rtp("A", packet);
+            room.push_rtp("B", packet);
+        }
+
+        let start = std::time::Instant::now();
+        room.remove_participant("A");
+        let elapsed = start.elapsed();
+        println!("remove_participant('A') took {:?}", elapsed);
+
+        // Room and remaining participants must remain functional
+        for packet in &packets {
+            room.push_rtp("B", packet);
+        }
+        let (_, current, _) = room
+            .pipeline
+            .state(gstreamer::ClockTime::from_mseconds(500));
+        assert_eq!(current, gstreamer::State::Playing);
+        assert!(room.get_participant("A").is_none());
+        assert!(room.get_participant("B").is_some());
+        assert!(room.get_participant("C").is_some());
+
+        room.remove_participant("B");
+        room.remove_participant("C");
+        assert!(room.is_empty());
+    }
 }

@@ -11,18 +11,21 @@ pub(super) use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::generated::chat::{
     ClientDelete, ClientDownloadRequest, ClientFrame, ClientJoin, ClientMessage, ClientUploadEnd,
-    ClientUploadStart, ServerFrame, UploadChunk, client_frame, server_frame,
+    ClientUploadStart, ClientVoiceIce, ClientVoiceJoin, ClientVoiceLeave, ClientVoiceOffer,
+    ServerFrame, UploadChunk, client_frame, server_frame,
 };
 
 // ── DB / server setup ─────────────────────────────────────────────────────────
 
 pub(super) fn setup_ctx() -> actix_web::web::Data<crate::app::AppCtx> {
+    static TEST_WS_DB_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let count = TEST_WS_DB_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let unique_suffix = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time should be valid")
         .as_nanos();
     let mut db_path = std::env::temp_dir();
-    db_path.push(format!("month_chat_ws_db_{unique_suffix}.sqlite"));
+    db_path.push(format!("month_chat_ws_db_{unique_suffix}_{count}.sqlite"));
 
     let manager = SqliteConnectionManager::file(db_path);
     let pool = crate::app::Pool::new(manager).expect("pool should be created");
@@ -164,6 +167,51 @@ pub(super) fn encode_download_request(request_id: &str, attachment_id: i64) -> V
                 attachment_id,
             },
         )),
+    }
+    .encode_to_vec()
+}
+
+pub(super) fn encode_voice_join(request_id: &str) -> Vec<u8> {
+    ClientFrame {
+        payload: Some(client_frame::Payload::VoiceJoin(ClientVoiceJoin {
+            request_id: request_id.to_string(),
+        })),
+    }
+    .encode_to_vec()
+}
+
+pub(super) fn encode_voice_leave(request_id: &str) -> Vec<u8> {
+    ClientFrame {
+        payload: Some(client_frame::Payload::VoiceLeave(ClientVoiceLeave {
+            request_id: request_id.to_string(),
+        })),
+    }
+    .encode_to_vec()
+}
+
+pub(super) fn encode_voice_offer(request_id: &str, sdp: &str) -> Vec<u8> {
+    ClientFrame {
+        payload: Some(client_frame::Payload::VoiceOffer(ClientVoiceOffer {
+            request_id: request_id.to_string(),
+            sdp: sdp.to_string(),
+        })),
+    }
+    .encode_to_vec()
+}
+
+pub(super) fn encode_voice_ice(
+    request_id: &str,
+    candidate: &str,
+    sdp_mid: &str,
+    sdp_mline_idx: u32,
+) -> Vec<u8> {
+    ClientFrame {
+        payload: Some(client_frame::Payload::VoiceIce(ClientVoiceIce {
+            request_id: request_id.to_string(),
+            candidate: candidate.to_string(),
+            sdp_mid: sdp_mid.to_string(),
+            sdp_mline_idx,
+        })),
     }
     .encode_to_vec()
 }

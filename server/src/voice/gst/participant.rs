@@ -164,10 +164,9 @@ impl ParticipantPipeline {
             .chain(self.outbound_elements.iter())
         {
             let _ = el.set_state(gstreamer::State::Null);
-            // Block until the Null transition actually completes before removing
-            // the element from the pipeline, otherwise the pipeline can be left
-            // in a transient Paused state.
-            let _ = el.state(gstreamer::ClockTime::NONE);
+            // Wait bounded time for the Null transition before removing the element
+            // from the pipeline. Using a bounded timeout prevents deadlocking the caller.
+            let _ = el.state(gstreamer::ClockTime::from_mseconds(50));
             let _ = pipeline.remove(el);
         }
     }

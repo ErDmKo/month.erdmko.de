@@ -11,6 +11,7 @@
 7. `VOICE-70` Browser Client
 8. `VOICE-80` Server Inbound RTP Jitter Buffer
 9. `VOICE-90` Live Environment Deployment
+10. `VOICE-95` Fix Voice Teardown Deadlock and Worker Stall
 
 ## Dependency Map
 
@@ -23,6 +24,7 @@
 - `VOICE-70` → `VOICE-20`, `VOICE-60`
 - `VOICE-80` → `VOICE-60`
 - `VOICE-90` → `VOICE-30`, `VOICE-70`, `VOICE-80`
+- `VOICE-95` → `VOICE-60`, `VOICE-90`
 
 ## Ticket Files
 
@@ -35,6 +37,7 @@
 - `VOICE-70-browser-client.md`
 - `VOICE-80-server-inbound-rtp-jitter-buffer.md`
 - `VOICE-90-live-environment-deployment.md`
+- `VOICE-95-fix-voice-teardown-deadlock.md`
 
 ## Epics
 
