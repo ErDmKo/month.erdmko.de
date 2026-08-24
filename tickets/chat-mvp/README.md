@@ -12,6 +12,7 @@
 6. `CHAT-50` Home Page Integration
 7. `CHAT-60` Stability & Security
 8. `CHAT-70` QA & Release
+9. `CHAT-80` Onchain Authentication and Paid Chat Access (proposed)
 
 ## Dependency Map
 
@@ -23,6 +24,7 @@
 - `CHAT-50` -> `CHAT-40`
 - `CHAT-60` -> `CHAT-30`, `CHAT-40`
 - `CHAT-70` -> `CHAT-50`, `CHAT-60`
+- `CHAT-80` -> `CHAT-70`
 
 ## Ticket Files
 
@@ -34,6 +36,7 @@
 - `CHAT-50-main-page-integration.md`
 - `CHAT-60-stability-security.md`
 - `CHAT-70-qa-release.md`
+- `CHAT-80-onchain-auth-payments.md`
 
 ## Bazel-First Execution
 
