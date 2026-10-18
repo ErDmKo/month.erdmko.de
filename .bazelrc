@@ -5,9 +5,10 @@ build:windows --enable_runfiles
 
 build --enable_bzlmod
 # Homebrew paths are macOS-specific; applying them on Linux hides system
-# pkg-config packages such as GStreamer.
-build:macos --action_env=PKG_CONFIG_PATH=/opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig
-build:macos --action_env=PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+# pkg-config packages such as GStreamer. Both Apple Silicon and Intel prefixes
+# are included; nonexistent entries are harmless.
+build:macos --action_env=PKG_CONFIG_PATH=/opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig
+build:macos --action_env=PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 # This isn't currently the defaut in Bazel, but we enable it to test we'll be ready if/when it flips.
 build --incompatible_disallow_empty_glob

@@ -100,20 +100,91 @@ The Compose deployment also runs `autoheal`, which restarts `my_app` after
 three consecutive failed health checks. The watchdog has Docker socket access,
 so it is restricted to containers explicitly labelled `autoheal: "true"`.
 
-## Bazel static build
+## Local development setup
 
-### Linux prerequisites
+`.bazelrc` uses `common --enable_platform_specific_config`, so Bazel
+automatically applies `build:linux` or `build:macos` based on the host OS.
 
-Building or testing `//server:server` locally needs the GStreamer development
-headers and runtime plugins. The Docker builder installs the same dependencies:
+- **Linux:** no `PKG_CONFIG_PATH` override; `pkg-config` uses the distribution
+  defaults.
+- **macOS:** the `build:macos` config adds both Homebrew prefixes
+  (`/opt/homebrew` for Apple Silicon, `/usr/local` for Intel) to
+  `PKG_CONFIG_PATH` and `PATH`.
+
+Common requirements:
+
+| Tool | Version | Notes |
+|---|---|---|
+| Bazel | `9.1.0` | Pinned in `.bazelversion`; Bazelisk is recommended |
+| Node.js | `24.14.1` | Pinned in `.tool-versions`; runs `script/workspace_status.ts` during Bazel builds |
+| Git | any | Supplies branch/commit metadata to `//server:server` |
+| C/C++ toolchain | system | GCC on Linux, Xcode clang on macOS |
+| pkg-config | system | Discovers GStreamer |
+| GStreamer | 1.x | Development headers plus base/good plugins |
+
+### Linux (Debian/Ubuntu)
 
 ```bash
-sudo apt-get install \
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential \
+  pkg-config \
   libgstreamer1.0-dev \
   libgstreamer-plugins-base1.0-dev \
   gstreamer1.0-plugins-base \
-  gstreamer1.0-plugins-good
+  gstreamer1.0-plugins-good \
+  gstreamer1.0-tools
 ```
+
+### macOS
+
+```bash
+xcode-select --install
+brew install pkg-config gstreamer gst-plugins-base gst-plugins-good
+
+# Node 24.14.1, via the pinned .tool-versions:
+mise install        # or: asdf install
+# Without mise/asdf:
+# brew install node@24
+
+# Bazelisk reads .bazelversion:
+brew install bazelisk
+```
+
+### Verify the setup
+
+```bash
+pkg-config --modversion gstreamer-1.0 gstreamer-app-1.0 gstreamer-audio-1.0
+gst-inspect-1.0 rtpopusdepay
+node --version
+bazel version
+```
+
+Then build and test the server:
+
+```bash
+bazel build //server:server
+bazel test //server:chat_db_test
+```
+
+### Troubleshooting
+
+- **`Package gstreamer-app-1.0 was not found`** — install the GStreamer
+  development packages for your platform, then rerun
+  `pkg-config --modversion gstreamer-app-1.0`.
+- **`Failed to find element factory ... 'rtpopusdepay'`** — install the
+  GStreamer base/good plugins (`gstreamer1.0-plugins-good` on Linux,
+  `gst-plugins-good` on macOS).
+- **`node: not found` while running Bazel** — `script/workspace_status.ts` runs
+  outside Bazel's sandbox, so Node must be on your `PATH`. Install the version
+  from `.tool-versions`.
+- **Custom Homebrew prefix** — add its `lib/pkgconfig` and `share/pkgconfig`
+  paths to `build:macos --action_env=PKG_CONFIG_PATH` in `.bazelrc`.
+
+Docker builds do not need the local GStreamer packages; the builder stage
+installs them inside the image.
+
+## Bazel static build
 
 ### Format code
 
