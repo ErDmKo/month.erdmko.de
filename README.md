@@ -5,7 +5,8 @@ My homepage app
 ## Deploy command sequence
 
 Requires Docker, Node.js `24.14.1` (pinned in `.tool-versions`), Bazel, and
-SSH access to the Ansible inventory host.
+SSH access to the Ansible inventory host. SSH authentication must already be
+configured for that host (for example, through the SSH agent or `~/.ssh/config`).
 
 The container image builds `//server:server` with Bazel inside a Linux Docker
 builder. This packages the Bazel binary and its runfiles, including frontend
@@ -16,8 +17,7 @@ for voice calls.
 npm run build
 npm run save
 uvx --from ansible-core ansible-playbook ansible/push.yaml \
-  -i ansible/inventory.yaml \
-  --private-key ~/.ssh/id_rsa_legacy
+  -i ansible/inventory.yaml
 ```
 
 Or just
@@ -25,9 +25,6 @@ Or just
 ```bash
 npm run pub
 ```
-
-`npm run pub` does not include the private-key argument. Use the explicit
-commands above when deploying to `root@erdmko.dev`.
 
 ### Voice deployment requirements
 
@@ -54,7 +51,7 @@ an idle timeout that interrupts reconnects.
 After deployment, verify the selected settings and port publishing:
 
 ```bash
-ssh -i ~/.ssh/id_rsa_legacy root@erdmko.dev \
+ssh root@erdmko.dev \
   'docker inspect my_app --format "{{range .Config.Env}}{{println .}}{{end}}"; docker port my_app'
 ```
 
