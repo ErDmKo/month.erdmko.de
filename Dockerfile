@@ -3,6 +3,11 @@ FROM --platform=linux/amd64 gcr.io/bazel-public/bazel:9.1.0 AS builder_linux
 
 USER root
 
+# Node runs script/workspace_status.ts during the Bazel build. The Bazel image
+# does not ship Node, and .dockerignore excludes .git, so script/docker.ts
+# passes the version metadata as build args.
+COPY --from=node:24.14.1-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -14,6 +19,14 @@ RUN apt-get update \
 
 WORKDIR /workspace
 COPY . .
+
+# Version metadata for script/workspace_status.ts. These are only available in
+# the builder stage; the compiled constants are exposed via GET /version.
+ARG GIT_BRANCH=unknown
+ARG GIT_COMMIT=unknown
+ARG GIT_DIRTY=0
+ARG BUILD_TIME=unknown
+
 RUN --mount=type=cache,target=/root/.cache/bazel,sharing=locked \
     bazel build //server:server \
     && mkdir /workspace/dist \

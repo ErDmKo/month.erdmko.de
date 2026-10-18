@@ -70,11 +70,50 @@ curl --fail --silent --show-error https://erdmko.dev/healthz
 
 This endpoint does not verify active voice sessions or media connectivity.
 
+### Version check
+
+`GET /version` returns the git metadata baked into the running image:
+
+```bash
+curl --fail --silent --show-error https://erdmko.dev/version
+```
+
+```json
+{
+    "branch": "master",
+    "commit": "e8eea03...",
+    "short_commit": "e8eea03",
+    "dirty": false,
+    "build_time": "2026-08-21T15:44:12.345Z"
+}
+```
+
+`npm run build` collects the branch, commit, and dirty state from the local git
+checkout and passes them to the Docker build, because `.git` is excluded from
+the Docker build context. The values are stamped into the binary by Bazel via
+`script/workspace_status.ts` and `server/version.env`; plain `bazel build`
+reads git directly and needs no Docker involvement. Local builds report the
+commit time as `build_time`; image builds report the actual build time. Use
+this endpoint to confirm which revision is live before/after a deployment.
+
 The Compose deployment also runs `autoheal`, which restarts `my_app` after
 three consecutive failed health checks. The watchdog has Docker socket access,
 so it is restricted to containers explicitly labelled `autoheal: "true"`.
 
 ## Bazel static build
+
+### Linux prerequisites
+
+Building or testing `//server:server` locally needs the GStreamer development
+headers and runtime plugins. The Docker builder installs the same dependencies:
+
+```bash
+sudo apt-get install \
+  libgstreamer1.0-dev \
+  libgstreamer-plugins-base1.0-dev \
+  gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good
+```
 
 ### Format code
 

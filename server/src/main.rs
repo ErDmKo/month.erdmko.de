@@ -19,6 +19,7 @@ pub mod chat;
 pub mod db;
 pub mod generated;
 pub mod pages;
+pub mod version;
 pub mod voice;
 
 static TEMPLATES_GLOB: &str = "templates/*";
@@ -65,6 +66,13 @@ async fn extract(req: &ServiceRequest) -> Result<HashSet<String>, actix_web::Err
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+    info!(
+        "Version: branch={} commit={} dirty={} build_time={}",
+        version::branch(),
+        version::short_commit(version::commit()),
+        version::dirty(),
+        version::build_time()
+    );
     let current_dir = env::current_dir().unwrap();
     let current_dir_str = current_dir.to_str().unwrap();
     info!("Starting http server from directory '{}'", &current_dir_str);
@@ -130,6 +138,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(auth)
             .app_data(templates.clone())
             .route("/healthz", web::get().to(health_handler))
+            .route("/version", web::get().to(version::version_handler))
             .service(pages::main_page_handler)
             .service(pages::random_page_handler)
             .service(pages::base64_page_handler)
