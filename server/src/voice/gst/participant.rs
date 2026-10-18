@@ -53,6 +53,12 @@ impl ParticipantPipeline {
         let resample = ElementFactory::make("audioresample").build()?;
         let tee = ElementFactory::make("tee")
             .name(format!("tee-{peer_id}"))
+            // A participant can speak before anyone else joins, in which case
+            // this tee has no linked src pads. Without allow-not-linked,
+            // GStreamer returns GST_FLOW_NOT_LINKED and stops the inbound
+            // branch permanently, so a later joiner never receives their
+            // audio.
+            .property("allow-not-linked", true)
             .build()?;
 
         let inbound_elements: Vec<Element> = vec![

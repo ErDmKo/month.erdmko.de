@@ -33,6 +33,22 @@ impl RoomPipeline {
     /// Add a new participant: build their elements, then mix-minus-link them
     /// with every already-connected participant in both directions.
     pub fn add_participant(&mut self, peer_id: &str) -> ParticipantPipeline {
+        self.add_participant_inner(peer_id, true)
+    }
+
+    /// Test-only variant of [`Self::add_participant`] that skips the 2-second
+    /// join diagnostic tone. Tests that assert on routed audio use this so a
+    /// participant's own tone cannot mask a missing upstream path.
+    #[cfg(test)]
+    pub fn add_participant_without_tone(&mut self, peer_id: &str) -> ParticipantPipeline {
+        self.add_participant_inner(peer_id, false)
+    }
+
+    fn add_participant_inner(
+        &mut self,
+        peer_id: &str,
+        diagnostic_tone: bool,
+    ) -> ParticipantPipeline {
         let new_participant = ParticipantPipeline::new(&self.pipeline, peer_id)
             .expect("failed to build participant GStreamer pipeline");
 
@@ -95,11 +111,13 @@ impl RoomPipeline {
         // if you don't hear this on join, the problem is downstream of
         // GStreamer (browser audio element, ICE/RTP delivery), not the
         // mixing pipeline itself.
-        let _ = mixer::play_test_tone(
-            &self.pipeline,
-            &new_participant.mixer,
-            std::time::Duration::from_secs(2),
-        );
+        if diagnostic_tone {
+            let _ = mixer::play_test_tone(
+                &self.pipeline,
+                &new_participant.mixer,
+                std::time::Duration::from_secs(2),
+            );
+        }
 
         new_participant
     }
@@ -258,11 +276,16 @@ mod tests {
         );
     }
 
+    /// A participant who speaks before anyone else joins must stay routable:
+    /// when B joins later, A's ongoing audio must reach B's appsink.
     #[test]
     fn late_joiner_receives_existing_participant_audio() {
         crate::voice::init();
         let mut room = RoomPipeline::new();
-        room.add_participant("A");
+        // Disable the join tone for this test: B's own diagnostic tone would
+        // otherwise satisfy the appsink assertion even if A's audio never
+        // arrived. Production joins keep the tone.
+        room.add_participant_without_tone("A");
 
         let packets = make_opus_rtp_packets(60);
         for packet in packets.iter().take(20) {
@@ -270,7 +293,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
 
-        room.add_participant("B");
+        room.add_participant_without_tone("B");
         for packet in packets.iter().skip(20) {
             room.push_rtp("A", packet);
             std::thread::sleep(std::time::Duration::from_millis(20));
