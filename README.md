@@ -36,6 +36,10 @@ publishes TCP `8080` and UDP `50000:50100`, and injects `PUBLIC_IP`,
 `RTP_PORT_MIN`, and `RTP_PORT_MAX` into the container. Keep the public IP and
 port range in inventory rather than in the image.
 
+The Compose stack also sets `GST_DEBUG=3` by default, so GStreamer warnings
+such as `not-linked` flow errors appear in `docker logs my_app`. Override
+`GST_DEBUG` in `/opt/month/.env` if more or less GStreamer logging is needed.
+
 Before deploying, allow UDP `50000:50100` in the VPS firewall and in the
 provider firewall/security group. On a UFW-managed VPS, run:
 

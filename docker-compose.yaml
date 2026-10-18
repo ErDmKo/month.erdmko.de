@@ -7,6 +7,7 @@ services:
       PUBLIC_IP: "${VOICE_PUBLIC_IP}"
       RTP_PORT_MIN: "${VOICE_RTP_PORT_MIN}"
       RTP_PORT_MAX: "${VOICE_RTP_PORT_MAX}"
+      GST_DEBUG: "${GST_DEBUG:-3}"
     ports:
       - "8080:8080"
       - "${VOICE_RTP_PORT_MIN}-${VOICE_RTP_PORT_MAX}:${VOICE_RTP_PORT_MIN}-${VOICE_RTP_PORT_MAX}/udp"
