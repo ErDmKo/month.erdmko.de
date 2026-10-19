@@ -2,10 +2,15 @@ use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 
 use super::error::{AuthError, AuthResult};
-use super::service::{generate_nonce, generate_session_token, normalize_wallet_address};
+use super::service::{
+    generate_nonce, generate_session_token, normalize_tx_hash, normalize_wallet_address,
+    validate_ascii_nickname,
+};
 
 pub static AUTH_NONCES_TABLE: &str = "auth_nonces";
 pub static AUTH_SESSIONS_TABLE: &str = "auth_sessions";
+pub static WALLET_PROFILES_TABLE: &str = "wallet_profiles";
+pub static CLAIMED_PAYMENTS_TABLE: &str = "claimed_payments";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssuedNonce {
@@ -21,6 +26,14 @@ pub struct AuthSession {
     pub wallet_address: String,
     pub created_at: i64,
     pub expires_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WalletProfile {
+    pub wallet_address: String,
+    pub nickname: Option<String>,
+    pub access_until: i64,
+    pub has_active_access: bool,
 }
 
 pub fn init_auth_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
@@ -64,6 +77,32 @@ pub fn init_auth_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
         format!(
             "CREATE INDEX IF NOT EXISTS idx_auth_sessions_wallet_expires
              ON {AUTH_SESSIONS_TABLE}(wallet_address, expires_at)"
+        )
+        .as_str(),
+        (),
+    )?;
+
+    conn.execute(
+        format!(
+            "CREATE TABLE IF NOT EXISTS {WALLET_PROFILES_TABLE} (
+                wallet_address TEXT PRIMARY KEY,
+                nickname TEXT UNIQUE,
+                access_until INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL
+            )"
+        )
+        .as_str(),
+        (),
+    )?;
+
+    conn.execute(
+        format!(
+            "CREATE TABLE IF NOT EXISTS {CLAIMED_PAYMENTS_TABLE} (
+                tx_hash TEXT PRIMARY KEY,
+                wallet_address TEXT NOT NULL,
+                amount_wei TEXT NOT NULL,
+                claimed_at INTEGER NOT NULL
+            )"
         )
         .as_str(),
         (),
@@ -241,14 +280,163 @@ pub fn cleanup_expired_auth_records(
     Ok((deleted_nonces, deleted_sessions))
 }
 
+/// Fetch a wallet's profile (nickname + paid access expiration). Returns default unpaid profile if not yet registered.
+pub fn get_wallet_profile(
+    conn: &rusqlite::Connection,
+    raw_wallet_address: &str,
+    now_unix: i64,
+) -> AuthResult<WalletProfile> {
+    let wallet_address = normalize_wallet_address(raw_wallet_address)?;
+
+    let row: Option<(Option<String>, i64)> = conn
+        .query_row(
+            format!(
+                "SELECT nickname, access_until
+                 FROM {WALLET_PROFILES_TABLE}
+                 WHERE wallet_address = ?1"
+            )
+            .as_str(),
+            (&wallet_address,),
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|err| {
+            AuthError::internal("Failed to query wallet profile.", format!("{err:?}"))
+        })?;
+
+    match row {
+        Some((nickname, access_until)) => Ok(WalletProfile {
+            wallet_address,
+            nickname,
+            access_until,
+            has_active_access: access_until > now_unix,
+        }),
+        None => Ok(WalletProfile {
+            wallet_address,
+            nickname: None,
+            access_until: 0,
+            has_active_access: false,
+        }),
+    }
+}
+
+/// Assign or update a wallet's unique normalized ASCII nickname (`[a-z0-9_-]{1,32}`).
+/// Rejects with `NICKNAME_TAKEN` if another wallet already owns `nickname`.
+pub fn set_wallet_nickname(
+    conn: &rusqlite::Connection,
+    raw_wallet_address: &str,
+    raw_nickname: &str,
+    now_unix: i64,
+) -> AuthResult<WalletProfile> {
+    let wallet_address = normalize_wallet_address(raw_wallet_address)?;
+    let nickname = validate_ascii_nickname(raw_nickname)?;
+
+    let existing_owner: Option<String> = conn
+        .query_row(
+            format!(
+                "SELECT wallet_address
+                 FROM {WALLET_PROFILES_TABLE}
+                 WHERE nickname = ?1"
+            )
+            .as_str(),
+            (&nickname,),
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|err| {
+            AuthError::internal("Failed to check nickname owner.", format!("{err:?}"))
+        })?;
+
+    if let Some(owner) = existing_owner {
+        if owner != wallet_address {
+            return Err(AuthError::conflict(
+                "NICKNAME_TAKEN",
+                "Nickname is already registered to another wallet.",
+            ));
+        }
+    }
+
+    conn.execute(
+        format!(
+            "INSERT INTO {WALLET_PROFILES_TABLE} (wallet_address, nickname, access_until, updated_at)
+             VALUES (?1, ?2, 0, ?3)
+             ON CONFLICT(wallet_address) DO UPDATE SET
+                nickname = excluded.nickname,
+                updated_at = excluded.updated_at"
+        )
+        .as_str(),
+        (&wallet_address, &nickname, now_unix),
+    )
+    .map_err(|err| AuthError::internal("Failed to update wallet nickname.", format!("{err:?}")))?;
+
+    get_wallet_profile(conn, &wallet_address, now_unix)
+}
+
+/// Record a verified ETH payment transaction hash and extend the wallet's `access_until`
+/// by `duration_secs` (stacking on top of `MAX(access_until, now_unix)`).
+/// Rejects replayed `tx_hash` values with `PAYMENT_ALREADY_CLAIMED`.
+pub fn record_payment_and_extend_access(
+    conn: &rusqlite::Connection,
+    raw_wallet_address: &str,
+    raw_tx_hash: &str,
+    amount_wei: &str,
+    now_unix: i64,
+    duration_secs: i64,
+) -> AuthResult<WalletProfile> {
+    if duration_secs <= 0 {
+        return Err(AuthError::validation("access duration must be positive"));
+    }
+    let wallet_address = normalize_wallet_address(raw_wallet_address)?;
+    let tx_hash = normalize_tx_hash(raw_tx_hash)?;
+    let trimmed_amount = amount_wei.trim();
+    if trimmed_amount.is_empty() {
+        return Err(AuthError::validation("amount_wei is required"));
+    }
+
+    let inserted = conn
+        .execute(
+            format!(
+                "INSERT OR IGNORE INTO {CLAIMED_PAYMENTS_TABLE} (tx_hash, wallet_address, amount_wei, claimed_at)
+                 VALUES (?1, ?2, ?3, ?4)"
+            )
+            .as_str(),
+            (&tx_hash, &wallet_address, trimmed_amount, now_unix),
+        )
+        .map_err(|err| AuthError::internal("Failed to record claimed payment.", format!("{err:?}")))?;
+
+    if inserted == 0 {
+        return Err(AuthError::conflict(
+            "PAYMENT_ALREADY_CLAIMED",
+            "This transaction hash has already been claimed.",
+        ));
+    }
+
+    conn.execute(
+        format!(
+            "INSERT INTO {WALLET_PROFILES_TABLE} (wallet_address, nickname, access_until, updated_at)
+             VALUES (?1, NULL, ?2 + ?3, ?2)
+             ON CONFLICT(wallet_address) DO UPDATE SET
+                access_until = MAX({WALLET_PROFILES_TABLE}.access_until, ?2) + ?3,
+                updated_at = ?2"
+        )
+        .as_str(),
+        (&wallet_address, now_unix, duration_secs),
+    )
+    .map_err(|err| AuthError::internal("Failed to extend wallet access.", format!("{err:?}")))?;
+
+    get_wallet_profile(conn, &wallet_address, now_unix)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::{NONCE_TTL_SECS, SESSION_TTL_SECS};
+    use crate::auth::{DEFAULT_ACCESS_DURATION_SECS, NONCE_TTL_SECS, SESSION_TTL_SECS};
 
     const ALICE_WALLET_MIXED: &str = "0xEFF121F128e0e64C0E64AE8Eb6eB042a0E5Aa81c";
     const ALICE_WALLET_LOWER: &str = "0xeff121f128e0e64c0e64ae8eb6eb042a0e5aa81c";
     const BOB_WALLET_MIXED: &str = "0x1111111111111111111111111111111111111111";
+    const SAMPLE_TX_1: &str = "0xAAAA000000000000000000000000000000000000000000000000000000000001";
+    const SAMPLE_TX_2: &str = "0xBBBB000000000000000000000000000000000000000000000000000000000002";
 
     fn setup_conn() -> rusqlite::Connection {
         let conn = rusqlite::Connection::open_in_memory().expect("in-memory sqlite should open");
@@ -353,5 +541,72 @@ mod tests {
                 .as_deref(),
             Some(BOB_WALLET_MIXED)
         );
+    }
+
+    #[test]
+    fn nickname_uniqueness_and_owner_update() {
+        let conn = setup_conn();
+        let now = 1_700_000_000;
+
+        let profile = set_wallet_nickname(&conn, ALICE_WALLET_MIXED, "alice", now)
+            .expect("Alice should claim nickname");
+        assert_eq!(profile.nickname.as_deref(), Some("alice"));
+        assert!(!profile.has_active_access);
+
+        // Bob cannot claim "alice"
+        let bob_err = set_wallet_nickname(&conn, BOB_WALLET_MIXED, "alice", now + 1)
+            .expect_err("Bob must not claim Alice's nickname");
+        assert_eq!(bob_err.code(), "NICKNAME_TAKEN");
+
+        // Alice can re-save or change her own nickname, freeing "alice"
+        let updated = set_wallet_nickname(&conn, ALICE_WALLET_MIXED, "alice_new", now + 2)
+            .expect("Alice can change nickname");
+        assert_eq!(updated.nickname.as_deref(), Some("alice_new"));
+
+        let bob_claimed = set_wallet_nickname(&conn, BOB_WALLET_MIXED, "alice", now + 3)
+            .expect("Bob can claim 'alice' once released");
+        assert_eq!(bob_claimed.nickname.as_deref(), Some("alice"));
+    }
+
+    #[test]
+    fn payment_extends_access_stacks_duration_and_rejects_replay() {
+        let conn = setup_conn();
+        let now = 1_700_000_000;
+
+        let p1 = record_payment_and_extend_access(
+            &conn,
+            ALICE_WALLET_MIXED,
+            SAMPLE_TX_1,
+            "1000000000000000",
+            now,
+            DEFAULT_ACCESS_DURATION_SECS,
+        )
+        .expect("first payment claim should succeed");
+        assert!(p1.has_active_access);
+        assert_eq!(p1.access_until, now + DEFAULT_ACCESS_DURATION_SECS);
+
+        // Replaying the same tx_hash is rejected
+        let replay = record_payment_and_extend_access(
+            &conn,
+            BOB_WALLET_MIXED,
+            SAMPLE_TX_1,
+            "1000000000000000",
+            now + 10,
+            DEFAULT_ACCESS_DURATION_SECS,
+        )
+        .expect_err("duplicate tx_hash must fail");
+        assert_eq!(replay.code(), "PAYMENT_ALREADY_CLAIMED");
+
+        // Second distinct payment while access is still active stacks on top of current access_until
+        let p2 = record_payment_and_extend_access(
+            &conn,
+            ALICE_WALLET_MIXED,
+            SAMPLE_TX_2,
+            "1000000000000000",
+            now + 100,
+            DEFAULT_ACCESS_DURATION_SECS,
+        )
+        .expect("second payment should stack");
+        assert_eq!(p2.access_until, now + DEFAULT_ACCESS_DURATION_SECS * 2);
     }
 }

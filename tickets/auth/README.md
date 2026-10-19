@@ -1,22 +1,22 @@
-# Onchain Wallet Authentication & Paid Chat Access Tickets
+# Wallet Authentication & Paid Chat Access Tickets
 
 Source: `tickets/chat-mvp/CHAT-80-onchain-auth-payments.md`
 
 ## Execution Order
 
-1. `AUTH-10` Wallet Identity & Session Data Layer
+1. `AUTH-10` Wallet Identity, Profile, Payment & Session Data Layer
 2. `AUTH-20` SIWE Signature Verification & HTTP Session Endpoints
-3. `AUTH-30` Onchain Access & Nickname Registry Contract + RPC Reader
+3. `AUTH-30` Direct ETH Payment Receipt Verification via Public RPC
 4. `AUTH-40` WebSocket Chat Authentication & Ownership Enforcement
-5. `AUTH-50` Browser Wallet Connect & SIWE UI
+5. `AUTH-50` Browser Wallet (`window.ethereum`) Connect, SIWE & Payment UI
 
 ## Dependency Map
 
 - `AUTH-10` → none
 - `AUTH-20` → `AUTH-10`
-- `AUTH-30` → `AUTH-10`
+- `AUTH-30` → `AUTH-10`, `AUTH-20`
 - `AUTH-40` → `AUTH-20`, `AUTH-30`
-- `AUTH-50` → `AUTH-20`, `AUTH-40`
+- `AUTH-50` → `AUTH-20`, `AUTH-30`, `AUTH-40`
 
 ## Ticket Files
 
@@ -28,25 +28,24 @@ Source: `tickets/chat-mvp/CHAT-80-onchain-auth-payments.md`
 
 ## Epics
 
-### Epic 1: Offchain Identity, Nonces & Sessions
+### Epic 1: Offchain Identity, Profiles, Nonces & Sessions
 `AUTH-10`, `AUTH-20`
 
-Establish normalized EVM wallet identities (`0x` + 40 lowercase hex chars), strict lowercase ASCII nickname validation (`[a-z0-9_-]{1,32}`), single-use expiring SIWE challenges in SQLite (`auth_nonces`), and server-verified sessions (`auth_sessions`) issued via `HttpOnly; Secure; SameSite=Lax` cookies after EIP-4361 signature verification.
+Establish normalized EVM wallet identities (`0x` + 40 lowercase hex chars), normalized transaction hashes (`0x` + 64 lowercase hex chars), strict lowercase ASCII nickname validation (`[a-z0-9_-]{1,32}`), SQLite tables (`auth_nonces`, `auth_sessions`, `wallet_profiles`, `claimed_payments`), and local EIP-4361 / EIP-191 (`personal_sign`) signature verification issuing `HttpOnly; Secure; SameSite=Lax` session cookies.
 
-### Epic 2: Onchain Payment & Nickname Ownership
+### Epic 2: Direct ETH Payment Verification (No Smart Contract / No Self-Hosted Node)
 `AUTH-30`
 
-Define the `ChatAccessRegistry` smart contract (`accessUntil(address)`, `nicknameOf(address)`, `ownerOfNickname(string)`) and a read-only JSON-RPC client in Rust (`server/src/auth/rpc.rs`) querying the self-hosted EVM node.
+Verify direct ETH transfers to `0xEFF121F128e0e64C0E64AE8Eb6eB042a0E5Aa81c` via a single read-only JSON-RPC check (`eth_getTransactionByHash` + `eth_getTransactionReceipt`) against a public HTTPS RPC URL (`ETH_RPC_URL`), record the claimed `txHash` in SQLite (`claimed_payments`), and extend `access_until` in `wallet_profiles`.
 
-### Epic 3: Chat Room & WebSocket Enforcement
+### Epic 3: Chat Room Enforcement & Browser `window.ethereum` UI
 `AUTH-40`, `AUTH-50`
 
-Resolve the authenticated wallet session during `/ws/chat/{room_id}` upgrade, verify active paid access and authoritative onchain nickname before allowing room join, replace temporary `anon-*` sender IDs with the verified wallet address, enforce author-only message deletion, and wire EIP-1193 wallet login in the browser UI.
+Resolve the authenticated wallet session during `/ws/chat/{room_id}` upgrade, check `wallet_profiles` in SQLite for active paid access and unique nickname ownership, replace temporary `anon-*` sender IDs with the verified wallet address, enforce author-only message deletion, and wire native `window.ethereum` (EIP-1193) login + payment in `assets/js/chat/`.
 
 ## Key Design Decisions
 
-- **Identity**: Lowercase 20-byte EVM address (`0x` + 40 hex chars) is the canonical `sender_id` across chat, attachments, and voice.
-- **No permanent `users` table**: Paid access expiration and nickname ownership live onchain; SQLite stores only ephemeral `auth_nonces`, `auth_sessions`, `rooms`, `messages`, and `attachments`.
-- **Single-use nonces**: SIWE nonces expire after 5 minutes (`NONCE_TTL_SECS = 300`) and are atomically marked consumed on first verification to prevent replay attacks.
-- **Session cookies**: Wallet signing happens once per session (`SESSION_TTL_SECS = 604800`, 7 days), not on every message or WebSocket reconnect.
-- **Nickname safety**: Restricted to `1..=32` lowercase ASCII characters (`a-z`, `0-9`, `_`, `-`) to prevent Unicode homograph impersonation.
+- **Browser wallet**: Native `window.ethereum` (EIP-1193) — zero external JS dependencies, zero WalletConnect Cloud API keys, minimal bundle size.
+- **No Solidity smart contract**: Users pay ETH directly to `0xEFF121F128e0e64C0E64AE8Eb6eB042a0E5Aa81c` (lowest 21,000 gas transfer, zero contract deployment/maintenance).
+- **No self-hosted blockchain node**: Sign-in (`personal_sign` `ecrecover`) is 100% local math; payment verification makes one HTTPS JSON-RPC call per `txHash` to a public RPC endpoint (`ETH_RPC_URL`) and caches `access_until` in SQLite.
+- **Unique nicknames & replay protection in SQLite**: `wallet_profiles` enforces unique lowercase ASCII nicknames (`[a-z0-9_-]{1,32}`) and `claimed_payments` prevents claiming any `txHash` more than once.

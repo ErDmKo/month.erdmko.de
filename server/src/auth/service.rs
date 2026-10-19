@@ -1,7 +1,7 @@
 use rand::RngCore;
 
 use super::error::{AuthError, AuthResult};
-use super::{MAX_ASCII_NICKNAME_LEN, WALLET_ADDRESS_LEN};
+use super::{MAX_ASCII_NICKNAME_LEN, TX_HASH_LEN, WALLET_ADDRESS_LEN};
 
 /// Validate and normalize an EVM wallet address (`0x` + 40 hex chars) to lowercase.
 pub fn normalize_wallet_address(raw: &str) -> AuthResult<String> {
@@ -20,6 +20,28 @@ pub fn normalize_wallet_address(raw: &str) -> AuthResult<String> {
     if !hex_part.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(AuthError::validation(
             "wallet address must contain only hexadecimal characters",
+        ));
+    }
+    Ok(format!("0x{}", hex_part.to_ascii_lowercase()))
+}
+
+/// Validate and normalize an EVM transaction hash (`0x` + 64 hex chars) to lowercase.
+pub fn normalize_tx_hash(raw: &str) -> AuthResult<String> {
+    let trimmed = raw.trim();
+    if trimmed.len() != TX_HASH_LEN {
+        return Err(AuthError::validation(
+            "transaction hash must be a 66-character 0x-prefixed hex string",
+        ));
+    }
+    let Some(hex_part) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    else {
+        return Err(AuthError::validation("transaction hash must start with 0x"));
+    };
+    if !hex_part.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(AuthError::validation(
+            "transaction hash must contain only hexadecimal characters",
         ));
     }
     Ok(format!("0x{}", hex_part.to_ascii_lowercase()))
@@ -88,6 +110,21 @@ mod tests {
         assert!(
             normalize_wallet_address("0xZZZ121F128e0e64C0E64AE8Eb6eB042a0E5Aa81c").is_err(),
             "non-hex chars should fail"
+        );
+    }
+
+    #[test]
+    fn normalizes_and_validates_tx_hash() {
+        let raw = " 0XABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789 ";
+        let normalized = normalize_tx_hash(raw).expect("valid tx hash should normalize");
+        assert_eq!(
+            normalized,
+            "0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+        );
+        assert!(normalize_tx_hash("0x1234").is_err());
+        assert!(
+            normalize_tx_hash("0xGGGGGG0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789")
+                .is_err()
         );
     }
 

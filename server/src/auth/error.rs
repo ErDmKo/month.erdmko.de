@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthErrorKind {
     Validation,
+    Conflict,
     Unauthorized,
     Internal,
 }
@@ -23,6 +24,15 @@ impl AuthError {
         Self {
             kind: AuthErrorKind::Validation,
             code: "AUTH_VALIDATION_ERROR",
+            message: message.into(),
+            details: None,
+        }
+    }
+
+    pub fn conflict(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            kind: AuthErrorKind::Conflict,
+            code,
             message: message.into(),
             details: None,
         }
