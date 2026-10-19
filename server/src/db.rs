@@ -69,6 +69,7 @@ pub async fn init_db(base_dir: &mut PathBuf) -> Result<Pool, rusqlite::Error> {
     );";
     conn.execute(token_query, ())?;
 
+    crate::auth::db::init_auth_schema(&conn)?;
     crate::chat::db::init_chat_schema(&conn)?;
     crate::attachments::db::init_attachments_schema(&conn)?;
 

@@ -1,6 +1,3 @@
-import { cont } from './cont';
-import { bindArg } from './bind';
-
 export const noop = () => {};
 
 // ── Task type ─────────────────────────────────────────────────────────────────
@@ -32,8 +29,9 @@ export const taskFork =
 // taskOf(fn)(...args) creates a Task that resolves with fn(...args).
 export const taskOf =
     <T>(fn: (...args: any[]) => T) =>
-    (...args: any[]) =>
-        bindArg((resolve: (value: T) => void) => resolve(fn(...args)), cont);
+    (...args: any[]): Task<T> =>
+    (resolve) =>
+        resolve(fn(...args));
 
 // ── Combinators ───────────────────────────────────────────────────────────────
 

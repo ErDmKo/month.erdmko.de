@@ -30,8 +30,8 @@ export const readGitVersion = (): GitVersion => {
             branch === null
                 ? 'unknown'
                 : branch === 'HEAD'
-                ? 'detached'
-                : branch,
+                  ? 'detached'
+                  : branch,
         commit: commit ?? 'unknown',
         dirty: status !== null && status.length > 0,
         commitTime: commitTime ?? 'unknown',

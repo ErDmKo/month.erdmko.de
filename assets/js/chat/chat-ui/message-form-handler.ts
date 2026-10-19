@@ -19,6 +19,7 @@ import type { ChatUiState } from './state';
 import type { ClientFramePayload } from '@month/gen/chat';
 
 export const mountMessageFormHandler = (
+    ctx: Window,
     refs: ChatUiRefs,
     outgoing: ObserverInstance<ClientFramePayload>,
     chatUiObs: ChatUiObs,
@@ -55,7 +56,7 @@ export const mountMessageFormHandler = (
             );
             return;
         }
-        const msgRequestId = `msg-${Date.now()}`;
+        const msgRequestId = `msg-${ctx.Date.now()}`;
         outgoing(
             bindArg(
                 [CLIENT_FRAME_MESSAGE, [msgRequestId, body]] as const,

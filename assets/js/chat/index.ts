@@ -23,6 +23,7 @@ declare global {
         JSON: typeof JSON;
         FileReader: typeof FileReader;
         Uint8Array: typeof Uint8Array;
+        Date: typeof Date;
     }
 }
 

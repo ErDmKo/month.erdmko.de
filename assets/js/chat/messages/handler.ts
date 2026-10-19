@@ -1,5 +1,5 @@
 import { domCreatorRef, ObserverInstance, on, off, Task } from '../../utils';
-import type { ObserverState } from '../../utils';
+import type { ObserverState, ReadonlyTupleOf } from '../../utils';
 import {
     SERVER_FRAME_MESSAGE,
     SERVER_FRAME_PAYLOAD_VARIANT,
@@ -36,10 +36,10 @@ export type MsgsInitPayload = {
     waitForMessageId: (requestId: string) => Task<number>;
 };
 
-export type MsgsEvent = readonly [
-    type: typeof MSGS_INIT,
-    payload: MsgsInitPayload,
-];
+export type MsgsEvent = ReadonlyTupleOf<{
+    [MSGS_EVENT_TYPE]: typeof MSGS_INIT;
+    [MSGS_INIT_PAYLOAD]: MsgsInitPayload;
+}>;
 
 export type MsgsObs = ObserverInstance<MsgsEvent>;
 

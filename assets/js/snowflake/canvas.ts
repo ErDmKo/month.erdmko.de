@@ -55,6 +55,6 @@ export const initCanvas = (ctx: Window, tag: Element) => {
     draw(ctx, canvasCtx, snowflakes, rect);
 };
 export const initSnowflakeEffect = (ctx: Window) => {
-    const tags = document.querySelectorAll('.js-header');
-    ctx.Array.from(tags).forEach(bindArg(window, initCanvas));
+    const tags = ctx.document.querySelectorAll('.js-header');
+    ctx.Array.from(tags).forEach(bindArg(ctx, initCanvas));
 };

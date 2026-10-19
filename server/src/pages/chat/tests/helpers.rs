@@ -189,6 +189,7 @@ pub(super) fn encode_voice_leave(request_id: &str) -> Vec<u8> {
     .encode_to_vec()
 }
 
+#[allow(dead_code)]
 pub(super) fn encode_voice_offer(request_id: &str, sdp: &str) -> Vec<u8> {
     ClientFrame {
         payload: Some(client_frame::Payload::VoiceOffer(ClientVoiceOffer {
@@ -199,6 +200,7 @@ pub(super) fn encode_voice_offer(request_id: &str, sdp: &str) -> Vec<u8> {
     .encode_to_vec()
 }
 
+#[allow(dead_code)]
 pub(super) fn encode_voice_ice(
     request_id: &str,
     candidate: &str,

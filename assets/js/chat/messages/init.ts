@@ -141,7 +141,7 @@ export const initMessages =
                             bindArg(
                                 [
                                     CLIENT_FRAME_DELETE,
-                                    [`delete-${Date.now()}`, messageId],
+                                    [`delete-${ctx.Date.now()}`, messageId],
                                 ] as const,
                                 trigger
                             )

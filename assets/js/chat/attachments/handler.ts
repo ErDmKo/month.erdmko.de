@@ -1,6 +1,11 @@
 import {
     ObserverInstance,
+    domCreator,
     domCreatorRef,
+    genClass,
+    genProp,
+    genRef,
+    genTagName,
     observer,
     on,
     off,
@@ -13,6 +18,7 @@ import {
     noop,
     Task,
 } from '../../utils';
+import type { ReadonlyTupleOf, TupleOf } from '../../utils';
 import { createStore } from '../../utils';
 import {
     CHAT_SOCKET_OUTGOING,
@@ -79,6 +85,7 @@ declare global {
         Uint8Array: typeof Uint8Array;
         Blob: typeof Blob;
         URL: typeof URL;
+        Date: typeof Date;
     }
 }
 
@@ -89,11 +96,33 @@ export const UPLOAD_PROGRESS = 1 as const;
 export const UPLOAD_DONE = 2 as const;
 export const UPLOAD_ERROR = 3 as const;
 
+export const UPLOAD_EVENT_TYPE = 0 as const;
+export const UPLOAD_READY_ID = 1 as const;
+export const UPLOAD_PROGRESS_SENT = 1 as const;
+export const UPLOAD_PROGRESS_TOTAL = 2 as const;
+export const UPLOAD_DONE_PAYLOAD = 1 as const;
+export const UPLOAD_ERROR_CODE = 1 as const;
+export const UPLOAD_ERROR_MESSAGE = 2 as const;
+
 export type UploadEvent =
-    | readonly [type: typeof UPLOAD_READY, uploadId: number]
-    | readonly [type: typeof UPLOAD_PROGRESS, sent: number, total: number]
-    | readonly [type: typeof UPLOAD_DONE, uploadDone: ServerUploadDone]
-    | readonly [type: typeof UPLOAD_ERROR, code: string, message: string];
+    | ReadonlyTupleOf<{
+          [UPLOAD_EVENT_TYPE]: typeof UPLOAD_READY;
+          [UPLOAD_READY_ID]: number;
+      }>
+    | ReadonlyTupleOf<{
+          [UPLOAD_EVENT_TYPE]: typeof UPLOAD_PROGRESS;
+          [UPLOAD_PROGRESS_SENT]: number;
+          [UPLOAD_PROGRESS_TOTAL]: number;
+      }>
+    | ReadonlyTupleOf<{
+          [UPLOAD_EVENT_TYPE]: typeof UPLOAD_DONE;
+          [UPLOAD_DONE_PAYLOAD]: ServerUploadDone;
+      }>
+    | ReadonlyTupleOf<{
+          [UPLOAD_EVENT_TYPE]: typeof UPLOAD_ERROR;
+          [UPLOAD_ERROR_CODE]: string;
+          [UPLOAD_ERROR_MESSAGE]: string;
+      }>;
 
 // ── Download event tuple ──────────────────────────────────────────────────────
 
@@ -102,11 +131,35 @@ export const DOWNLOAD_PROGRESS = 1 as const;
 export const DOWNLOAD_DONE = 2 as const;
 export const DOWNLOAD_ERROR = 3 as const;
 
+export const DOWNLOAD_EVENT_TYPE = 0 as const;
+export const DOWNLOAD_START_META = 1 as const;
+export const DOWNLOAD_PROGRESS_RECEIVED = 1 as const;
+export const DOWNLOAD_PROGRESS_TOTAL = 2 as const;
+export const DOWNLOAD_DONE_BLOB = 1 as const;
+export const DOWNLOAD_DONE_FILENAME = 2 as const;
+export const DOWNLOAD_ERROR_CODE = 1 as const;
+export const DOWNLOAD_ERROR_MESSAGE = 2 as const;
+
 export type DownloadEvent =
-    | readonly [type: typeof DOWNLOAD_START, meta: ServerDownloadStart]
-    | readonly [type: typeof DOWNLOAD_PROGRESS, received: number, total: number]
-    | readonly [type: typeof DOWNLOAD_DONE, blob: Blob, filename: string]
-    | readonly [type: typeof DOWNLOAD_ERROR, code: string, message: string];
+    | ReadonlyTupleOf<{
+          [DOWNLOAD_EVENT_TYPE]: typeof DOWNLOAD_START;
+          [DOWNLOAD_START_META]: ServerDownloadStart;
+      }>
+    | ReadonlyTupleOf<{
+          [DOWNLOAD_EVENT_TYPE]: typeof DOWNLOAD_PROGRESS;
+          [DOWNLOAD_PROGRESS_RECEIVED]: number;
+          [DOWNLOAD_PROGRESS_TOTAL]: number;
+      }>
+    | ReadonlyTupleOf<{
+          [DOWNLOAD_EVENT_TYPE]: typeof DOWNLOAD_DONE;
+          [DOWNLOAD_DONE_BLOB]: Blob;
+          [DOWNLOAD_DONE_FILENAME]: string;
+      }>
+    | ReadonlyTupleOf<{
+          [DOWNLOAD_EVENT_TYPE]: typeof DOWNLOAD_ERROR;
+          [DOWNLOAD_ERROR_CODE]: string;
+          [DOWNLOAD_ERROR_MESSAGE]: string;
+      }>;
 
 // ── Upload ────────────────────────────────────────────────────────────────────
 
@@ -286,13 +339,13 @@ const ACTIVE_RECEIVED = 2 as const;
 const ACTIVE_OBSERVER = 3 as const;
 const ACTIVE_END_SEEN = 4 as const;
 
-type DownloadActiveSession = [
-    meta: ServerDownloadStart,
-    chunks: Uint8Array[],
-    received: number,
-    events: ObserverInstance<DownloadEvent>,
-    endSeen: boolean,
-];
+type DownloadActiveSession = TupleOf<{
+    [ACTIVE_META]: ServerDownloadStart;
+    [ACTIVE_CHUNKS]: Uint8Array[];
+    [ACTIVE_RECEIVED]: number;
+    [ACTIVE_OBSERVER]: ObserverInstance<DownloadEvent>;
+    [ACTIVE_END_SEEN]: boolean;
+}>;
 
 export const startDownload = (
     ctx: Window,
@@ -429,22 +482,21 @@ export const triggerBrowserDownload = (
     filename: string
 ): void => {
     const url = ctx.URL.createObjectURL(blob);
-    const a = ctx.document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    ctx.document.body.appendChild(a);
+    const [a] = domCreator(
+        ctx,
+        ctx.document.body,
+        genTagName('a', [
+            genRef(),
+            genProp('href', url),
+            genProp('download', filename),
+        ])
+    );
     a.click();
     ctx.document.body.removeChild(a);
     ctx.requestAnimationFrame(() => ctx.URL.revokeObjectURL(url));
 };
 
 // ── renderAttachment ──────────────────────────────────────────────────────────
-
-const DOWNLOAD_EVENT_TYPE = 0 as const;
-const DOWNLOAD_PROGRESS_RECEIVED = 1 as const;
-const DOWNLOAD_PROGRESS_TOTAL = 2 as const;
-const DOWNLOAD_DONE_BLOB = 1 as const;
-const DOWNLOAD_DONE_FILENAME = 2 as const;
 
 export const renderAttachment = (
     ctx: Window,
@@ -464,7 +516,7 @@ export const renderAttachment = (
         ) {
             return;
         }
-        const requestId = `dl-${attachment[ATTACHMENT_ITEM_ID]}-${Date.now()}`;
+        const requestId = `dl-${attachment[ATTACHMENT_ITEM_ID]}-${ctx.Date.now()}`;
         const downloadObs = startDownload(
             ctx,
             socket,
@@ -476,18 +528,20 @@ export const renderAttachment = (
         );
     };
 
-    const liEl = ctx.document.createElement('li');
-    liEl.className = 'chat__attachment';
-    ulEl.appendChild(liEl);
-
     const attachRefs = domCreatorRef(
         ctx,
-        liEl,
-        attachmentItemTemplate(
-            attachment[ATTACHMENT_ITEM_FILENAME],
-            attachment[ATTACHMENT_ITEM_SIZE],
-            attachment[ATTACHMENT_ITEM_MIME_TYPE],
-            onDownloadClick
+        ulEl,
+        genTagName(
+            'li',
+            [genClass('chat__attachment')],
+            [
+                attachmentItemTemplate(
+                    attachment[ATTACHMENT_ITEM_FILENAME],
+                    attachment[ATTACHMENT_ITEM_SIZE],
+                    attachment[ATTACHMENT_ITEM_MIME_TYPE],
+                    onDownloadClick
+                ),
+            ]
         )
     ) as unknown as { [ATTACHMENT_REF_PROGRESS]: HTMLSpanElement };
 

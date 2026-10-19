@@ -12,11 +12,6 @@ use crate::chat::service::{self as chat_service, ChatSessionState, RoomRegistry}
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
-// Pull in impl blocks that extend ChatWs from their home modules
-use crate::chat::attachments_actor as _;
-use crate::chat::messaging_actor as _;
-use crate::voice::voice_actor as _;
-
 pub(crate) static CHAT_ROOMS: LazyLock<RoomRegistry<ChatWs>> = LazyLock::new(RoomRegistry::new);
 
 #[derive(Message)]

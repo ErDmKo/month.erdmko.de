@@ -1,4 +1,10 @@
-import { cleanHtml, genTagName, genText, domCreatorRef } from '../../utils';
+import {
+    cleanHtml,
+    genClass,
+    genTagName,
+    genText,
+    domCreatorRef,
+} from '../../utils';
 import {
     CHAT_REF_VOICE_JOIN,
     CHAT_REF_VOICE_MUTE,
@@ -7,6 +13,7 @@ import {
     CHAT_REF_VOICE_PARTICIPANTS,
 } from '../chat-ui/template';
 import type { ChatUiRefs } from '../chat-ui/template';
+import { $chat__voice_participant } from '@month/gen/styles';
 import { VOICE_PARTICIPANT_SENDER_NAME } from '@month/gen/chat';
 import type { VoiceParticipant } from '@month/gen/chat';
 
@@ -44,6 +51,7 @@ export const renderParticipants = (
             ctx,
             ulEl,
             genTagName('li', [
+                genClass($chat__voice_participant),
                 genText(participant[VOICE_PARTICIPANT_SENDER_NAME]),
             ])
         );

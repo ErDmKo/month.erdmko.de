@@ -130,25 +130,25 @@ const genMessage = (msg: MessageDescriptor): string => {
     const { name, fields } = msg;
     const lines: string[] = [];
 
-    // ── Tuple type ────────────────────────────────────────────────────────────
-    const tupleFields = fields
-        .map((f) => {
-            const tsType = protoTypeToTs(f.type, f.message_type);
-            const fieldType = f.repeated ? `${tsType}[]` : tsType;
-            return `    ${toCamel(f.name)}: ${fieldType}`;
-        })
-        .join(',\n');
-    lines.push(`export type ${name} = readonly [`);
-    lines.push(tupleFields);
-    lines.push(`];`);
-    lines.push('');
-
     // ── Field index constants ─────────────────────────────────────────────────
     fields.forEach((f, i) => {
         lines.push(
             `export const ${fieldConstName(name, f.name)} = ${i} as const;`
         );
     });
+    lines.push('');
+
+    // ── Tuple type (derived from field index constants) ───────────────────────
+    const tupleFields = fields
+        .map((f) => {
+            const tsType = protoTypeToTs(f.type, f.message_type);
+            const fieldType = f.repeated ? `${tsType}[]` : tsType;
+            return `    [${fieldConstName(name, f.name)}]: ${fieldType};`;
+        })
+        .join('\n');
+    lines.push(`export type ${name} = ReadonlyTupleOf<{`);
+    lines.push(tupleFields);
+    lines.push(`}>;`);
     lines.push('');
 
     // ── encode ────────────────────────────────────────────────────────────────
@@ -281,13 +281,13 @@ const genOneofWrapper = (msg: MessageDescriptor): string => {
     lines.push(`export const ${valueConst}   = 1 as const;`);
     lines.push('');
 
-    // ── Union payload type (tuple) ─────────────────────────────────────────────
+    // ── Union payload type (tuple derived from index constants) ───────────────
     lines.push(`export type ${name}Payload =`);
     oneof.variants.forEach((v, i) => {
         const constName = `${snake}_${v.name.toUpperCase()}`;
         const sep = i < oneof.variants.length - 1 ? '' : ';';
         lines.push(
-            `    | readonly [variant: typeof ${constName}, value: ${v.message_type}]${sep}`
+            `    | ReadonlyTupleOf<{ [${variantConst}]: typeof ${constName}; [${valueConst}]: ${v.message_type} }>${sep}`
         );
     });
     lines.push('');
@@ -357,6 +357,7 @@ const genFile = (
         `    readerSkip,`,
         `    decodeOneofFrame,`,
         `} from '${protoUtilsPath}';`,
+        `import type { ReadonlyTupleOf } from '../utils/tuple';`,
         ``,
         `declare global { interface Window { Uint8Array: typeof Uint8Array; } }`,
         ``,

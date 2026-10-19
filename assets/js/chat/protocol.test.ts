@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import { DOM_PROPS, DOM_CHILDREN } from '@month/utils';
 import { chatMessageTemplate } from './messages/template';
 import { MAX_MESSAGE_LEN } from './chat-ui/message-form-handler';
 import { serializeCommand, validateOutgoingCommand } from './protocol/outgoing';
@@ -110,9 +111,14 @@ test('validation accepts valid delete', () => {
     );
 });
 
+const MESSAGE_CHILD_BODY = 1 as const;
+
 test('message template renders body as plain text (XSS guard)', () => {
     const xssPayload = '<img src=x onerror=alert(1) />';
     const struct = chatMessageTemplate(10, 'alice', xssPayload);
-    assert.equal(struct[1].innerHTML, undefined);
-    assert.equal(struct[4]?.[1]?.[1].innerText, xssPayload);
+    assert.equal(struct[DOM_PROPS].innerHTML, undefined);
+    assert.equal(
+        struct[DOM_CHILDREN]?.[MESSAGE_CHILD_BODY]?.[DOM_PROPS].innerText,
+        xssPayload
+    );
 });

@@ -81,10 +81,14 @@ const makeCounter = () => {
 // ✗ also wrong — plain object with fields
 type CounterState = { n: number };
 
-// ✓ correct — named-index tuple + separate functions
+// ✓ correct — named-index tuple derived from index constants via TupleOf
+import type { TupleOf } from '@month/utils';
+
 const COUNTER_VALUE = 0 as const;
 
-type CounterState = [value: number]; // tuple, index COUNTER_VALUE = 0
+type CounterState = TupleOf<{
+    [COUNTER_VALUE]: number;
+}>;
 
 const counterIncrement = (state: CounterState): void => {
     state[COUNTER_VALUE]++;
@@ -253,33 +257,51 @@ const wsStateDelete = (requestId: string, state: WsState): void => {
 };
 ```
 
-## Named Tuple Indices
+## Named Tuple Indices (`TupleOf` / `ReadonlyTupleOf`)
 
 Every tuple index must be accessed through a named constant, never through a
-bare numeric literal. This applies both to state tuples and to discriminated
-event tuples.
+bare numeric literal, and every fixed-length tuple type must be derived directly
+from its index constants using `TupleOf` (mutable) or `ReadonlyTupleOf`
+(immutable) from `@month/utils`. This applies both to state tuples and to
+discriminated event tuples.
 
-**Why:** `state[0]` and `event[2]` are opaque — the reader has to trace back
-to the type declaration to understand what is being read. Named constants make
-the access site self-documenting and survive refactors that reorder fields.
+**Why:**
+- `state[0]` and `event[2]` are opaque — the reader has to trace back to the
+  type declaration to understand what is being read.
+- Declaring `const FOO = 1 as const` separately from `readonly [a: number, b: number]`
+  allows the constant and the tuple slot to silently drift apart during refactors.
+- Deriving the tuple with `TupleOf<{ [FOO]: number }>` binds each slot to its
+  index constant at the type level and fails to compile if an index is skipped
+  or duplicated, with zero runtime overhead.
 
 ```ts
-// ✗ wrong — bare index literals
-if (event[0] === WS_UPLOAD_READY) {
+// ✗ wrong — bare index literals and disconnected tuple definition
+type UploadProgress = readonly [type: number, sent: number, total: number];
+if (event[0] === UPLOAD_PROGRESS) {
     doSomething(event[1], event[2]);
 }
-state[0].set(key, handler);
 
-// ✓ correct — named constants
-const EVENT_TYPE = 0 as const;
-const EVENT_REQUEST_ID = 1 as const;
-const EVENT_UPLOAD_ID = 2 as const;
+// ✓ correct — index constants construct the tuple via ReadonlyTupleOf
+import type { ReadonlyTupleOf, TupleOf } from '@month/utils';
+
+export const EVENT_TYPE = 0 as const;
+export const EVENT_REQUEST_ID = 1 as const;
+export const EVENT_UPLOAD_ID = 2 as const;
+
+export type UploadReadyEvent = ReadonlyTupleOf<{
+    [EVENT_TYPE]: typeof WS_UPLOAD_READY;
+    [EVENT_REQUEST_ID]: string;
+    [EVENT_UPLOAD_ID]: number;
+}>;
 
 if (event[EVENT_TYPE] === WS_UPLOAD_READY) {
     doSomething(event[EVENT_REQUEST_ID], event[EVENT_UPLOAD_ID]);
 }
 
 const PENDING_HANDLERS = 0 as const;
+type WsState = TupleOf<{
+    [PENDING_HANDLERS]: Map<string, () => void>;
+}>;
 state[PENDING_HANDLERS].set(key, handler);
 ```
 
@@ -367,15 +389,31 @@ export const startUpload = (
 // usage is verbose and forces all three handlers every time
 startUpload(ctx, socket, id, file, handleReady, handleDone, handleError);
 
-// ✓ correct — discriminated event tuple + ObserverInstance return
+// ✓ correct — discriminated event tuple via ReadonlyTupleOf + ObserverInstance return
 export const UPLOAD_READY = 0 as const;
 export const UPLOAD_DONE  = 1 as const;
 export const UPLOAD_ERROR = 2 as const;
 
+export const UPLOAD_EVENT_TYPE = 0 as const;
+export const UPLOAD_READY_ID = 1 as const;
+export const UPLOAD_DONE_ATTACHMENT = 1 as const;
+export const UPLOAD_ERROR_CODE = 1 as const;
+export const UPLOAD_ERROR_MESSAGE = 2 as const;
+
 export type UploadEvent =
-    | readonly [type: typeof UPLOAD_READY, uploadId: number]
-    | readonly [type: typeof UPLOAD_DONE,  attachment: AttachmentMeta]
-    | readonly [type: typeof UPLOAD_ERROR, code: string, message: string];
+    | ReadonlyTupleOf<{
+          [UPLOAD_EVENT_TYPE]: typeof UPLOAD_READY;
+          [UPLOAD_READY_ID]: number;
+      }>
+    | ReadonlyTupleOf<{
+          [UPLOAD_EVENT_TYPE]: typeof UPLOAD_DONE;
+          [UPLOAD_DONE_ATTACHMENT]: AttachmentMeta;
+      }>
+    | ReadonlyTupleOf<{
+          [UPLOAD_EVENT_TYPE]: typeof UPLOAD_ERROR;
+          [UPLOAD_ERROR_CODE]: string;
+          [UPLOAD_ERROR_MESSAGE]: string;
+      }>;
 
 export const startUpload = (
     ctx: Window,

@@ -136,7 +136,7 @@ const initCanvas = (ctx: Window, element: Element) => {
     const fieldInstance = initField(ctx, boardSize, collSize);
     const keyHandlers = getKeyHandlers(ctx, fieldInstance);
     addPhoneControls(ctx, element as HTMLDivElement, keyHandlers);
-    document.addEventListener('keydown', (e) => {
+    ctx.document.addEventListener('keydown', (e) => {
         if (keyHandlers[e.code]) {
             keyHandlers[e.code]();
         }

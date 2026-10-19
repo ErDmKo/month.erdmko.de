@@ -2,6 +2,18 @@ export const PROP = 0 as const;
 export const REF = 1 as const;
 export const ATTR = 2 as const;
 
+export const PROP_TYPE = 0 as const;
+export const PROP_KEY = 1 as const;
+export const PROP_VALUE = 2 as const;
+export const REF_KEY = 1 as const;
+
+export const DOM_TAG = 0 as const;
+export const DOM_PROPS = 1 as const;
+export const DOM_ATTRS = 2 as const;
+export const DOM_REF = 3 as const;
+export const DOM_CHILDREN = 4 as const;
+export const DOM_KEY = 5 as const;
+
 type PropType = string | Function | Partial<CSSStyleDeclaration> | number;
 type AttrType = string | number;
 export type RefKey = string | number;
@@ -77,26 +89,26 @@ const collectProps = (
     const attrs: AttrMap = {};
     let ref: RefMarker = false;
     for (const item of attributes) {
-        const type = item[0];
+        const type = item[PROP_TYPE];
         if (type === REF) {
-            ref = item.length > 1 ? item[1] : true;
+            ref = item.length > 1 ? item[REF_KEY] : true;
             continue;
         }
         if (type === PROP) {
-            const [, key, value] = item;
-            props[key] = value;
+            props[item[PROP_KEY]] = item[PROP_VALUE];
         } else {
-            const [, key, value] = item;
-            attrs[key] = value;
+            attrs[item[PROP_KEY]] = item[PROP_VALUE];
         }
     }
     return [props, attrs, ref];
 };
 
+const FRAGMENT_FIRST = 0 as const;
+
 const isFragment = (
     struct: DOMStruct<TagName> | DOMStruct<TagName>[]
 ): struct is DOMStruct<TagName>[] => {
-    return struct.length > 0 && Array.isArray(struct[0]);
+    return struct.length > 0 && Array.isArray(struct[FRAGMENT_FIRST]);
 };
 
 export const domCreator = <K extends keyof HTMLElementTagNameMap>(

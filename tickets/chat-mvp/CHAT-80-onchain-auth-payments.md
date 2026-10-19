@@ -70,3 +70,13 @@ Replace temporary anonymous chat identities with persistent wallet identities an
 - A successful login requires no gas and no third-party authentication service.
 - WebSocket messages use the server-verified wallet address and contract-provided nickname.
 - Message ownership can be enforced using the persistent wallet sender ID.
+
+## Breakdown & Execution Track
+
+Detailed implementation tickets are tracked in `tickets/auth/README.md`:
+
+1. `AUTH-10` Wallet Identity & Session Data Layer (`completed`)
+2. `AUTH-20` SIWE Signature Verification & HTTP Session Endpoints (`pending`)
+3. `AUTH-30` Onchain Access & Nickname Registry Contract + RPC Reader (`pending`)
+4. `AUTH-40` WebSocket Chat Authentication & Ownership Enforcement (`pending`)
+5. `AUTH-50` Browser Wallet Connect & SIWE UI (`pending`)

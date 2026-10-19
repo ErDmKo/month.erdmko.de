@@ -5,6 +5,7 @@
 // decoded field values in a compact, readable format.
 
 import { createLogger } from './logger';
+import type { ReadonlyTupleOf } from './tuple';
 
 const wsLog = createLogger('ws');
 
@@ -18,6 +19,10 @@ const CLIENT_VARIANT_NAMES: Record<number, string> = {
     5: 'upload_end',
     6: 'download_request',
     7: 'upload_chunk',
+    8: 'voice_join',
+    9: 'voice_leave',
+    10: 'voice_offer',
+    11: 'voice_ice',
 };
 
 const SERVER_VARIANT_NAMES: Record<number, string> = {
@@ -31,6 +36,10 @@ const SERVER_VARIANT_NAMES: Record<number, string> = {
     8: 'download_start',
     9: 'download_end',
     10: 'download_chunk',
+    11: 'voice_state',
+    12: 'voice_answer',
+    13: 'voice_ice',
+    14: 'voice_error',
 };
 
 // ── Field formatting ──────────────────────────────────────────────────────────
@@ -55,13 +64,13 @@ const expandableArgs = (value: readonly unknown[]): unknown[] =>
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export type FramePayload = readonly [
-    variant: number,
-    value: readonly unknown[],
-];
-
 const LOGGER_VARIANT = 0 as const;
 const LOGGER_VALUE = 1 as const;
+
+export type FramePayload = ReadonlyTupleOf<{
+    [LOGGER_VARIANT]: number;
+    [LOGGER_VALUE]: readonly unknown[];
+}>;
 
 export const logOutgoingFrame = (ctx: Window, payload: FramePayload): void => {
     const name =

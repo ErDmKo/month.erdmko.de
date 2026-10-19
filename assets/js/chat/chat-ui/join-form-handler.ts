@@ -61,7 +61,10 @@ export const mountJoinFormHandler = (
         setError('');
         outgoing(
             bindArg(
-                [CLIENT_FRAME_JOIN, [`join-${Date.now()}`, nickname]] as const,
+                [
+                    CLIENT_FRAME_JOIN,
+                    [`join-${ctx.Date.now()}`, nickname],
+                ] as const,
                 trigger
             )
         );

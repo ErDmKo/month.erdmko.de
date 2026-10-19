@@ -15,6 +15,7 @@ use tera::Tera;
 
 pub mod app;
 pub mod attachments;
+pub mod auth;
 pub mod chat;
 pub mod db;
 pub mod generated;

@@ -65,6 +65,10 @@ import {
     VOICE_PEER_ICE_CANDIDATE,
     VOICE_PEER_REMOTE_TRACK,
     VOICE_PEER_ICE_STATE,
+    VOICE_PEER_EVENT_TYPE,
+    VOICE_PEER_ICE_CANDIDATE_VALUE,
+    VOICE_PEER_REMOTE_TRACK_STREAM,
+    VOICE_PEER_ICE_STATE_VALUE,
 } from './peer';
 import type { VoicePeer, VoicePeerEvent } from './peer';
 import {
@@ -83,6 +87,7 @@ const voiceLog = createLogger('voice');
 declare global {
     interface Window {
         RTCPeerConnection: typeof RTCPeerConnection;
+        Date: typeof Date;
     }
 }
 
@@ -115,7 +120,7 @@ export const initVoice =
                     bindArg(
                         [
                             CLIENT_FRAME_VOICE_LEAVE,
-                            [`voice-leave-${Date.now()}`],
+                            [`voice-leave-${ctx.Date.now()}`],
                         ] as const,
                         trigger
                     )
@@ -134,14 +139,14 @@ export const initVoice =
         // ── Peer event handling (ICE candidates, remote track, ICE state) ─────
 
         const handlePeerEvent = (event: VoicePeerEvent) => {
-            if (event[0] === VOICE_PEER_ICE_CANDIDATE) {
-                const candidate = event[1];
+            if (event[VOICE_PEER_EVENT_TYPE] === VOICE_PEER_ICE_CANDIDATE) {
+                const candidate = event[VOICE_PEER_ICE_CANDIDATE_VALUE];
                 outgoing(
                     bindArg(
                         [
                             CLIENT_FRAME_VOICE_ICE,
                             [
-                                `voice-ice-${Date.now()}`,
+                                `voice-ice-${ctx.Date.now()}`,
                                 candidate.candidate,
                                 candidate.sdpMid ?? '',
                                 candidate.sdpMLineIndex ?? 0,
@@ -152,13 +157,13 @@ export const initVoice =
                 );
                 return;
             }
-            if (event[0] === VOICE_PEER_REMOTE_TRACK) {
+            if (event[VOICE_PEER_EVENT_TYPE] === VOICE_PEER_REMOTE_TRACK) {
                 if (!refs) return;
                 pipe(
                     playVoiceRemoteAudioTask(
                         ctx,
                         refs[CHAT_REF_VOICE_REMOTE_AUDIO],
-                        event[1]
+                        event[VOICE_PEER_REMOTE_TRACK_STREAM]
                     ),
                     taskFork(noop, (e) =>
                         voiceLog(ctx, '<audio>.play() rejected', e)
@@ -166,9 +171,9 @@ export const initVoice =
                 );
                 return;
             }
-            if (event[0] === VOICE_PEER_ICE_STATE) {
+            if (event[VOICE_PEER_EVENT_TYPE] === VOICE_PEER_ICE_STATE) {
                 if (!refs) return;
-                const state = event[1];
+                const state = event[VOICE_PEER_ICE_STATE_VALUE];
                 if (state === 'connected' || state === 'completed') {
                     setStatus(refs, 'Connected');
                 } else if (state === 'failed') {
@@ -202,7 +207,7 @@ export const initVoice =
                                 bindArg(
                                     [
                                         CLIENT_FRAME_VOICE_JOIN,
-                                        [`voice-join-${Date.now()}`],
+                                        [`voice-join-${ctx.Date.now()}`],
                                     ] as const,
                                     trigger
                                 )
@@ -220,7 +225,7 @@ export const initVoice =
                         bindArg(
                             [
                                 CLIENT_FRAME_VOICE_OFFER,
-                                [`voice-offer-${Date.now()}`, sdp],
+                                [`voice-offer-${ctx.Date.now()}`, sdp],
                             ] as const,
                             trigger
                         )

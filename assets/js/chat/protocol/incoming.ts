@@ -1,4 +1,5 @@
 import { ObserverState, ObserverInstance } from '../../utils';
+import type { ReadonlyTupleOf } from '../../utils';
 import { logIncomingFrame } from '../../utils/ws-logger';
 import { decodeServerFrame } from '@month/gen/chat';
 import type { ClientFramePayload, ServerFramePayload } from '@month/gen/chat';
@@ -8,15 +9,15 @@ import type { ClientFramePayload, ServerFramePayload } from '@month/gen/chat';
 export const CHAT_SOCKET_OUTGOING = 0 as const;
 export const CHAT_SOCKET_INCOMING = 1 as const;
 
-export type BaseChatSocket = readonly [
-    outgoing: ObserverInstance<any>,
-    incoming: ObserverState<ServerFramePayload>,
-];
+export type BaseChatSocket = ReadonlyTupleOf<{
+    [CHAT_SOCKET_OUTGOING]: ObserverInstance<any>;
+    [CHAT_SOCKET_INCOMING]: ObserverState<ServerFramePayload>;
+}>;
 
-export type ChatSocket = readonly [
-    outgoing: ObserverInstance<ClientFramePayload>,
-    incoming: ObserverState<ServerFramePayload>,
-];
+export type ChatSocket = ReadonlyTupleOf<{
+    [CHAT_SOCKET_OUTGOING]: ObserverInstance<ClientFramePayload>;
+    [CHAT_SOCKET_INCOMING]: ObserverState<ServerFramePayload>;
+}>;
 
 // ── Main binary frame parser ──────────────────────────────────────────────────
 

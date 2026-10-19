@@ -1,4 +1,4 @@
-import type { ObserverInstance } from '../../utils';
+import type { ObserverInstance, ReadonlyTupleOf } from '../../utils';
 import type { ChatUiRefs } from './template';
 
 // ── ChatUiEvent discriminants ─────────────────────────────────────────────────
@@ -27,9 +27,21 @@ export const CHAT_UI_FILE_SELECTED_FILE = 1 as const;
 // ── ChatUiEvent tuple type ────────────────────────────────────────────────────
 
 export type ChatUiEvent =
-    | readonly [type: typeof CHAT_UI_INIT, refs: ChatUiRefs]
-    | readonly [type: typeof CHAT_UI_ERROR, message: string]
-    | readonly [type: typeof CHAT_UI_JOINED, senderId: string | null]
-    | readonly [type: typeof CHAT_UI_FILE_SELECTED, file: File];
+    | ReadonlyTupleOf<{
+          [CHAT_UI_EVENT_TYPE]: typeof CHAT_UI_INIT;
+          [CHAT_UI_INIT_REFS]: ChatUiRefs;
+      }>
+    | ReadonlyTupleOf<{
+          [CHAT_UI_EVENT_TYPE]: typeof CHAT_UI_ERROR;
+          [CHAT_UI_ERROR_MESSAGE]: string;
+      }>
+    | ReadonlyTupleOf<{
+          [CHAT_UI_EVENT_TYPE]: typeof CHAT_UI_JOINED;
+          [CHAT_UI_JOINED_SENDER_ID]: string | null;
+      }>
+    | ReadonlyTupleOf<{
+          [CHAT_UI_EVENT_TYPE]: typeof CHAT_UI_FILE_SELECTED;
+          [CHAT_UI_FILE_SELECTED_FILE]: File;
+      }>;
 
 export type ChatUiObs = ObserverInstance<ChatUiEvent>;

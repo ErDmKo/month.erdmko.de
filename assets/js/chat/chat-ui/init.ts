@@ -234,7 +234,7 @@ export const initChatUi =
             updateControls
         );
 
-        mountMessageFormHandler(refs, outgoing, chatUiObs, state);
+        mountMessageFormHandler(ctx, refs, outgoing, chatUiObs, state);
 
         // ── Initial UI state ──────────────────────────────────────────────────
 

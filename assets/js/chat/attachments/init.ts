@@ -40,6 +40,9 @@ import {
     UPLOAD_PROGRESS,
     UPLOAD_DONE,
     UPLOAD_ERROR,
+    UPLOAD_EVENT_TYPE,
+    UPLOAD_PROGRESS_SENT,
+    UPLOAD_PROGRESS_TOTAL,
     renderAttachmentFromUploadDone,
     getUploadDoneMessageId,
     startUpload,
@@ -217,23 +220,29 @@ export const initAttachments =
                         const uploadObs = startUpload(
                             ctx,
                             socket,
-                            `upload-${Date.now()}`,
+                            `upload-${ctx.Date.now()}`,
                             messageId,
                             fileToUpload
                         );
                         uploadObs(
                             bindArg((event: UploadEvent) => {
                                 if (!progressEl) return;
-                                if (event[0] === UPLOAD_READY) {
+                                if (event[UPLOAD_EVENT_TYPE] === UPLOAD_READY) {
                                     progressEl.hidden = false;
                                     progressEl.textContent = '0 chunks sent';
-                                } else if (event[0] === UPLOAD_PROGRESS) {
+                                } else if (
+                                    event[UPLOAD_EVENT_TYPE] === UPLOAD_PROGRESS
+                                ) {
                                     progressEl.hidden = false;
-                                    progressEl.textContent = `${event[1]} / ${event[2]} chunks sent`;
-                                } else if (event[0] === UPLOAD_DONE) {
+                                    progressEl.textContent = `${event[UPLOAD_PROGRESS_SENT]} / ${event[UPLOAD_PROGRESS_TOTAL]} chunks sent`;
+                                } else if (
+                                    event[UPLOAD_EVENT_TYPE] === UPLOAD_DONE
+                                ) {
                                     if (clearUploadPreview)
                                         clearUploadPreview();
-                                } else if (event[0] === UPLOAD_ERROR) {
+                                } else if (
+                                    event[UPLOAD_EVENT_TYPE] === UPLOAD_ERROR
+                                ) {
                                     progressEl.hidden = false;
                                     progressEl.textContent = 'Upload error';
                                 }

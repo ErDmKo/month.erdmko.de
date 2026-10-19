@@ -52,7 +52,10 @@ ts_project(
 
 ts_project(
     name = "utils",
-    srcs = glob(["utils/**/*.ts"]),
+    srcs = glob(
+        ["utils/**/*.ts"],
+        exclude = ["utils/**/*.test.ts"],
+    ),
     declaration = True,
 )
 

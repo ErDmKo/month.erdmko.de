@@ -5,7 +5,7 @@
 // from `iceServers: []` are sufficient.
 
 import { bindArg, createLogger, observer, trigger } from '../../utils';
-import type { ObserverInstance, Task } from '../../utils';
+import type { ObserverInstance, ReadonlyTupleOf, Task } from '../../utils';
 
 const voiceLog = createLogger('voice');
 
@@ -15,26 +15,34 @@ export const VOICE_PEER_ICE_CANDIDATE = 0 as const;
 export const VOICE_PEER_REMOTE_TRACK = 1 as const;
 export const VOICE_PEER_ICE_STATE = 2 as const;
 
+export const VOICE_PEER_EVENT_TYPE = 0 as const;
+export const VOICE_PEER_ICE_CANDIDATE_VALUE = 1 as const;
+export const VOICE_PEER_REMOTE_TRACK_STREAM = 1 as const;
+export const VOICE_PEER_ICE_STATE_VALUE = 1 as const;
+
 export type VoicePeerEvent =
-    | readonly [
-          type: typeof VOICE_PEER_ICE_CANDIDATE,
-          candidate: RTCIceCandidate,
-      ]
-    | readonly [type: typeof VOICE_PEER_REMOTE_TRACK, stream: MediaStream]
-    | readonly [
-          type: typeof VOICE_PEER_ICE_STATE,
-          state: RTCIceConnectionState,
-      ];
+    | ReadonlyTupleOf<{
+          [VOICE_PEER_EVENT_TYPE]: typeof VOICE_PEER_ICE_CANDIDATE;
+          [VOICE_PEER_ICE_CANDIDATE_VALUE]: RTCIceCandidate;
+      }>
+    | ReadonlyTupleOf<{
+          [VOICE_PEER_EVENT_TYPE]: typeof VOICE_PEER_REMOTE_TRACK;
+          [VOICE_PEER_REMOTE_TRACK_STREAM]: MediaStream;
+      }>
+    | ReadonlyTupleOf<{
+          [VOICE_PEER_EVENT_TYPE]: typeof VOICE_PEER_ICE_STATE;
+          [VOICE_PEER_ICE_STATE_VALUE]: RTCIceConnectionState;
+      }>;
 
 // ── VoicePeer tuple: peerConnection + its event stream ────────────────────────
 
 const PEER_CONNECTION = 0 as const;
 const PEER_EVENTS = 1 as const;
 
-export type VoicePeer = readonly [
-    peerConnection: RTCPeerConnection,
-    events: ObserverInstance<VoicePeerEvent>,
-];
+export type VoicePeer = ReadonlyTupleOf<{
+    [PEER_CONNECTION]: RTCPeerConnection;
+    [PEER_EVENTS]: ObserverInstance<VoicePeerEvent>;
+}>;
 
 export const voicePeerConnection = (peer: VoicePeer): RTCPeerConnection =>
     peer[PEER_CONNECTION];
