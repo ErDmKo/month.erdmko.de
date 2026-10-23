@@ -1,4 +1,13 @@
-import { bindArg, observer, on, trigger } from '@month/utils';
+import {
+    bindArg,
+    cleanHtml,
+    createStore,
+    on,
+    SIGNAL_GET,
+    SIGNAL_OBS,
+    SIGNAL_SET,
+    trigger,
+} from '@month/utils';
 import { $tennis } from '@month/gen/styles';
 import { useNative } from './native';
 import {
@@ -6,6 +15,7 @@ import {
     GameState,
     LOG,
     SERVE,
+    Sides,
     TEAM_LEFT,
     TEAM_RIGHT,
     VOICE_ENABLED,
@@ -17,128 +27,131 @@ import {
 } from './const';
 import { useScreenLock } from './screen';
 import { startListen } from './speech';
-import { gameStateRender, template } from './template';
+import { template } from './template';
 
-const eventOptions = { passive: true };
+const CMD_TYPE = 0 as const;
+const CMD_SIDE = 1 as const;
+const MAX_LOG_SIZE = 5 as const;
+
+type Side = Sides[keyof Sides];
+
+const nextServe = (
+    teamLeft: number,
+    teamRight: number,
+    currentServe: Side
+): Side => {
+    if (teamLeft === 0 && teamRight === 0) {
+        return TEAM_LEFT;
+    }
+    if (!((teamRight + teamLeft) % 2)) {
+        return currentServe === TEAM_RIGHT ? TEAM_LEFT : TEAM_RIGHT;
+    }
+    return currentServe;
+};
+
+const createInitialState = (): GameState => ({
+    [TEAM_LEFT]: 0,
+    [TEAM_RIGHT]: 0,
+    [SERVE]: TEAM_LEFT,
+    [LOG]: [],
+    [VOICE_ENABLED]: false,
+    [UPDATE_DATE]: new Date(),
+});
 
 const initTemplate = (ctx: Window, element: Element) => {
-    const state: GameState = {
-        [TEAM_LEFT]: 0,
-        [TEAM_RIGHT]: 0,
-        [SERVE]: TEAM_LEFT,
-        [LOG]: [],
-        [VOICE_ENABLED]: false,
-        [UPDATE_DATE]: new Date(),
-    };
-    const gameStateObserver = observer<GameState, void>();
     const htmlElement = element as HTMLDivElement;
-    htmlElement.innerText = '';
+    cleanHtml(htmlElement);
     htmlElement.classList.add($tennis);
-    const [
-        wrapper,
-        plusOneLeft,
-        scoreElement,
-        plusOneRight,
-        voiceCommands,
-        back,
-        logElement,
-    ] = template(ctx, htmlElement);
 
-    gameStateRender(ctx, scoreElement, [state]);
-    htmlElement.appendChild(wrapper);
-
+    const gameStateSig = createStore<GameState>(createInitialState());
     const voiceControlObserver = useNative(ctx);
-    startListen(ctx, gameStateObserver);
+
+    startListen(ctx, gameStateSig[SIGNAL_OBS]);
     useScreenLock(ctx, voiceControlObserver);
+
     voiceControlObserver(
         bindArg((command: Commands) => {
-            const [type, data] = command;
+            const type = command[CMD_TYPE];
             if (type === COMMAND_TYPE) {
-                state[LOG].unshift({
-                    [TEAM_LEFT]: state[TEAM_LEFT],
-                    [TEAM_RIGHT]: state[TEAM_RIGHT],
-                    [SERVE]: state[SERVE],
-                    [LOG]: state[LOG],
-                    [VOICE_ENABLED]: state[VOICE_ENABLED],
-                    [UPDATE_DATE]: state[UPDATE_DATE],
+                const side = command[CMD_SIDE];
+                const prev = gameStateSig[SIGNAL_GET]();
+                const nextLeft =
+                    side === TEAM_LEFT
+                        ? prev[TEAM_LEFT] + 1
+                        : prev[TEAM_LEFT];
+                const nextRight =
+                    side === TEAM_RIGHT
+                        ? prev[TEAM_RIGHT] + 1
+                        : prev[TEAM_RIGHT];
+                const nextLog = [prev, ...prev[LOG]].slice(0, MAX_LOG_SIZE);
+                gameStateSig[SIGNAL_SET]({
+                    [TEAM_LEFT]: nextLeft,
+                    [TEAM_RIGHT]: nextRight,
+                    [SERVE]: nextServe(nextLeft, nextRight, prev[SERVE]),
+                    [LOG]: nextLog,
+                    [VOICE_ENABLED]: prev[VOICE_ENABLED],
+                    [UPDATE_DATE]: new Date(),
                 });
-                while (state[LOG].length > 5) {
-                    state[LOG].pop();
-                }
-                state[data] += 1;
-                state[UPDATE_DATE] = new Date();
-                return gameStateObserver(bindArg(state, trigger));
+                return;
             }
             if (type === BACK_TYPE) {
-                const lastState = state[LOG].shift();
+                const prev = gameStateSig[SIGNAL_GET]();
+                const [lastState, ...restLog] = prev[LOG];
                 if (!lastState) {
                     return;
                 }
-                Object.assign(state, lastState);
-                return gameStateObserver(bindArg(state, trigger));
-            }
-            if (type === STOP_TYPE) {
-                state[VOICE_ENABLED] = false;
-                return gameStateObserver(bindArg(state, trigger));
-            }
-        }, on)
-    );
-
-    plusOneLeft.addEventListener(
-        'click',
-        () => {
-            voiceControlObserver(
-                bindArg([COMMAND_TYPE, TEAM_LEFT], trigger) as any
-            );
-        },
-        eventOptions
-    );
-
-    gameStateObserver(
-        bindArg(() => {
-            const {
-                [TEAM_LEFT]: teamLeft,
-                [TEAM_RIGHT]: teamRight,
-                [SERVE]: serve,
-            } = state;
-
-            gameStateRender(ctx, logElement, state[LOG]);
-
-            voiceCommands.innerText = state[VOICE_ENABLED]
-                ? `Voice control enabled`
-                : `Voice control disabled`;
-
-            if (teamLeft == 0 && teamRight == 0) {
-                state[SERVE] = TEAM_LEFT;
-                gameStateRender(ctx, scoreElement, [state]);
+                gameStateSig[SIGNAL_SET]({
+                    ...lastState,
+                    [LOG]: restLog,
+                });
                 return;
             }
-            if (!((teamRight + teamLeft) % 2)) {
-                state[SERVE] = serve == TEAM_RIGHT ? TEAM_LEFT : TEAM_RIGHT;
+            if (type === STOP_TYPE) {
+                const prev = gameStateSig[SIGNAL_GET]();
+                gameStateSig[SIGNAL_SET]({
+                    ...prev,
+                    [VOICE_ENABLED]: false,
+                });
             }
-            gameStateRender(ctx, scoreElement, [state]);
         }, on)
     );
 
-    voiceCommands.addEventListener('click', () => {
-        state[VOICE_ENABLED] = !state[VOICE_ENABLED];
-        let command = state[VOICE_ENABLED] ? START_TYPE : STOP_TYPE;
-        voiceControlObserver(bindArg([command], trigger) as any);
-        gameStateObserver(bindArg(state, trigger));
-    });
+    const handlePlusOneLeft = () => {
+        voiceControlObserver(
+            bindArg([COMMAND_TYPE, TEAM_LEFT], trigger) as any
+        );
+    };
 
-    plusOneRight.addEventListener(
-        'click',
-        () => {
-            voiceControlObserver(
-                bindArg([COMMAND_TYPE, TEAM_RIGHT], trigger) as any
-            );
-        },
-        eventOptions
-    );
-    back.addEventListener('click', () => {
+    const handlePlusOneRight = () => {
+        voiceControlObserver(
+            bindArg([COMMAND_TYPE, TEAM_RIGHT], trigger) as any
+        );
+    };
+
+    const handleVoiceToggle = () => {
+        const prev = gameStateSig[SIGNAL_GET]();
+        const nextVoice = !prev[VOICE_ENABLED];
+        const command = nextVoice ? START_TYPE : STOP_TYPE;
+        voiceControlObserver(bindArg([command], trigger) as any);
+        gameStateSig[SIGNAL_SET]({
+            ...prev,
+            [VOICE_ENABLED]: nextVoice,
+        });
+    };
+
+    const handleBack = () => {
         voiceControlObserver(bindArg([BACK_TYPE], trigger) as any);
-    });
+    };
+
+    template(
+        ctx,
+        htmlElement,
+        gameStateSig,
+        handlePlusOneLeft,
+        handlePlusOneRight,
+        handleVoiceToggle,
+        handleBack
+    );
 };
 
 export const initTennisEffect = (ctx: Window) => {

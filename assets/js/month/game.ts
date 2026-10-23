@@ -1,67 +1,94 @@
 import {
+    bindArg,
+    button,
     cleanHtml,
+    createStore,
+    div,
     domCreator,
+    domIf,
+    DomScope,
     genClass,
+    genOn,
     genProp,
-    genRef,
-    genTagDiv,
-    genTagName,
-    genText,
-    observer,
-    randomRange,
+    h3,
+    h4,
+    li,
+    mapSignal,
     next,
+    observer,
+    pipe,
+    randomRange,
+    SIGNAL_GET,
+    SIGNAL_SET,
+    span,
     subscribe,
+    ul,
 } from '@month/utils';
 import { $month, $month__item } from '@month/gen/styles';
 import { GAME_DURATION_SECONDS } from './const';
 
-const genMonth = (ctx: Window) => {
+const SCORE_IS_ERROR = 0 as const;
+
+type ScoreLog =
+    | readonly [isError: false, monthNo: number]
+    | readonly [isError: true, userAnswer: number, monthNo: number];
+
+const HEADER_STYLE: Partial<CSSStyleDeclaration> = {
+    fontSize: '30px',
+    margin: '20px 0',
+};
+
+const OPTION_BTN_BASE_STYLE: Partial<CSSStyleDeclaration> = {
+    width: '20%',
+    height: '50px',
+    margin: '5%',
+};
+
+const genMonth = (ctx: Window): number => {
     return Math.round(randomRange(ctx, 1, 12));
 };
 
-type GameState = [isOver: boolean, answer?: number];
+const formatTimerText = (ms: number): string => `${ms} ms`;
 
-type ScoreLog =
-    | [isError: false, monthNo: number]
-    | [isError: true, userAnswer: number, monthNo: number];
+const formatButtonStyle = (
+    backgroundColor: string
+): Partial<CSSStyleDeclaration> => ({
+    ...OPTION_BTN_BASE_STYLE,
+    backgroundColor,
+});
 
-const report = (_ctx: Window, totalScore: ScoreLog[]) => {
-    const errors = totalScore.filter(([isError]) => isError).length;
+const report = (totalScore: readonly ScoreLog[]) => {
+    const errors = totalScore.filter((entry) => entry[SCORE_IS_ERROR]).length;
     const correct = totalScore.length - errors;
     const totalResult = correct - errors;
-    return [
-        genTagName('h3', [genText('Время вышло!')]),
-        genTagName('h4', [genText(`Итоговый результат игры: ${totalResult}`)]),
-        genTagName(
-            'ul',
-            [genClass($month)],
-            [
-                genTagName('li', [
-                    genClass($month__item),
-                    genText(`Ошибки: ${errors}`),
-                ]),
-                genTagName('li', [
-                    genClass($month__item),
-                    genText(`Верные ответы: ${correct}`),
-                ]),
-                genTagName('li', [
-                    genClass($month__item),
-                    genText(`Всего вопросов: ${totalScore.length}`),
-                ]),
-            ]
-        ),
-    ];
+    return div(
+        [],
+        [
+            h3([], ['Время вышло!']),
+            h4([], [`Итоговый результат игры: ${totalResult}`]),
+            ul(
+                [genClass($month)],
+                [
+                    li([genClass($month__item)], [`Ошибки: ${errors}`]),
+                    li([genClass($month__item)], [`Верные ответы: ${correct}`]),
+                    li(
+                        [genClass($month__item)],
+                        [`Всего вопросов: ${totalScore.length}`]
+                    ),
+                ]
+            ),
+        ]
+    );
 };
 
 export const render = (
     ctx: Window,
     monthNames: Record<string, string>,
     root: HTMLElement
-) => {
-    let headerRefer: HTMLElement | undefined;
-    let timeRefer: HTMLElement | undefined;
-    const timeObserver = observer<number>();
-    const gameStateObserver = observer<GameState>();
+): DomScope => {
+    cleanHtml(root);
+
+    const scope: DomScope = [];
     const totalScore: ScoreLog[] = [];
     const scoreObserver = observer<ScoreLog>();
 
@@ -71,99 +98,138 @@ export const render = (
         })
     );
 
-    let currentRequest: number = 0;
-
-    const startTime = performance.now();
     const maxDurationMs = GAME_DURATION_SECONDS * 1000;
+    const initialAnswer = genMonth(ctx);
+
+    const isOverSig = createStore(false);
+    const leftTimeSig = createStore(maxDurationMs);
+    const answerSig = createStore(initialAnswer);
+    const headerTextSig = createStore(monthNames[initialAnswer] || '');
+
+    const timerTextSig = pipe(
+        leftTimeSig,
+        bindArg(formatTimerText, mapSignal)
+    );
+
+    const buttonColorSigs = Array.from({ length: 12 }, () => createStore(''));
+    const buttonLockedSigs = Array.from({ length: 12 }, () =>
+        createStore(false)
+    );
+
+    const startNewQuestion = () => {
+        const nextAnswer = genMonth(ctx);
+        answerSig[SIGNAL_SET](nextAnswer);
+        headerTextSig[SIGNAL_SET](monthNames[nextAnswer] || '');
+        for (let idx = 0; idx < 12; idx++) {
+            buttonColorSigs[idx][SIGNAL_SET]('');
+            buttonLockedSigs[idx][SIGNAL_SET](false);
+        }
+    };
+
+    let currentRequest = 0;
+    let nextQuestionTimeout = 0;
+    const startTime = ctx.performance.now();
 
     const nextTick = () => {
         currentRequest = ctx.requestAnimationFrame((stamp) => {
-            timeObserver(next(stamp - startTime));
+            const leftTime = Math.round(maxDurationMs - (stamp - startTime));
+            if (leftTime > 0) {
+                leftTimeSig[SIGNAL_SET](leftTime);
+                nextTick();
+            } else {
+                leftTimeSig[SIGNAL_SET](0);
+                isOverSig[SIGNAL_SET](true);
+            }
         });
     };
-    timeObserver(
-        subscribe((passedTimeMs: number) => {
-            const leftTime = Math.round(maxDurationMs - passedTimeMs);
-            if (leftTime > 0) {
-                nextTick();
-                if (timeRefer) {
-                    timeRefer.innerText = `${leftTime} ms`;
-                }
-            } else {
-                gameStateObserver(next([true]));
-            }
-        })
-    );
 
-    gameStateObserver(
-        subscribe(([isOver, answer]) => {
-            cleanHtml(root);
-            if (isOver) {
-                return domCreator(ctx, root, report(ctx, totalScore));
-            }
-            const out = [
-                genTagDiv(
+    scope.push(() => {
+        ctx.cancelAnimationFrame(currentRequest);
+        ctx.clearTimeout(nextQuestionTimeout);
+    });
+
+    const gamePlayView = () =>
+        div(
+            [],
+            [
+                div(
                     [genClass('game-timer')],
                     [
-                        genTagName('span', [genText('Времени осталось: ')]),
-                        genTagName('span', [
-                            genRef(),
-                            genText(`${GAME_DURATION_SECONDS * 1000} ms`),
-                        ]),
+                        span([], ['Времени осталось: ']),
+                        span([], [timerTextSig]),
                     ]
                 ),
-                genTagDiv([
-                    genRef(),
-                    genProp('style', {
-                        fontSize: '30px',
-                        margin: '20px 0',
-                    }),
-                    genText(monthNames[answer]),
-                ]),
-                genTagDiv(
+                div([genProp('style', HEADER_STYLE)], [headerTextSig]),
+                div(
                     [genClass('options')],
-                    Array.from({ length: 12 }).map((_, i) => {
-                        const monthNo = i + 1;
-                        const handleClick = (e: MouseEvent) => {
-                            const target = e.currentTarget;
-                            if (!(target instanceof HTMLElement)) {
+                    Array.from({ length: 12 }, (_, idx) => {
+                        const monthNo = idx + 1;
+                        const colorSig = buttonColorSigs[idx];
+                        const lockedSig = buttonLockedSigs[idx];
+                        const styleSig = pipe(
+                            colorSig,
+                            bindArg(formatButtonStyle, mapSignal)
+                        );
+
+                        const handleClick = () => {
+                            if (lockedSig[SIGNAL_GET]()) {
                                 return;
                             }
-                            if (monthNo === answer) {
-                                target.style.backgroundColor = 'green';
-                                if (headerRefer) {
-                                    headerRefer.innerHTML = `Правильно!`;
+                            lockedSig[SIGNAL_SET](true);
+                            const currentAnswer = answerSig[SIGNAL_GET]();
+
+                            if (monthNo === currentAnswer) {
+                                colorSig[SIGNAL_SET]('green');
+                                headerTextSig[SIGNAL_SET]('Правильно!');
+                                scoreObserver(next([false, monthNo] as const));
+                                for (let j = 0; j < 12; j++) {
+                                    buttonLockedSigs[j][SIGNAL_SET](true);
                                 }
-                                scoreObserver(next([false, monthNo]));
-                                ctx.setTimeout(() => {
-                                    ctx.cancelAnimationFrame(currentRequest);
-                                    gameStateObserver(
-                                        next([false, genMonth(ctx)])
-                                    );
+                                nextQuestionTimeout = ctx.setTimeout(() => {
+                                    if (!isOverSig[SIGNAL_GET]()) {
+                                        startNewQuestion();
+                                    }
                                 }, 500);
                             } else {
-                                target.style.backgroundColor = 'red';
-                                scoreObserver(next([true, monthNo, answer]));
+                                colorSig[SIGNAL_SET]('red');
+                                scoreObserver(
+                                    next([
+                                        true,
+                                        monthNo,
+                                        currentAnswer,
+                                    ] as const)
+                                );
                             }
-                            target.removeEventListener('click', handleClick);
                         };
-                        return genTagName('button', [
-                            genText(monthNo),
-                            genProp('style', {
-                                width: '20%',
-                                height: '50px',
-                                margin: '5%',
-                            }),
-                            genProp('onclick', handleClick),
-                        ]);
+
+                        return button(
+                            [
+                                genProp('style', styleSig),
+                                genOn('click', handleClick),
+                            ],
+                            [monthNo]
+                        );
                     })
                 ),
-            ];
-            const refers = domCreator(ctx, root, out);
-            [headerRefer, timeRefer] = refers;
-            nextTick();
-        })
+            ]
+        );
+
+    domCreator(
+        ctx,
+        root,
+        div(
+            [],
+            [
+                domIf(
+                    isOverSig,
+                    () => report(totalScore),
+                    gamePlayView
+                ),
+            ]
+        ),
+        scope
     );
 
-    gameStateObserver(next([false, genMonth(ctx)]));
+    nextTick();
+    return scope;
 };

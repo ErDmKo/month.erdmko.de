@@ -1,20 +1,32 @@
 import {
+    button,
     cleanHtml,
+    div,
     domCreator,
+    domDispose,
+    DomScope,
     genClass,
+    genOn,
     genProp,
     genRef,
-    genTagDiv,
-    genTagName,
-    genText,
+    h3,
 } from '@month/utils';
 import { $month } from '@month/gen/styles';
 import { CONTROL_BUTTON } from './const';
 import { render } from './game';
 
+const GAME_ROOT_STYLE: Partial<CSSStyleDeclaration> = {
+    maxWidth: '500px',
+    margin: '0 auto',
+};
+
 export const init = (ctx: Window, root: HTMLElement) => {
-    const baseHTML: HTMLElement[] = Array.from(root.children) as HTMLElement[];
+    const baseHTML: HTMLElement[] = ctx.Array.from(
+        root.children
+    ) as HTMLElement[];
     const monthNames: Record<string, string> = {};
+    let activeScope: DomScope = [];
+
     Object.assign(root.style, {
         minHeight: '70vh',
     });
@@ -23,12 +35,14 @@ export const init = (ctx: Window, root: HTMLElement) => {
         if (!parentElem.classList.contains($month)) {
             continue;
         }
-        for (const childElem of parentElem.children) {
+        for (const childElem of ctx.Array.from(parentElem.children)) {
             if (
                 childElem.nodeType === Node.ELEMENT_NODE &&
                 'innerText' in childElem
             ) {
-                const [no, name] = String(childElem.innerText).split(' ');
+                const [no, name] = String(
+                    (childElem as HTMLElement).innerText
+                ).split(' ');
                 if (Number.isNaN(parseInt(no))) {
                     continue;
                 }
@@ -37,46 +51,50 @@ export const init = (ctx: Window, root: HTMLElement) => {
         }
     }
 
-    const back = (e: MouseEvent) => {
+    const back = () => {
+        domDispose(activeScope);
+        activeScope = [];
         cleanHtml(root);
-        e.target?.removeEventListener('click', back);
         baseHTML.forEach((elem) => {
             root.appendChild(elem);
         });
     };
 
-    const backButton = genTagName('button', [
-        genProp('style', CONTROL_BUTTON),
-        genProp('onclick', back),
-        genText('Выйти из тренажера'),
-    ]);
+    const backButton = button(
+        [genProp('style', CONTROL_BUTTON), genOn('click', back)],
+        ['Выйти из тренажера']
+    );
 
-    const runButtonTemplate = genTagName('button', [
-        genRef(),
-        genProp('style', CONTROL_BUTTON),
-        genText('Запустить тренажер'),
-        genProp('onclick', () => {
-            cleanHtml(root);
-            const template = genTagDiv(
-                [genClass('month-game')],
-                [
-                    genTagName('h3', [genText('Тренажер запоминания месяцов')]),
-                    genTagDiv([
-                        genProp('style', {
-                            maxWidth: '500px',
-                            margin: '0 auto',
-                        }),
-                        genRef(),
-                    ]),
-                    backButton,
-                ]
-            );
-            const [renderRoot] = domCreator(ctx, root, template);
-            render(ctx, monthNames, renderRoot);
-        }),
-    ]);
+    const runButtonTemplate = button(
+        [
+            genRef(),
+            genProp('style', CONTROL_BUTTON),
+            genOn('click', () => {
+                domDispose(activeScope);
+                activeScope = [];
+                cleanHtml(root);
+                const template = div(
+                    [genClass('month-game')],
+                    [
+                        h3([], ['Тренажер запоминания месяцов']),
+                        div([genProp('style', GAME_ROOT_STYLE), genRef()]),
+                        backButton,
+                    ]
+                );
+                const [renderRoot] = domCreator(
+                    ctx,
+                    root,
+                    template,
+                    activeScope
+                );
+                const gameScope = render(ctx, monthNames, renderRoot);
+                activeScope.push(() => domDispose(gameScope));
+            }),
+        ],
+        ['Запустить тренажер']
+    );
 
-    const [button] = domCreator(ctx, root, runButtonTemplate);
+    const [runButton] = domCreator(ctx, root, runButtonTemplate);
 
-    baseHTML.push(button);
+    baseHTML.push(runButton);
 };

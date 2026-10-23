@@ -137,10 +137,13 @@ esbuild(
 
 ts_project(
     name = "month",
-    srcs = glob([
-        "month-effect.ts",
-        "month/**/*.ts",
-    ]),
+    srcs = glob(
+        [
+            "month-effect.ts",
+            "month/**/*.ts",
+        ],
+        exclude = ["month/**/*.test.ts"],
+    ),
     declaration = True,
     deps = [
         ":gen",
@@ -170,6 +173,8 @@ ts_project(
     deps = [
         ":chat",
         ":gen",
+        ":month",
+        ":utils",
         "//:node_modules/@types/node",
     ],
 )

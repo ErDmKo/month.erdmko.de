@@ -98,13 +98,125 @@ export const combineLatestWith = <First, Second>(
     return newObserver;
 };
 
-export const createStore = <S>(initial: S) => {
+export const mapOperator = <A, B>(
+    fn: (val: A) => B,
+    state: ObserverState<A>
+): ObserverInstance<B> => {
+    const oldObserver = observer(state);
+    const newObserver = observer<B>();
+    oldObserver(
+        bindArg((newVal: A) => {
+            newObserver(bindArg(fn(newVal), trigger));
+        }, on)
+    );
+    return newObserver;
+};
+
+export const filterOperator = <T>(
+    predicate: (val: T) => boolean,
+    state: ObserverState<T>
+): ObserverInstance<T> => {
+    const oldObserver = observer(state);
+    const newObserver = observer<T>();
+    oldObserver(
+        bindArg((newVal: T) => {
+            if (predicate(newVal)) {
+                newObserver(bindArg(newVal, trigger));
+            }
+        }, on)
+    );
+    return newObserver;
+};
+
+export const distinctOperator = <T>(
+    state: ObserverState<T>
+): ObserverInstance<T> => {
+    const oldObserver = observer(state);
+    const newObserver = observer<T>();
+    let hasPrev = false;
+    let prev: T;
+    oldObserver(
+        bindArg((newVal: T) => {
+            if (!hasPrev || !Object.is(prev, newVal)) {
+                hasPrev = true;
+                prev = newVal;
+                newObserver(bindArg(newVal, trigger));
+            }
+        }, on)
+    );
+    return newObserver;
+};
+
+export const SIGNAL_GET = 0 as const;
+export const SIGNAL_SET = 1 as const;
+export const SIGNAL_OBS = 2 as const;
+
+export type Signal<T> = readonly [
+    get: () => T,
+    set: (next: T) => void,
+    obs: ObserverInstance<T>,
+];
+
+export type ReadonlySignal<T> = readonly [
+    get: () => T,
+    set: unknown,
+    obs: (a: (s: any) => any) => any,
+];
+
+export type Reactive<T> = T | ReadonlySignal<T>;
+
+export const isSignal = <T = unknown>(
+    val: unknown
+): val is ReadonlySignal<T> =>
+    Array.isArray(val) &&
+    val.length === 3 &&
+    typeof val[SIGNAL_GET] === 'function' &&
+    typeof val[SIGNAL_OBS] === 'function';
+
+export const createStore = <S>(initial: S): Signal<S> => {
     let state = initial;
     const storeObs = observer<S>();
     const getState = () => state;
     const setState = (next: S) => {
-        state = next;
-        storeObs(bindArg(next, trigger));
+        if (!Object.is(state, next)) {
+            state = next;
+            storeObs(bindArg(next, trigger));
+        }
     };
     return [getState, setState, storeObs] as const;
+};
+
+export const mapSignal = <A, B>(
+    fn: (a: A) => B,
+    sig: ReadonlySignal<A>
+): ReadonlySignal<B> => [
+    () => fn(sig[SIGNAL_GET]()),
+    undefined,
+    sig[SIGNAL_OBS](bindArg(fn, mapOperator))(distinctOperator),
+];
+
+export const combineSignals = <A, B>(
+    first: ReadonlySignal<A>,
+    second: ReadonlySignal<B>
+): ReadonlySignal<[A, B]> => {
+    const combinedObs = observer<[A, B]>();
+    first[SIGNAL_OBS](
+        bindArg((newFirst: A) => {
+            combinedObs(
+                bindArg([newFirst, second[SIGNAL_GET]()] as [A, B], trigger)
+            );
+        }, on)
+    );
+    second[SIGNAL_OBS](
+        bindArg((newSecond: B) => {
+            combinedObs(
+                bindArg([first[SIGNAL_GET](), newSecond] as [A, B], trigger)
+            );
+        }, on)
+    );
+    return [
+        () => [first[SIGNAL_GET](), second[SIGNAL_GET]()],
+        undefined,
+        combinedObs,
+    ];
 };

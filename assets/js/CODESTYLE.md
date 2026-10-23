@@ -309,6 +309,37 @@ The type tag constant at index 0 is always the `WS_*` / `DOWNLOAD_*` / etc.
 discriminant — it already has a name. Payload positions need their own
 per-tuple constants declared alongside the type definition.
 
+### Top-Level Type and Constant Declarations
+
+Always declare `type` definitions and tuple index / ref constants (`* = 0 as const`)
+at the **module top-level**, never inside a function body.
+
+**Why:**
+- **Zero per-call overhead & clean scopes** — constants and types describe static
+  data layout and do not depend on runtime function parameters.
+- **Readability & reuse** — keeping tuple definitions and their index constants
+  together at the top of the module makes the module's data structures
+  immediately visible and reusable across helper functions.
+
+```ts
+// ✗ wrong — declaring tuple index constants and types inside a function
+const mountList = () => {
+    const ENTRY_EL = 0 as const;
+    const ENTRY_SCOPE = 1 as const;
+    type ListEntry = [el: HTMLElement, itemScope: DomScope];
+    const entryMap = new Map<string, ListEntry>();
+};
+
+// ✓ correct — declared at module top-level
+const ENTRY_EL = 0 as const;
+const ENTRY_SCOPE = 1 as const;
+type ListEntry = [el: HTMLElement, itemScope: DomScope];
+
+const mountList = () => {
+    const entryMap = new Map<string, ListEntry>();
+};
+```
+
 ## Partial Application over Wrapper Arrows
 
 Avoid writing `() =>`, `(x) =>`, or `(x, y) =>` solely to pre-apply
