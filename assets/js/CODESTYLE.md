@@ -117,11 +117,14 @@ export const trigger = <T>(event: T, state: ObserverState<T>) => {
 };
 ```
 
-## Reactivity via Observer
+## Reactivity via Observer & Signals
 
 Use the `observer` / `on` / `trigger` primitives from `@month/utils` for
-all event-driven communication. Do not use `EventEmitter`, `Subject`, or
-custom pub-sub implementations.
+event streams, and `createStore` / `mapSignal` / `combineSignals` for
+state-driven UI reactivity. Do not use `EventEmitter`, `Subject`, or custom
+pub-sub implementations.
+
+### Event Streams (`observer`)
 
 ```ts
 import { observer, on, trigger, bindArg } from '@month/utils';
@@ -133,6 +136,36 @@ valueObserver(bindArg((v: number) => console.log(v), on));
 
 // emit
 valueObserver(bindArg(42, trigger));
+```
+
+### Reactive State Signals (`createStore`)
+
+A `Signal<T>` is a 3-tuple derived via `ReadonlyTupleOf`:
+`[SIGNAL_GET: () => T, SIGNAL_SET: (next: T) => void, SIGNAL_OBS: ObserverInstance<T>]`.
+`createStore(initial)` only emits on `SIGNAL_OBS` when `!Object.is(prev, next)`.
+
+Compose derived read-only signals with `mapSignal`, `combineSignals`, and `pipe`:
+
+```ts
+import {
+    bindArg,
+    combineSignals,
+    createStore,
+    mapSignal,
+    pipe,
+    SIGNAL_GET,
+    SIGNAL_SET,
+} from '@month/utils';
+
+const countSig = createStore(0);
+const labelSig = createStore('points');
+
+const summarySig = pipe(
+    combineSignals(countSig, labelSig),
+    bindArg(([count, label]: [number, string]) => `${count} ${label}`, mapSignal)
+);
+
+countSig[SIGNAL_SET](countSig[SIGNAL_GET]() + 1);
 ```
 
 ## Async via Task Pipeline
@@ -208,20 +241,71 @@ pipe(
 );
 ```
 
-## Declarative DOM
+## Declarative Direct DOM
 
-Never call `document.createElement` directly. Build DOM declaratively with
-the helpers from `@month/utils` and materialise with `domCreator` /
-`domCreatorRef`, both of which receive `ctx` explicitly.
+Never call `document.createElement` directly or mutate DOM nodes imperatively
+via extracted `genRef()` handles when a signal binding can express the update.
+Build the DOM tree once using the uncurried element factories (`div`, `span`,
+`button`, `input`, etc.) and materialise with `domCreator` / `domCreatorRef`,
+which receive `ctx: Window` explicitly and update bound `Text` nodes,
+properties, attributes, and lists directly in place.
+
+- **Tag factories**: Container tags (`div(props, children?)`, `span`, `button`, `ul`, `li`, `form`, `label`, `p`, `strong`, etc.) and void tags (`input(props)`, `img(props)`, `br(props)`, `hr(props)` — compile-time error if children are passed).
+- **Direct text & signal children**: Pass primitive `string | number` or `ReadonlySignal<string | number>` directly in the `children` array (`createTextNode` updated in $O(1)$).
+- **Reactive props, attrs & classes**: `genProp`, `genAttr`, and `genClass` accept static values or `ReadonlySignal<T>`.
+- **Typed events**: Use `genOn('click', handler, options?)` instead of manual `addEventListener` on refs.
+- **Control flow**: Use `domShow(condSig, child)`, `domIf(condSig, thenFn, elseFn?)`, and keyed `domList(itemsSig, keyFn, renderItem)` instead of clearing and re-creating container children.
+- **Scoped cleanup**: Pass a `scope: DomScope = []` to `domCreator` / `domCreatorRef` and call `domDispose(scope)` when unmounting dynamic views.
 
 ```ts
-// ✗ wrong
+// ✗ wrong — imperative DOM creation or manual ref mutation
 const el = document.createElement('button');
 el.textContent = 'Click';
 root.appendChild(el);
 
-// ✓ correct
-domCreator(ctx, root, genTagName('button', [genText('Click')]));
+// ✓ correct — declarative tag factories + direct signal bindings
+import {
+    bindArg,
+    button,
+    createStore,
+    div,
+    domCreator,
+    domList,
+    genClass,
+    genOn,
+    genProp,
+    mapSignal,
+    pipe,
+    SIGNAL_GET,
+    SIGNAL_SET,
+    span,
+} from '@month/utils';
+
+const countSig = createStore(0);
+const isDisabledSig = pipe(
+    countSig,
+    bindArg((n: number) => n >= 10, mapSignal)
+);
+
+domCreator(
+    ctx,
+    root,
+    div(
+        [genClass('counter')],
+        [
+            span([], ['Count: ', countSig]),
+            button(
+                [
+                    genProp('disabled', isDisabledSig),
+                    genOn('click', () =>
+                        countSig[SIGNAL_SET](countSig[SIGNAL_GET]() + 1)
+                    ),
+                ],
+                ['Increment']
+            ),
+        ]
+    )
+);
 ```
 
 ## External State Registry
@@ -238,7 +322,9 @@ and a `Map` that keys it by the object reference.
 
 // ✓ correct — external registry: Map<WebSocket, StateTuple>
 const PENDING_HANDLERS = 0 as const;
-type WsState = [handlers: Map<string, () => void>];
+type WsState = TupleOf<{
+    [PENDING_HANDLERS]: Map<string, () => void>;
+}>;
 
 const wsStateCreate = (): WsState => [new Map()];
 const wsStateSet = (

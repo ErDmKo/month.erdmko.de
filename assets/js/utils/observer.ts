@@ -1,5 +1,6 @@
 import { bindArg } from './bind';
 import { cont } from './cont';
+import type { ReadonlyTupleOf } from './tuple';
 
 export type ObserverState<EventType> = ((e: EventType) => void)[];
 export type ObserverInstance<EventType, ResultType = any> = (
@@ -151,17 +152,17 @@ export const SIGNAL_GET = 0 as const;
 export const SIGNAL_SET = 1 as const;
 export const SIGNAL_OBS = 2 as const;
 
-export type Signal<T> = readonly [
-    get: () => T,
-    set: (next: T) => void,
-    obs: ObserverInstance<T>,
-];
+export type Signal<T> = ReadonlyTupleOf<{
+    [SIGNAL_GET]: () => T;
+    [SIGNAL_SET]: (next: T) => void;
+    [SIGNAL_OBS]: ObserverInstance<T>;
+}>;
 
-export type ReadonlySignal<T> = readonly [
-    get: () => T,
-    set: unknown,
-    obs: (a: (s: any) => any) => any,
-];
+export type ReadonlySignal<T> = ReadonlyTupleOf<{
+    [SIGNAL_GET]: () => T;
+    [SIGNAL_SET]: unknown;
+    [SIGNAL_OBS]: (a: (s: any) => any) => any;
+}>;
 
 export type Reactive<T> = T | ReadonlySignal<T>;
 

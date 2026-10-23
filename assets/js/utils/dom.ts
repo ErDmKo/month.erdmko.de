@@ -11,6 +11,7 @@ import {
     SIGNAL_OBS,
     trigger,
 } from './observer';
+import type { ReadonlyTupleOf, TupleOf } from './tuple';
 
 export const PROP = 0 as const;
 export const REF = 1 as const;
@@ -52,7 +53,10 @@ export const FLOW_LIST_RENDER = 3 as const;
 
 const ENTRY_EL = 0 as const;
 const ENTRY_SCOPE = 1 as const;
-type ListEntry = [el: HTMLElement, itemScope: DomScope];
+type ListEntry = TupleOf<{
+    [ENTRY_EL]: HTMLElement;
+    [ENTRY_SCOPE]: DomScope;
+}>;
 
 type PropValue =
     | string
@@ -106,11 +110,11 @@ export type ContainerTagName = Exclude<TagName, VoidTagName>;
 type PropMap = Record<string, PropType>;
 type AttrMap = Record<string, AttrType>;
 
-export type DomShowNode = readonly [
-    type: typeof FLOW_SHOW,
-    cond: ReadonlySignal<boolean>,
-    child: DOMStruct<any, any>,
-];
+export type DomShowNode = ReadonlyTupleOf<{
+    [FLOW_TYPE]: typeof FLOW_SHOW;
+    [FLOW_SHOW_COND]: ReadonlySignal<boolean>;
+    [FLOW_SHOW_CHILD]: DOMStruct<any, any>;
+}>;
 
 export type DomIfNode = readonly [
     type: typeof FLOW_IF,
@@ -119,12 +123,12 @@ export type DomIfNode = readonly [
     elseBranch?: () => ChildItem | null | undefined | false,
 ];
 
-export type DomListNode<T = any> = readonly [
-    type: typeof FLOW_LIST,
-    items: ReadonlySignal<readonly T[]>,
-    keyFn: (item: T, index: number) => string | number,
-    renderItem: (item: T, index: number) => DOMStruct<any, any>,
-];
+export type DomListNode<T = any> = ReadonlyTupleOf<{
+    [FLOW_TYPE]: typeof FLOW_LIST;
+    [FLOW_LIST_ITEMS]: ReadonlySignal<readonly T[]>;
+    [FLOW_LIST_KEY]: (item: T, index: number) => string | number;
+    [FLOW_LIST_RENDER]: (item: T, index: number) => DOMStruct<any, any>;
+}>;
 
 export type DomFlowNode = DomShowNode | DomIfNode | DomListNode<any>;
 
