@@ -166,9 +166,7 @@ export type ReadonlySignal<T> = ReadonlyTupleOf<{
 
 export type Reactive<T> = T | ReadonlySignal<T>;
 
-export const isSignal = <T = unknown>(
-    val: unknown
-): val is ReadonlySignal<T> =>
+export const isSignal = <T = unknown>(val: unknown): val is ReadonlySignal<T> =>
     Array.isArray(val) &&
     val.length === 3 &&
     typeof val[SIGNAL_GET] === 'function' &&
@@ -190,11 +188,20 @@ export const createStore = <S>(initial: S): Signal<S> => {
 export const mapSignal = <A, B>(
     fn: (a: A) => B,
     sig: ReadonlySignal<A>
-): ReadonlySignal<B> => [
-    () => fn(sig[SIGNAL_GET]()),
-    undefined,
-    sig[SIGNAL_OBS](bindArg(fn, mapOperator))(distinctOperator),
-];
+): ReadonlySignal<B> => {
+    const mappedObs = observer<B>();
+    sig[SIGNAL_OBS](
+        bindArg((value: A) => {
+            mappedObs(bindArg(fn(value), trigger));
+        }, on)
+    );
+    // Getter reads do not prime deduplication: the first update still emits.
+    return [
+        () => fn(sig[SIGNAL_GET]()),
+        undefined,
+        mappedObs(distinctOperator),
+    ];
+};
 
 export const combineSignals = <A, B>(
     first: ReadonlySignal<A>,

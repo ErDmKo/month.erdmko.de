@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { pipe, taskFork } from '../../utils';
+import { pipe, SIGNAL_GET, taskFork } from '../../utils';
 import {
     encodeClientFrame,
     decodeClientFrame,
@@ -52,14 +52,12 @@ import {
     addVoiceIceCandidateTask,
 } from './peer';
 import {
-    CHAT_REF_VOICE_JOIN,
-    CHAT_REF_VOICE_MUTE,
-    CHAT_REF_VOICE_LEAVE,
-    CHAT_REF_VOICE_STATUS,
-    CHAT_REF_VOICE_PARTICIPANTS,
-} from '../chat-ui/template';
-import type { ChatUiRefs } from '../chat-ui/template';
-import { $chat__voice_participant } from '@month/gen/styles';
+    createChatUiState,
+    CHAT_UI_STATE_VOICE_IN_CALL,
+    CHAT_UI_STATE_VOICE_MUTED,
+    CHAT_UI_STATE_VOICE_STATUS,
+    CHAT_UI_STATE_VOICE_PARTICIPANTS,
+} from '../chat-ui/state';
 
 const ctx = globalThis as unknown as Window;
 
@@ -238,73 +236,31 @@ test('voice server frames encode/decode round-trip', () => {
     );
 });
 
-test('voice UI helpers update visibility, labels, and participant pills', () => {
-    const items: {
-        tag: string;
-        attrs: Record<string, string>;
-        innerText?: string;
-    }[] = [];
-    const ulEl = {
-        get firstChild() {
-            return items.length > 0 ? items[0] : null;
-        },
-        appendChild(child: {
-            tag: string;
-            attrs: Record<string, string>;
-            innerText?: string;
-        }) {
-            items.push(child);
-        },
-        removeChild() {
-            items.shift();
-        },
-    };
-    const mockRefs = {
-        [CHAT_REF_VOICE_JOIN]: { hidden: false },
-        [CHAT_REF_VOICE_MUTE]: { hidden: true, textContent: 'Mute' },
-        [CHAT_REF_VOICE_LEAVE]: { hidden: true },
-        [CHAT_REF_VOICE_STATUS]: { textContent: '' },
-        [CHAT_REF_VOICE_PARTICIPANTS]: ulEl,
-    } as unknown as ChatUiRefs;
+test('voice UI helpers update signals and reset call state', () => {
+    const state = createChatUiState();
+    setInCall(state, true);
+    assert.equal(state[CHAT_UI_STATE_VOICE_IN_CALL][SIGNAL_GET](), true);
 
-    const domCtx = {
-        document: {
-            createElement: (tag: string) => ({
-                tag,
-                attrs: {} as Record<string, string>,
-                setAttribute(k: string, v: string) {
-                    this.attrs[k] = v;
-                },
-                appendChild() {},
-            }),
-        },
-    } as unknown as Window;
+    setStatus(state, 'Connected');
+    assert.equal(state[CHAT_UI_STATE_VOICE_STATUS][SIGNAL_GET](), 'Connected');
 
-    setInCall(mockRefs, true);
-    assert.equal(mockRefs[CHAT_REF_VOICE_JOIN].hidden, true);
-    assert.equal(mockRefs[CHAT_REF_VOICE_MUTE].hidden, false);
-    assert.equal(mockRefs[CHAT_REF_VOICE_LEAVE].hidden, false);
+    setMuteLabel(state, true);
+    assert.equal(state[CHAT_UI_STATE_VOICE_MUTED][SIGNAL_GET](), true);
 
-    setStatus(mockRefs, 'Connected');
-    assert.equal(mockRefs[CHAT_REF_VOICE_STATUS].textContent, 'Connected');
-
-    setMuteLabel(mockRefs, true);
-    assert.equal(mockRefs[CHAT_REF_VOICE_MUTE].textContent, 'Unmute');
-
-    renderParticipants(domCtx, mockRefs, [
+    renderParticipants(state, [
         ['u1', 'alice'],
         ['u2', 'bob'],
     ]);
-    assert.equal(items.length, 2);
-    assert.equal(items[0].innerText, 'alice');
-    assert.equal(items[0].attrs.class, $chat__voice_participant);
-    assert.equal(items[1].innerText, 'bob');
+    assert.deepEqual(state[CHAT_UI_STATE_VOICE_PARTICIPANTS][SIGNAL_GET](), [
+        ['u1', 'alice'],
+        ['u2', 'bob'],
+    ]);
 
-    resetVoiceUi(domCtx, mockRefs);
-    assert.equal(mockRefs[CHAT_REF_VOICE_JOIN].hidden, false);
-    assert.equal(mockRefs[CHAT_REF_VOICE_MUTE].hidden, true);
-    assert.equal(mockRefs[CHAT_REF_VOICE_STATUS].textContent, '');
-    assert.equal(items.length, 0);
+    resetVoiceUi(state);
+    assert.equal(state[CHAT_UI_STATE_VOICE_IN_CALL][SIGNAL_GET](), false);
+    assert.equal(state[CHAT_UI_STATE_VOICE_MUTED][SIGNAL_GET](), false);
+    assert.equal(state[CHAT_UI_STATE_VOICE_STATUS][SIGNAL_GET](), '');
+    assert.deepEqual(state[CHAT_UI_STATE_VOICE_PARTICIPANTS][SIGNAL_GET](), []);
 });
 
 test('voice peer helpers toggle track mute, close resources, and run SDP/ICE tasks', async () => {

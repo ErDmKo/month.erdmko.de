@@ -6,7 +6,6 @@ import {
     PROP,
     PROP_TYPE,
     PROP_KEY,
-    PROP_VALUE,
 } from '@month/utils';
 import { chatMessageTemplate } from './messages/template';
 import { MAX_MESSAGE_LEN } from './chat-ui/message-form-handler';
@@ -133,10 +132,5 @@ test('message template renders body as plain text (XSS guard)', () => {
             false
         );
     }
-    assert.equal(
-        body[DOM_PROPS].find(
-            (prop) => prop[PROP_TYPE] === PROP && prop[PROP_KEY] === 'innerText'
-        )?.[PROP_VALUE],
-        xssPayload
-    );
+    assert.deepEqual(body[DOM_CHILDREN], [xssPayload]);
 });

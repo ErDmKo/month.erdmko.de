@@ -105,7 +105,6 @@ export type VoidTagName =
     | 'source'
     | 'track'
     | 'wbr';
-export type ContainerTagName = Exclude<TagName, VoidTagName>;
 
 export type DomShowNode = ReadonlyTupleOf<{
     [DOM_META]: typeof FLOW_SHOW;
@@ -239,121 +238,11 @@ export const genClass = (
     return [ATTR, 'class', derivedSig] as const;
 };
 
-export const genTagDiv = <
-    T extends TagName = 'div',
-    C extends ChildItem = ChildItem,
->(
-    props: readonly Props[] = EMPTY,
-    children: readonly C[] = EMPTY
-): DOMStruct<T, C> => genTagName('div' as T, props, children);
-
 export const genTagName = <T extends TagName, C extends ChildItem = ChildItem>(
     tagName: T,
     props: readonly Props[] = EMPTY,
-    children: readonly C[] = EMPTY
+    children: readonly (T extends VoidTagName ? never : C)[] = EMPTY
 ): DOMStruct<T, C> => [getDomMeta(props, children), tagName, props, children];
-
-// ── Option C Tag Factories ────────────────────────────────────────────────────
-
-export const createTagFactory =
-    <K extends ContainerTagName>(tagName: K) =>
-    <C extends ChildItem = ChildItem>(
-        props: readonly Props[] = EMPTY,
-        children: readonly C[] = EMPTY
-    ): DOMStruct<K, C> =>
-        genTagName(tagName, props, children);
-
-export const createVoidTagFactory =
-    <K extends VoidTagName>(tagName: K) =>
-    (props: readonly Props[] = EMPTY): DOMStruct<K, never> =>
-        genTagName<K, never>(tagName, props, EMPTY);
-
-// Container HTML elements
-export const a = /* @__PURE__ */ createTagFactory('a');
-export const article = /* @__PURE__ */ createTagFactory('article');
-export const aside = /* @__PURE__ */ createTagFactory('aside');
-export const audio = /* @__PURE__ */ createTagFactory('audio');
-export const b = /* @__PURE__ */ createTagFactory('b');
-export const blockquote = /* @__PURE__ */ createTagFactory('blockquote');
-export const button = /* @__PURE__ */ createTagFactory('button');
-export const canvas = /* @__PURE__ */ createTagFactory('canvas');
-export const code = /* @__PURE__ */ createTagFactory('code');
-export const dd = /* @__PURE__ */ createTagFactory('dd');
-export const details = /* @__PURE__ */ createTagFactory('details');
-export const dialog = /* @__PURE__ */ createTagFactory('dialog');
-export const div = /* @__PURE__ */ createTagFactory('div');
-export const dl = /* @__PURE__ */ createTagFactory('dl');
-export const dt = /* @__PURE__ */ createTagFactory('dt');
-export const em = /* @__PURE__ */ createTagFactory('em');
-export const fieldset = /* @__PURE__ */ createTagFactory('fieldset');
-export const figcaption = /* @__PURE__ */ createTagFactory('figcaption');
-export const figure = /* @__PURE__ */ createTagFactory('figure');
-export const footer = /* @__PURE__ */ createTagFactory('footer');
-export const form = /* @__PURE__ */ createTagFactory('form');
-export const h1 = /* @__PURE__ */ createTagFactory('h1');
-export const h2 = /* @__PURE__ */ createTagFactory('h2');
-export const h3 = /* @__PURE__ */ createTagFactory('h3');
-export const h4 = /* @__PURE__ */ createTagFactory('h4');
-export const h5 = /* @__PURE__ */ createTagFactory('h5');
-export const h6 = /* @__PURE__ */ createTagFactory('h6');
-export const header = /* @__PURE__ */ createTagFactory('header');
-export const i = /* @__PURE__ */ createTagFactory('i');
-export const iframe = /* @__PURE__ */ createTagFactory('iframe');
-export const kbd = /* @__PURE__ */ createTagFactory('kbd');
-export const label = /* @__PURE__ */ createTagFactory('label');
-export const legend = /* @__PURE__ */ createTagFactory('legend');
-export const li = /* @__PURE__ */ createTagFactory('li');
-export const main = /* @__PURE__ */ createTagFactory('main');
-export const mark = /* @__PURE__ */ createTagFactory('mark');
-export const menu = /* @__PURE__ */ createTagFactory('menu');
-export const meter = /* @__PURE__ */ createTagFactory('meter');
-export const nav = /* @__PURE__ */ createTagFactory('nav');
-export const ol = /* @__PURE__ */ createTagFactory('ol');
-export const optgroup = /* @__PURE__ */ createTagFactory('optgroup');
-export const option = /* @__PURE__ */ createTagFactory('option');
-export const output = /* @__PURE__ */ createTagFactory('output');
-export const p = /* @__PURE__ */ createTagFactory('p');
-export const picture = /* @__PURE__ */ createTagFactory('picture');
-export const pre = /* @__PURE__ */ createTagFactory('pre');
-export const progress = /* @__PURE__ */ createTagFactory('progress');
-export const q = /* @__PURE__ */ createTagFactory('q');
-export const s = /* @__PURE__ */ createTagFactory('s');
-export const samp = /* @__PURE__ */ createTagFactory('samp');
-export const section = /* @__PURE__ */ createTagFactory('section');
-export const select = /* @__PURE__ */ createTagFactory('select');
-export const small = /* @__PURE__ */ createTagFactory('small');
-export const span = /* @__PURE__ */ createTagFactory('span');
-export const strong = /* @__PURE__ */ createTagFactory('strong');
-export const sub = /* @__PURE__ */ createTagFactory('sub');
-export const summary = /* @__PURE__ */ createTagFactory('summary');
-export const sup = /* @__PURE__ */ createTagFactory('sup');
-export const table = /* @__PURE__ */ createTagFactory('table');
-export const tbody = /* @__PURE__ */ createTagFactory('tbody');
-export const td = /* @__PURE__ */ createTagFactory('td');
-export const textarea = /* @__PURE__ */ createTagFactory('textarea');
-export const tfoot = /* @__PURE__ */ createTagFactory('tfoot');
-export const th = /* @__PURE__ */ createTagFactory('th');
-export const thead = /* @__PURE__ */ createTagFactory('thead');
-export const time = /* @__PURE__ */ createTagFactory('time');
-export const tr = /* @__PURE__ */ createTagFactory('tr');
-export const u = /* @__PURE__ */ createTagFactory('u');
-export const ul = /* @__PURE__ */ createTagFactory('ul');
-export const video = /* @__PURE__ */ createTagFactory('video');
-
-// Void HTML elements
-export const area = /* @__PURE__ */ createVoidTagFactory('area');
-export const base = /* @__PURE__ */ createVoidTagFactory('base');
-export const br = /* @__PURE__ */ createVoidTagFactory('br');
-export const col = /* @__PURE__ */ createVoidTagFactory('col');
-export const embed = /* @__PURE__ */ createVoidTagFactory('embed');
-export const hr = /* @__PURE__ */ createVoidTagFactory('hr');
-export const img = /* @__PURE__ */ createVoidTagFactory('img');
-export const input = /* @__PURE__ */ createVoidTagFactory('input');
-export const link = /* @__PURE__ */ createVoidTagFactory('link');
-export const meta = /* @__PURE__ */ createVoidTagFactory('meta');
-export const source = /* @__PURE__ */ createVoidTagFactory('source');
-export const track = /* @__PURE__ */ createVoidTagFactory('track');
-export const wbr = /* @__PURE__ */ createVoidTagFactory('wbr');
 
 // ── Flow Primitives ───────────────────────────────────────────────────────────
 

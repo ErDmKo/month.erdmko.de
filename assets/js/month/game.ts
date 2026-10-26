@@ -1,18 +1,14 @@
 import {
     bindArg,
-    button,
+    genTagName,
     cleanHtml,
     createStore,
-    div,
     domCreator,
     domIf,
     DomScope,
     genClass,
     genOn,
     genProp,
-    h3,
-    h4,
-    li,
     mapSignal,
     next,
     observer,
@@ -20,9 +16,7 @@ import {
     randomRange,
     SIGNAL_GET,
     SIGNAL_SET,
-    span,
     subscribe,
-    ul,
 } from '@month/utils';
 import { $month, $month__item } from '@month/gen/styles';
 import { GAME_DURATION_SECONDS } from './const';
@@ -61,17 +55,28 @@ const report = (totalScore: readonly ScoreLog[]) => {
     const errors = totalScore.filter((entry) => entry[SCORE_IS_ERROR]).length;
     const correct = totalScore.length - errors;
     const totalResult = correct - errors;
-    return div(
+    return genTagName(
+        'div',
         [],
         [
-            h3([], ['Время вышло!']),
-            h4([], [`Итоговый результат игры: ${totalResult}`]),
-            ul(
+            genTagName('h3', [], ['Время вышло!']),
+            genTagName('h4', [], [`Итоговый результат игры: ${totalResult}`]),
+            genTagName(
+                'ul',
                 [genClass($month)],
                 [
-                    li([genClass($month__item)], [`Ошибки: ${errors}`]),
-                    li([genClass($month__item)], [`Верные ответы: ${correct}`]),
-                    li(
+                    genTagName(
+                        'li',
+                        [genClass($month__item)],
+                        [`Ошибки: ${errors}`]
+                    ),
+                    genTagName(
+                        'li',
+                        [genClass($month__item)],
+                        [`Верные ответы: ${correct}`]
+                    ),
+                    genTagName(
+                        'li',
                         [genClass($month__item)],
                         [`Всего вопросов: ${totalScore.length}`]
                     ),
@@ -106,10 +111,7 @@ export const render = (
     const answerSig = createStore(initialAnswer);
     const headerTextSig = createStore(monthNames[initialAnswer] || '');
 
-    const timerTextSig = pipe(
-        leftTimeSig,
-        bindArg(formatTimerText, mapSignal)
-    );
+    const timerTextSig = pipe(leftTimeSig, bindArg(formatTimerText, mapSignal));
 
     const buttonColorSigs = Array.from({ length: 12 }, () => createStore(''));
     const buttonLockedSigs = Array.from({ length: 12 }, () =>
@@ -149,18 +151,25 @@ export const render = (
     });
 
     const gamePlayView = () =>
-        div(
+        genTagName(
+            'div',
             [],
             [
-                div(
+                genTagName(
+                    'div',
                     [genClass('game-timer')],
                     [
-                        span([], ['Времени осталось: ']),
-                        span([], [timerTextSig]),
+                        genTagName('span', [], ['Времени осталось: ']),
+                        genTagName('span', [], [timerTextSig]),
                     ]
                 ),
-                div([genProp('style', HEADER_STYLE)], [headerTextSig]),
-                div(
+                genTagName(
+                    'div',
+                    [genProp('style', HEADER_STYLE)],
+                    [headerTextSig]
+                ),
+                genTagName(
+                    'div',
                     [genClass('options')],
                     Array.from({ length: 12 }, (_, idx) => {
                         const monthNo = idx + 1;
@@ -202,7 +211,8 @@ export const render = (
                             }
                         };
 
-                        return button(
+                        return genTagName(
+                            'button',
                             [
                                 genProp('style', styleSig),
                                 genOn('click', handleClick),
@@ -217,15 +227,10 @@ export const render = (
     domCreator(
         ctx,
         root,
-        div(
+        genTagName(
+            'div',
             [],
-            [
-                domIf(
-                    isOverSig,
-                    () => report(totalScore),
-                    gamePlayView
-                ),
-            ]
+            [domIf(isOverSig, () => report(totalScore), gamePlayView)]
         ),
         scope
     );

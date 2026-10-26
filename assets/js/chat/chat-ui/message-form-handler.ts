@@ -1,80 +1,62 @@
-import { bindArg, trigger } from '../../utils';
+import { bindArg, SIGNAL_GET, SIGNAL_SET, trigger } from '../../utils';
 import type { ObserverInstance } from '../../utils';
 import { CLIENT_FRAME_MESSAGE } from '@month/gen/chat';
-
-export const MAX_MESSAGE_LEN = 200;
-import {
-    CHAT_REF_MESSAGE_FORM,
-    CHAT_REF_MESSAGE,
-    CHAT_REF_COUNTER,
-    CHAT_REF_SEND,
-    CHAT_REF_ATTACH_BUTTON,
-    CHAT_REF_FILE_INPUT,
-} from './template';
-import type { ChatUiRefs } from './template';
+import type { ClientFramePayload } from '@month/gen/chat';
 import { CHAT_UI_ERROR, CHAT_UI_FILE_SELECTED } from './events';
 import type { ChatUiObs } from './events';
-import { CHAT_UI_STATE_IS_JOINED } from './state';
+import { CHAT_UI_STATE_MESSAGE } from './state';
 import type { ChatUiState } from './state';
-import type { ClientFramePayload } from '@month/gen/chat';
 
-export const mountMessageFormHandler = (
+export const MAX_MESSAGE_LEN = 200;
+
+export const handleMessageInput = (state: ChatUiState, event: Event): void => {
+    state[CHAT_UI_STATE_MESSAGE][SIGNAL_SET](
+        (event.currentTarget as HTMLTextAreaElement).value
+    );
+};
+
+export const handleMessageKeydown = (event: KeyboardEvent): void => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        (event.currentTarget as HTMLTextAreaElement).form?.requestSubmit();
+    }
+};
+
+export const handleMessageSubmit = (
     ctx: Window,
-    refs: ChatUiRefs,
     outgoing: ObserverInstance<ClientFramePayload>,
     chatUiObs: ChatUiObs,
-    state: ChatUiState
+    state: ChatUiState,
+    event: Event
 ): void => {
-    refs[CHAT_REF_MESSAGE].addEventListener('input', () => {
-        const len = refs[CHAT_REF_MESSAGE].value.length;
-        refs[CHAT_REF_COUNTER].textContent = `${len}/${MAX_MESSAGE_LEN}`;
-        refs[CHAT_REF_SEND].disabled =
-            !state[CHAT_UI_STATE_IS_JOINED] ||
-            len === 0 ||
-            len > MAX_MESSAGE_LEN;
-    });
-
-    refs[CHAT_REF_MESSAGE].addEventListener('keydown', (e: KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            refs[CHAT_REF_MESSAGE_FORM].requestSubmit();
-        }
-    });
-
-    refs[CHAT_REF_MESSAGE_FORM].addEventListener('submit', (e: Event) => {
-        e.preventDefault();
-        const body = refs[CHAT_REF_MESSAGE].value.trim();
-        if (body.length === 0 || body.length > MAX_MESSAGE_LEN) {
-            chatUiObs(
-                bindArg(
-                    [
-                        CHAT_UI_ERROR,
-                        `Message must be between 1 and ${MAX_MESSAGE_LEN} characters.`,
-                    ] as const,
-                    trigger
-                )
-            );
-            return;
-        }
-        const msgRequestId = `msg-${ctx.Date.now()}`;
-        outgoing(
+    event.preventDefault();
+    const body = state[CHAT_UI_STATE_MESSAGE][SIGNAL_GET]().trim();
+    if (body.length === 0 || body.length > MAX_MESSAGE_LEN) {
+        chatUiObs(
             bindArg(
-                [CLIENT_FRAME_MESSAGE, [msgRequestId, body]] as const,
+                [
+                    CHAT_UI_ERROR,
+                    `Message must be between 1 and ${MAX_MESSAGE_LEN} characters.`,
+                ] as const,
                 trigger
             )
         );
-        refs[CHAT_REF_MESSAGE].value = '';
-        refs[CHAT_REF_COUNTER].textContent = `0/${MAX_MESSAGE_LEN}`;
-        refs[CHAT_REF_SEND].disabled = true;
-    });
+        return;
+    }
+    outgoing(
+        bindArg(
+            [CLIENT_FRAME_MESSAGE, [`msg-${ctx.Date.now()}`, body]] as const,
+            trigger
+        )
+    );
+    state[CHAT_UI_STATE_MESSAGE][SIGNAL_SET]('');
+};
 
-    refs[CHAT_REF_ATTACH_BUTTON].addEventListener('click', () => {
-        refs[CHAT_REF_FILE_INPUT].click();
-    });
-
-    refs[CHAT_REF_FILE_INPUT].addEventListener('change', () => {
-        const file = refs[CHAT_REF_FILE_INPUT].files?.[0] ?? null;
-        if (!file) return;
+export const handleFileSelected = (
+    chatUiObs: ChatUiObs,
+    event: Event
+): void => {
+    const file = (event.currentTarget as HTMLInputElement).files?.[0];
+    if (file)
         chatUiObs(bindArg([CHAT_UI_FILE_SELECTED, file] as const, trigger));
-    });
 };

@@ -7,7 +7,6 @@ import {
     genClass,
     genProp,
     genRef,
-    genTagDiv,
     genTagName,
     genText,
     on,
@@ -96,7 +95,8 @@ const addPhoneControls = (
     domCreator(
         ctx,
         element,
-        genTagDiv(
+        genTagName(
+            'div',
             [genClass($c)],
             phoneControlsMap.map(([key, name]) => {
                 return genTagName('button', [
@@ -114,7 +114,7 @@ const initCanvas = (ctx: Window, element: Element) => {
     htmlElement.innerHTML = '';
     htmlElement.classList.add($tetris);
     const boardSize: Vector2D = [10, 20];
-    const infoTemplate = genTagDiv([
+    const infoTemplate = genTagName('div', [
         genClass($info),
         genText(START_TEXT),
         genRef(),
@@ -122,7 +122,7 @@ const initCanvas = (ctx: Window, element: Element) => {
     const [wrapper, info] = domCreator(
         ctx,
         htmlElement,
-        genTagDiv([genClass($wrapper), genRef()], [infoTemplate])
+        genTagName('div', [genClass($wrapper), genRef()], [infoTemplate])
     );
     const [rect, canvas] = fillElemWidhCanvas(ctx, wrapper);
     var canvasCtx = canvas.getContext('2d');

@@ -1,12 +1,20 @@
 import {
+    genTagName,
+    bindArg,
+    bindArgs,
     cleanHtml,
+    combineSignals,
     domCreatorRef,
+    domList,
     genAttr,
     genClass,
+    genOn,
+    genProp,
     genRef,
-    genTagName,
-    genText,
+    mapSignal,
+    trigger,
 } from '@month/utils';
+import type { ObserverInstance } from '@month/utils';
 import {
     $chat__meta,
     $chat__error,
@@ -22,56 +30,109 @@ import {
     $chat__voice_bar,
     $chat__voice_status,
     $chat__voice_participants,
+    $chat__voice_participant,
 } from '@month/gen/styles';
+import {
+    VOICE_PARTICIPANT_SENDER_ID,
+    VOICE_PARTICIPANT_SENDER_NAME,
+} from '@month/gen/chat';
+import type { ClientFramePayload, VoiceParticipant } from '@month/gen/chat';
+import {
+    handleJoinSubmit,
+    handleNicknameInput,
+    isValidNickname,
+    MAX_NICKNAME_LEN,
+} from './join-form-handler';
+import {
+    handleFileSelected,
+    handleMessageInput,
+    handleMessageKeydown,
+    handleMessageSubmit,
+    MAX_MESSAGE_LEN,
+} from './message-form-handler';
+import {
+    CHAT_UI_VOICE_JOIN,
+    CHAT_UI_VOICE_MUTE,
+    CHAT_UI_VOICE_LEAVE,
+} from './events';
+import type { ChatUiObs } from './events';
+import {
+    CHAT_UI_STATE_ERROR,
+    CHAT_UI_STATE_IS_JOINED,
+    CHAT_UI_STATE_IS_ONLINE,
+    CHAT_UI_STATE_JOIN_IN_FLIGHT,
+    CHAT_UI_STATE_MESSAGE,
+    CHAT_UI_STATE_NICKNAME,
+    CHAT_UI_STATE_STATUS,
+    CHAT_UI_STATE_UPLOAD_VISIBLE,
+    CHAT_UI_STATE_VOICE_IN_CALL,
+    CHAT_UI_STATE_VOICE_MUTED,
+    CHAT_UI_STATE_VOICE_PARTICIPANTS,
+    CHAT_UI_STATE_VOICE_STATUS,
+} from './state';
+import type { ChatUiState } from './state';
 
-export const CHAT_REF_STATUS = 0 as const;
-export const CHAT_REF_ERROR = 1 as const;
-export const CHAT_REF_WELCOME = 2 as const;
-export const CHAT_REF_CHAT_SCREEN = 3 as const;
-export const CHAT_REF_JOIN_FORM = 4 as const;
-export const CHAT_REF_NICKNAME = 5 as const;
-export const CHAT_REF_JOIN_BUTTON = 6 as const;
-export const CHAT_REF_MESSAGES = 7 as const;
-export const CHAT_REF_MESSAGE_FORM = 8 as const;
-export const CHAT_REF_MESSAGE = 9 as const;
-export const CHAT_REF_COUNTER = 10 as const;
-export const CHAT_REF_SEND = 11 as const;
-export const CHAT_REF_ATTACH_BUTTON = 12 as const;
-export const CHAT_REF_FILE_INPUT = 13 as const;
-export const CHAT_REF_UPLOAD_PREVIEW = 14 as const;
-export const CHAT_REF_VOICE_JOIN = 15 as const;
-export const CHAT_REF_VOICE_MUTE = 16 as const;
-export const CHAT_REF_VOICE_LEAVE = 17 as const;
-export const CHAT_REF_VOICE_STATUS = 18 as const;
-export const CHAT_REF_VOICE_PARTICIPANTS = 19 as const;
-export const CHAT_REF_VOICE_REMOTE_AUDIO = 20 as const;
+// Refs are only used for mounting dynamic content and browser APIs.
+export const CHAT_REF_MESSAGES = 0 as const;
+export const CHAT_REF_FILE_INPUT = 1 as const;
+export const CHAT_REF_UPLOAD_PREVIEW = 2 as const;
+export const CHAT_REF_VOICE_REMOTE_AUDIO = 3 as const;
 
 export type ChatUiRefs = {
-    [CHAT_REF_STATUS]: HTMLElement;
-    [CHAT_REF_ERROR]: HTMLParagraphElement;
-    [CHAT_REF_WELCOME]: HTMLDivElement;
-    [CHAT_REF_CHAT_SCREEN]: HTMLDivElement;
-    [CHAT_REF_JOIN_FORM]: HTMLFormElement;
     [CHAT_REF_MESSAGES]: HTMLUListElement;
-    [CHAT_REF_NICKNAME]: HTMLInputElement;
-    [CHAT_REF_JOIN_BUTTON]: HTMLButtonElement;
-    [CHAT_REF_MESSAGE_FORM]: HTMLFormElement;
-    [CHAT_REF_MESSAGE]: HTMLTextAreaElement;
-    [CHAT_REF_COUNTER]: HTMLSpanElement;
-    [CHAT_REF_SEND]: HTMLButtonElement;
-    [CHAT_REF_ATTACH_BUTTON]: HTMLButtonElement;
     [CHAT_REF_FILE_INPUT]: HTMLInputElement;
     [CHAT_REF_UPLOAD_PREVIEW]: HTMLDivElement;
-    [CHAT_REF_VOICE_JOIN]: HTMLButtonElement;
-    [CHAT_REF_VOICE_MUTE]: HTMLButtonElement;
-    [CHAT_REF_VOICE_LEAVE]: HTMLButtonElement;
-    [CHAT_REF_VOICE_STATUS]: HTMLSpanElement;
-    [CHAT_REF_VOICE_PARTICIPANTS]: HTMLUListElement;
     [CHAT_REF_VOICE_REMOTE_AUDIO]: HTMLAudioElement;
 };
 
-export const chatUiTemplate = (maxMessageLen: number) =>
+const not = (value: boolean): boolean => !value;
+const participantKey = (participant: VoiceParticipant): string =>
+    `${participant[VOICE_PARTICIPANT_SENDER_ID]}:${participant[VOICE_PARTICIPANT_SENDER_NAME]}`;
+const participantTemplate = (participant: VoiceParticipant) =>
     genTagName(
+        'li',
+        [genClass($chat__voice_participant)],
+        [participant[VOICE_PARTICIPANT_SENDER_NAME]]
+    );
+
+export const chatUiTemplate = (
+    ctx: Window,
+    nicknameKey: string,
+    outgoing: ObserverInstance<ClientFramePayload>,
+    chatUiObs: ChatUiObs,
+    attachFile: () => void,
+    state: ChatUiState
+) => {
+    const welcomeHidden = state[CHAT_UI_STATE_IS_JOINED];
+    const chatHidden = mapSignal(not, welcomeHidden);
+    const voiceHidden = mapSignal(not, state[CHAT_UI_STATE_VOICE_IN_CALL]);
+    const counter = mapSignal(
+        (message: string) => `${message.length}/${MAX_MESSAGE_LEN}`,
+        state[CHAT_UI_STATE_MESSAGE]
+    );
+    const sendDisabled = mapSignal(
+        ([joined, message]) =>
+            !joined || message.length === 0 || message.length > MAX_MESSAGE_LEN,
+        combineSignals(
+            state[CHAT_UI_STATE_IS_JOINED],
+            state[CHAT_UI_STATE_MESSAGE]
+        )
+    );
+    const joinDisabled = mapSignal(
+        ([[joined, joining], [online, nickname]]) =>
+            joined || joining || !online || !isValidNickname(nickname),
+        combineSignals(
+            combineSignals(
+                state[CHAT_UI_STATE_IS_JOINED],
+                state[CHAT_UI_STATE_JOIN_IN_FLIGHT]
+            ),
+            combineSignals(
+                state[CHAT_UI_STATE_IS_ONLINE],
+                state[CHAT_UI_STATE_NICKNAME]
+            )
+        )
+    );
+    return genTagName(
         'div',
         [],
         [
@@ -79,36 +140,52 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                 'div',
                 [genClass($chat__meta)],
                 [
-                    genTagName('span', [genText('Status: ')]),
-                    genTagName('strong', [
-                        genRef(CHAT_REF_STATUS),
-                        genText('connecting'),
-                    ]),
+                    genTagName('span', [], ['Status: ']),
+                    genTagName('strong', [], [state[CHAT_UI_STATE_STATUS]]),
                 ]
             ),
-            genTagName('p', [
-                genClass($chat__error),
-                genRef(CHAT_REF_ERROR),
-                genAttr('aria-live', 'polite'),
-            ]),
+            genTagName(
+                'p',
+                [genClass($chat__error), genAttr('aria-live', 'polite')],
+                [state[CHAT_UI_STATE_ERROR]]
+            ),
             genTagName(
                 'div',
-                [genRef(CHAT_REF_WELCOME)],
+                [genProp('hidden', welcomeHidden)],
                 [
                     genTagName(
                         'form',
-                        [genClass($chat__form), genRef(CHAT_REF_JOIN_FORM)],
+                        [
+                            genClass($chat__form),
+                            genOn(
+                                'submit',
+                                bindArgs(
+                                    [ctx, outgoing, state],
+                                    handleJoinSubmit
+                                )
+                            ),
+                        ],
                         [
                             genTagName(
                                 'label',
                                 [genClass($chat__label)],
                                 [
-                                    genTagName('span', [genText('Nickname')]),
+                                    genTagName('span', [], ['Nickname']),
                                     genTagName('input', [
                                         genClass($chat__input),
-                                        genRef(CHAT_REF_NICKNAME),
+                                        genProp(
+                                            'value',
+                                            state[CHAT_UI_STATE_NICKNAME]
+                                        ),
+                                        genOn(
+                                            'input',
+                                            bindArgs(
+                                                [ctx, nicknameKey, state],
+                                                handleNicknameInput
+                                            )
+                                        ),
                                         genAttr('type', 'text'),
-                                        genAttr('maxlength', 32),
+                                        genAttr('maxlength', MAX_NICKNAME_LEN),
                                         genAttr('placeholder', 'guest'),
                                         genAttr('required', 'required'),
                                     ]),
@@ -118,12 +195,15 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                                 'div',
                                 [genClass($chat__controls)],
                                 [
-                                    genTagName('button', [
-                                        genClass($chat__button),
-                                        genRef(CHAT_REF_JOIN_BUTTON),
-                                        genAttr('type', 'submit'),
-                                        genText('Join room'),
-                                    ]),
+                                    genTagName(
+                                        'button',
+                                        [
+                                            genClass($chat__button),
+                                            genAttr('type', 'submit'),
+                                            genProp('disabled', joinDisabled),
+                                        ],
+                                        ['Join room']
+                                    ),
                                 ]
                             ),
                         ]
@@ -132,40 +212,94 @@ export const chatUiTemplate = (maxMessageLen: number) =>
             ),
             genTagName(
                 'div',
-                [genRef(CHAT_REF_CHAT_SCREEN), genAttr('hidden', 'hidden')],
+                [genProp('hidden', chatHidden)],
                 [
                     genTagName(
                         'div',
                         [genClass($chat__voice_bar)],
                         [
-                            genTagName('button', [
-                                genClass($chat__button),
-                                genRef(CHAT_REF_VOICE_JOIN),
-                                genAttr('type', 'button'),
-                                genText('Join voice'),
-                            ]),
-                            genTagName('button', [
-                                genClass($chat__button),
-                                genRef(CHAT_REF_VOICE_MUTE),
-                                genAttr('type', 'button'),
-                                genAttr('hidden', 'hidden'),
-                                genText('Mute'),
-                            ]),
-                            genTagName('button', [
-                                genClass($chat__button),
-                                genRef(CHAT_REF_VOICE_LEAVE),
-                                genAttr('type', 'button'),
-                                genAttr('hidden', 'hidden'),
-                                genText('Leave'),
-                            ]),
-                            genTagName('span', [
-                                genClass($chat__voice_status),
-                                genRef(CHAT_REF_VOICE_STATUS),
-                            ]),
-                            genTagName('ul', [
-                                genClass($chat__voice_participants),
-                                genRef(CHAT_REF_VOICE_PARTICIPANTS),
-                            ]),
+                            genTagName(
+                                'button',
+                                [
+                                    genClass($chat__button),
+                                    genAttr('type', 'button'),
+                                    genProp(
+                                        'hidden',
+                                        state[CHAT_UI_STATE_VOICE_IN_CALL]
+                                    ),
+                                    genOn(
+                                        'click',
+                                        bindArg(
+                                            bindArg(
+                                                [CHAT_UI_VOICE_JOIN] as const,
+                                                trigger
+                                            ),
+                                            chatUiObs
+                                        )
+                                    ),
+                                ],
+                                ['Join voice']
+                            ),
+                            genTagName(
+                                'button',
+                                [
+                                    genClass($chat__button),
+                                    genAttr('type', 'button'),
+                                    genProp('hidden', voiceHidden),
+                                    genOn(
+                                        'click',
+                                        bindArg(
+                                            bindArg(
+                                                [CHAT_UI_VOICE_MUTE] as const,
+                                                trigger
+                                            ),
+                                            chatUiObs
+                                        )
+                                    ),
+                                ],
+                                [
+                                    mapSignal(
+                                        (muted: boolean) =>
+                                            muted ? 'Unmute' : 'Mute',
+                                        state[CHAT_UI_STATE_VOICE_MUTED]
+                                    ),
+                                ]
+                            ),
+                            genTagName(
+                                'button',
+                                [
+                                    genClass($chat__button),
+                                    genAttr('type', 'button'),
+                                    genProp('hidden', voiceHidden),
+                                    genOn(
+                                        'click',
+                                        bindArg(
+                                            bindArg(
+                                                [CHAT_UI_VOICE_LEAVE] as const,
+                                                trigger
+                                            ),
+                                            chatUiObs
+                                        )
+                                    ),
+                                ],
+                                ['Leave']
+                            ),
+                            genTagName(
+                                'span',
+                                [genClass($chat__voice_status)],
+                                [state[CHAT_UI_STATE_VOICE_STATUS]]
+                            ),
+                            genTagName(
+                                'ul',
+                                [genClass($chat__voice_participants)],
+                                [
+                                    domList(
+                                        state[CHAT_UI_STATE_VOICE_PARTICIPANTS],
+                                        participantKey,
+                                        participantTemplate
+                                    ),
+                                ]
+                            ),
                             genTagName('audio', [
                                 genRef(CHAT_REF_VOICE_REMOTE_AUDIO),
                                 genAttr('autoplay', 'autoplay'),
@@ -180,24 +314,48 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                     ]),
                     genTagName(
                         'form',
-                        [genClass($chat__form), genRef(CHAT_REF_MESSAGE_FORM)],
+                        [
+                            genClass($chat__form),
+                            genOn(
+                                'submit',
+                                bindArgs(
+                                    [ctx, outgoing, chatUiObs, state],
+                                    handleMessageSubmit
+                                )
+                            ),
+                        ],
                         [
                             genTagName('div', [
                                 genClass($chat__upload_preview),
                                 genRef(CHAT_REF_UPLOAD_PREVIEW),
-                                genAttr('hidden', 'hidden'),
+                                genProp(
+                                    'hidden',
+                                    mapSignal(
+                                        not,
+                                        state[CHAT_UI_STATE_UPLOAD_VISIBLE]
+                                    )
+                                ),
                             ]),
                             genTagName(
                                 'label',
                                 [genClass($chat__label)],
                                 [
-                                    genTagName('span', [genText('Message')]),
+                                    genTagName('span', [], ['Message']),
                                     genTagName('textarea', [
-                                        genClass(
-                                            `${$chat__input} ${$chat__textarea}`
+                                        genClass([
+                                            $chat__input,
+                                            $chat__textarea,
+                                        ]),
+                                        genProp(
+                                            'value',
+                                            state[CHAT_UI_STATE_MESSAGE]
                                         ),
-                                        genRef(CHAT_REF_MESSAGE),
-                                        genAttr('maxlength', maxMessageLen),
+                                        genOn(
+                                            'input',
+                                            bindArg(state, handleMessageInput)
+                                        ),
+                                        genOn('keydown', handleMessageKeydown),
+                                        genAttr('maxlength', MAX_MESSAGE_LEN),
                                         genAttr(
                                             'placeholder',
                                             'Write a message...'
@@ -210,28 +368,41 @@ export const chatUiTemplate = (maxMessageLen: number) =>
                                 'div',
                                 [genClass($chat__controls)],
                                 [
-                                    genTagName('span', [
-                                        genClass($chat__counter),
-                                        genRef(CHAT_REF_COUNTER),
-                                        genText(`0/${maxMessageLen}`),
-                                    ]),
-                                    genTagName('button', [
-                                        genClass($chat__button),
-                                        genRef(CHAT_REF_ATTACH_BUTTON),
-                                        genAttr('type', 'button'),
-                                        genText('Attach'),
-                                    ]),
+                                    genTagName(
+                                        'span',
+                                        [genClass($chat__counter)],
+                                        [counter]
+                                    ),
+                                    genTagName(
+                                        'button',
+                                        [
+                                            genClass($chat__button),
+                                            genAttr('type', 'button'),
+                                            genOn('click', attachFile),
+                                        ],
+                                        ['Attach']
+                                    ),
                                     genTagName('input', [
                                         genRef(CHAT_REF_FILE_INPUT),
                                         genAttr('type', 'file'),
                                         genAttr('hidden', 'hidden'),
+                                        genOn(
+                                            'change',
+                                            bindArg(
+                                                chatUiObs,
+                                                handleFileSelected
+                                            )
+                                        ),
                                     ]),
-                                    genTagName('button', [
-                                        genClass($chat__button),
-                                        genRef(CHAT_REF_SEND),
-                                        genAttr('type', 'submit'),
-                                        genText('Send'),
-                                    ]),
+                                    genTagName(
+                                        'button',
+                                        [
+                                            genClass($chat__button),
+                                            genAttr('type', 'submit'),
+                                            genProp('disabled', sendDisabled),
+                                        ],
+                                        ['Send']
+                                    ),
                                 ]
                             ),
                         ]
@@ -240,16 +411,22 @@ export const chatUiTemplate = (maxMessageLen: number) =>
             ),
         ]
     );
+};
 
 export const mountChatUi = (
     ctx: Window,
     root: HTMLDivElement,
-    maxMessageLen: number
+    nicknameKey: string,
+    outgoing: ObserverInstance<ClientFramePayload>,
+    chatUiObs: ChatUiObs,
+    state: ChatUiState
 ): ChatUiRefs => {
     cleanHtml(root);
-    return domCreatorRef(
+    const attachFile = () => refs[CHAT_REF_FILE_INPUT].click();
+    const refs = domCreatorRef(
         ctx,
         root,
-        chatUiTemplate(maxMessageLen)
+        chatUiTemplate(ctx, nicknameKey, outgoing, chatUiObs, attachFile, state)
     ) as unknown as ChatUiRefs;
+    return refs;
 };

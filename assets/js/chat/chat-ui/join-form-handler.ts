@@ -1,73 +1,64 @@
-import { bindArg, trigger } from '../../utils';
+import { bindArg, SIGNAL_GET, SIGNAL_SET, trigger } from '../../utils';
 import type { ObserverInstance } from '../../utils';
 import { CLIENT_FRAME_JOIN } from '@month/gen/chat';
-
-export const MAX_NICKNAME_LEN = 32;
+import type { ClientFramePayload } from '@month/gen/chat';
 import {
-    CHAT_REF_NICKNAME,
-    CHAT_REF_JOIN_FORM,
-    CHAT_REF_MESSAGE,
-} from './template';
-import type { ChatUiRefs } from './template';
-import {
+    CHAT_UI_STATE_ERROR,
     CHAT_UI_STATE_IS_JOINED,
     CHAT_UI_STATE_JOIN_IN_FLIGHT,
     CHAT_UI_STATE_IS_ONLINE,
+    CHAT_UI_STATE_NICKNAME,
 } from './state';
 import type { ChatUiState } from './state';
-import type { ClientFramePayload } from '@month/gen/chat';
 
-export const mountJoinFormHandler = (
+export const MAX_NICKNAME_LEN = 32;
+
+export const isValidNickname = (nickname: string): boolean => {
+    const len = nickname.trim().length;
+    return len > 0 && len <= MAX_NICKNAME_LEN;
+};
+
+export const handleNicknameInput = (
     ctx: Window,
-    refs: ChatUiRefs,
     nicknameKey: string,
+    state: ChatUiState,
+    event: Event
+): void => {
+    const value = (event.currentTarget as HTMLInputElement).value;
+    state[CHAT_UI_STATE_NICKNAME][SIGNAL_SET](value);
+    if (value.trim()) ctx.localStorage.setItem(nicknameKey, value.trim());
+};
+
+export const handleJoinSubmit = (
+    ctx: Window,
     outgoing: ObserverInstance<ClientFramePayload>,
     state: ChatUiState,
-    setError: (msg: string) => void,
-    updateControls: (messageLen: number) => void
+    event: Event
 ): void => {
-    const savedNickname = ctx.localStorage.getItem(nicknameKey);
-    if (savedNickname && savedNickname.length <= MAX_NICKNAME_LEN) {
-        refs[CHAT_REF_NICKNAME].value = savedNickname;
-    }
-
-    refs[CHAT_REF_NICKNAME].addEventListener('input', () => {
-        const value = refs[CHAT_REF_NICKNAME].value.trim();
-        if (value) ctx.localStorage.setItem(nicknameKey, value);
-        updateControls(refs[CHAT_REF_MESSAGE].value.length);
-    });
-
-    refs[CHAT_REF_JOIN_FORM].addEventListener('submit', (e: Event) => {
-        e.preventDefault();
-        const nickname = refs[CHAT_REF_NICKNAME].value.trim();
-        const isValidNickname =
-            nickname.length > 0 && nickname.length <= MAX_NICKNAME_LEN;
-        if (
-            state[CHAT_UI_STATE_IS_JOINED] ||
-            state[CHAT_UI_STATE_JOIN_IN_FLIGHT] ||
-            !isValidNickname ||
-            !state[CHAT_UI_STATE_IS_ONLINE]
-        ) {
-            if (!isValidNickname) {
-                setError(
-                    `Nickname must be between 1 and ${MAX_NICKNAME_LEN} characters.`
-                );
-            } else if (!state[CHAT_UI_STATE_IS_ONLINE]) {
-                setError('Socket is not connected.');
-            }
-            return;
+    event.preventDefault();
+    const nickname = state[CHAT_UI_STATE_NICKNAME][SIGNAL_GET]().trim();
+    const isValid = isValidNickname(nickname);
+    if (
+        state[CHAT_UI_STATE_IS_JOINED][SIGNAL_GET]() ||
+        state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_GET]() ||
+        !isValid ||
+        !state[CHAT_UI_STATE_IS_ONLINE][SIGNAL_GET]()
+    ) {
+        if (!isValid) {
+            state[CHAT_UI_STATE_ERROR][SIGNAL_SET](
+                `Nickname must be between 1 and ${MAX_NICKNAME_LEN} characters.`
+            );
+        } else if (!state[CHAT_UI_STATE_IS_ONLINE][SIGNAL_GET]()) {
+            state[CHAT_UI_STATE_ERROR][SIGNAL_SET]('Socket is not connected.');
         }
-        state[CHAT_UI_STATE_JOIN_IN_FLIGHT] = true;
-        setError('');
-        outgoing(
-            bindArg(
-                [
-                    CLIENT_FRAME_JOIN,
-                    [`join-${ctx.Date.now()}`, nickname],
-                ] as const,
-                trigger
-            )
-        );
-        updateControls(refs[CHAT_REF_MESSAGE].value.length);
-    });
+        return;
+    }
+    state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](true);
+    state[CHAT_UI_STATE_ERROR][SIGNAL_SET]('');
+    outgoing(
+        bindArg(
+            [CLIENT_FRAME_JOIN, [`join-${ctx.Date.now()}`, nickname]] as const,
+            trigger
+        )
+    );
 };

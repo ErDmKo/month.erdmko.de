@@ -1,7 +1,6 @@
 import {
     bindArg,
-    button,
-    div,
+    genTagName,
     domCreator,
     domList,
     genClass,
@@ -9,7 +8,6 @@ import {
     mapSignal,
     pipe,
     ReadonlySignal,
-    span,
 } from '@month/utils';
 import {
     $wrapper,
@@ -52,11 +50,12 @@ export const getGameLogKey = (state: GameState): string =>
     `${state[UPDATE_DATE].getTime()}-${state[TEAM_LEFT]}:${state[TEAM_RIGHT]}-${state[SERVE]}`;
 
 export const gameStateItemView = (state: GameState) =>
-    div(
+    genTagName(
+        'div',
         [],
         [
-            div([genClass($time)], [formatGameTime(state)]),
-            div([], [formatGameScore(state)]),
+            genTagName('div', [genClass($time)], [formatGameTime(state)]),
+            genTagName('div', [], [formatGameScore(state)]),
         ]
     );
 
@@ -69,10 +68,7 @@ export const template = (
     onVoiceToggle: () => void,
     onBack: () => void
 ): void => {
-    const scoreTimeSig = pipe(
-        gameStateSig,
-        bindArg(formatGameTime, mapSignal)
-    );
+    const scoreTimeSig = pipe(gameStateSig, bindArg(formatGameTime, mapSignal));
     const scoreTextSig = pipe(
         gameStateSig,
         bindArg(formatGameScore, mapSignal)
@@ -86,52 +82,66 @@ export const template = (
     domCreator(
         ctx,
         root,
-        div(
+        genTagName(
+            'div',
             [genClass($wrapper)],
             [
-                button(
+                genTagName(
+                    'button',
                     [
                         genClass($pOneL),
                         genOn('click', onPlusOneLeft, eventOptions),
                     ],
                     [`+1 ${TEAM_LEFT_NAME}`]
                 ),
-                span(
+                genTagName(
+                    'span',
                     [genClass($score)],
                     [
-                        span(
+                        genTagName(
+                            'span',
                             [],
                             [
-                                div(
+                                genTagName(
+                                    'div',
                                     [],
                                     [
-                                        div(
+                                        genTagName(
+                                            'div',
                                             [genClass($time)],
                                             [scoreTimeSig]
                                         ),
-                                        div([], [scoreTextSig]),
+                                        genTagName('div', [], [scoreTextSig]),
                                     ]
                                 ),
                             ]
                         ),
                     ]
                 ),
-                button(
+                genTagName(
+                    'button',
                     [
                         genClass($pOneR),
                         genOn('click', onPlusOneRight, eventOptions),
                     ],
                     [`+1 ${TEAM_RIGHT_NAME}`]
                 ),
-                button(
+                genTagName(
+                    'button',
                     [genClass($voice), genOn('click', onVoiceToggle)],
                     [voiceTextSig]
                 ),
-                button([genClass($voice), genOn('click', onBack)], ['Back']),
-                div(
+                genTagName(
+                    'button',
+                    [genClass($voice), genOn('click', onBack)],
+                    ['Back']
+                ),
+                genTagName(
+                    'div',
                     [genClass('log')],
                     [
-                        span(
+                        genTagName(
+                            'span',
                             [],
                             [
                                 domList(

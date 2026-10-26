@@ -245,12 +245,12 @@ pipe(
 
 Never call `document.createElement` directly or mutate DOM nodes imperatively
 via extracted `genRef()` handles when a signal binding can express the update.
-Build the DOM tree once using the uncurried element factories (`div`, `span`,
-`button`, `input`, etc.) and materialise with `domCreator` / `domCreatorRef`,
+Build the DOM tree once using direct `genTagName(tag, props, children?)` calls
+and materialise with `domCreator` / `domCreatorRef`,
 which receive `ctx: Window` explicitly and update bound `Text` nodes,
 properties, attributes, and lists directly in place.
 
-- **Tag factories**: Container tags (`div(props, children?)`, `span`, `button`, `ul`, `li`, `form`, `label`, `p`, `strong`, etc.) and void tags (`input(props)`, `img(props)`, `br(props)`, `hr(props)` — compile-time error if children are passed).
+- **Direct tags**: Use `genTagName('div', props, children)` for containers and `genTagName('input', props)` for void elements (children are rejected at compile time). Tag wrappers have been removed from utilities: direct calls avoid retained factory overhead and produce smaller Brotli bundles.
 - **Direct text & signal children**: Pass primitive `string | number` or `ReadonlySignal<string | number>` directly in the `children` array (`createTextNode` updated in $O(1)$).
 - **Reactive props, attrs & classes**: `genProp`, `genAttr`, and `genClass` accept static values or `ReadonlySignal<T>`.
 - **Typed events**: Use `genOn('click', handler, options?)` instead of manual `addEventListener` on refs.
@@ -265,22 +265,20 @@ const el = document.createElement('button');
 el.textContent = 'Click';
 root.appendChild(el);
 
-// ✓ correct — declarative tag factories + direct signal bindings
+// ✓ correct — direct declarative tags + signal bindings
 import {
     bindArg,
-    button,
     createStore,
-    div,
     domCreator,
     domList,
     genClass,
     genOn,
     genProp,
+    genTagName,
     mapSignal,
     pipe,
     SIGNAL_GET,
     SIGNAL_SET,
-    span,
 } from '@month/utils';
 
 const countSig = createStore(0);
@@ -292,11 +290,13 @@ const isDisabledSig = pipe(
 domCreator(
     ctx,
     root,
-    div(
+    genTagName(
+        'div',
         [genClass('counter')],
         [
-            span([], ['Count: ', countSig]),
-            button(
+            genTagName('span', [], ['Count: ', countSig]),
+            genTagName(
+                'button',
                 [
                     genProp('disabled', isDisabledSig),
                     genOn('click', () =>

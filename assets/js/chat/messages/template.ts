@@ -1,4 +1,4 @@
-import { genAttr, genClass, genRef, genTagName, genText } from '@month/utils';
+import { genTagName, genAttr, genClass, genRef } from '@month/utils';
 import {
     $chat__message,
     $chat__message__own,
@@ -29,11 +29,7 @@ export const chatMessageTemplate = (
     genTagName(
         'li',
         [
-            genClass(
-                isOwn
-                    ? `${$chat__message} ${$chat__message__own}`
-                    : $chat__message
-            ),
+            genClass([$chat__message, isOwn && $chat__message__own]),
             genAttr('data-message-id', id),
         ],
         [
@@ -41,23 +37,25 @@ export const chatMessageTemplate = (
                 'div',
                 [genClass($chat__message_head)],
                 [
-                    genTagName('span', [
-                        genClass($chat__message_meta),
-                        genText(
-                            `${senderName}${createdAt ? ` • ${createdAt}` : ''}`
-                        ),
-                    ]),
-                    genTagName('button', [
-                        genClass($chat__delete),
-                        genAttr('type', 'button'),
-                        genAttr('data-delete-id', id),
-                        genAttr('aria-label', 'Delete message'),
-                        genAttr('title', 'Delete message'),
-                        genText('×'),
-                    ]),
+                    genTagName(
+                        'span',
+                        [genClass($chat__message_meta)],
+                        [`${senderName}${createdAt ? ` • ${createdAt}` : ''}`]
+                    ),
+                    genTagName(
+                        'button',
+                        [
+                            genClass($chat__delete),
+                            genAttr('type', 'button'),
+                            genAttr('data-delete-id', id),
+                            genAttr('aria-label', 'Delete message'),
+                            genAttr('title', 'Delete message'),
+                        ],
+                        ['×']
+                    ),
                 ]
             ),
-            genTagName('div', [genClass($chat__message_body), genText(body)]),
+            genTagName('div', [genClass($chat__message_body)], [body]),
             ...(attachments.length > 0
                 ? [
                       genTagName('ul', [

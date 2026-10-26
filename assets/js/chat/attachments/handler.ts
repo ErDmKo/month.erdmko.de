@@ -1,11 +1,14 @@
 import {
     ObserverInstance,
     domCreator,
-    domCreatorRef,
+    genTagName,
     genClass,
     genProp,
     genRef,
-    genTagName,
+    mapSignal,
+    SIGNAL_GET,
+    SIGNAL_SET,
+    SIGNAL_OBS,
     observer,
     on,
     off,
@@ -52,7 +55,7 @@ import {
 } from '@month/gen/chat';
 import type { ServerFramePayload } from '@month/gen/chat';
 export const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
-import { ATTACHMENT_REF_PROGRESS, attachmentItemTemplate } from './template';
+import { attachmentItemTemplate } from './template';
 import {
     ATTACHMENT_ITEM_ID,
     ATTACHMENT_ITEM_FILENAME,
@@ -72,11 +75,7 @@ import type {
     ServerDownloadStart,
     ServerUploadDone,
 } from '@month/gen/chat';
-export {
-    uploadPreviewTemplate,
-    UPLOAD_PREVIEW_REF_PROGRESS,
-    UPLOAD_PREVIEW_REF_REMOVE,
-} from './template';
+export { uploadPreviewTemplate } from './template';
 export type { AttachmentItem } from '@month/gen/chat';
 
 declare global {
@@ -482,7 +481,7 @@ export const triggerBrowserDownload = (
     filename: string
 ): void => {
     const url = ctx.URL.createObjectURL(blob);
-    const [a] = domCreator(
+    const [anchor] = domCreator(
         ctx,
         ctx.document.body,
         genTagName('a', [
@@ -491,8 +490,8 @@ export const triggerBrowserDownload = (
             genProp('download', filename),
         ])
     );
-    a.click();
-    ctx.document.body.removeChild(a);
+    anchor.click();
+    ctx.document.body.removeChild(anchor);
     ctx.requestAnimationFrame(() => ctx.URL.revokeObjectURL(url));
 };
 
@@ -504,11 +503,16 @@ export const renderAttachment = (
     ulEl: HTMLUListElement,
     attachment: AttachmentItem
 ): void => {
-    const [getDownloadState, setDownloadState, downloadStateObs] =
-        createStore<DownloadEvent | null>(null);
+    const downloadState = createStore<DownloadEvent | null>(null);
+    const progress = mapSignal((event: DownloadEvent | null): string => {
+        if (event?.[DOWNLOAD_EVENT_TYPE] === DOWNLOAD_PROGRESS) {
+            return `${event[DOWNLOAD_PROGRESS_RECEIVED]}/${event[DOWNLOAD_PROGRESS_TOTAL]}`;
+        }
+        return event?.[DOWNLOAD_EVENT_TYPE] === DOWNLOAD_ERROR ? 'Error' : '';
+    }, downloadState);
 
     const onDownloadClick = () => {
-        const state = getDownloadState();
+        const state = downloadState[SIGNAL_GET]();
         if (
             state !== null &&
             state[DOWNLOAD_EVENT_TYPE] !== DOWNLOAD_DONE &&
@@ -523,12 +527,10 @@ export const renderAttachment = (
             requestId,
             attachment[ATTACHMENT_ITEM_ID]
         );
-        downloadObs(
-            bindArg((event: DownloadEvent) => setDownloadState(event), on)
-        );
+        downloadObs(bindArg(downloadState[SIGNAL_SET], on));
     };
 
-    const attachRefs = domCreatorRef(
+    domCreator(
         ctx,
         ulEl,
         genTagName(
@@ -539,39 +541,21 @@ export const renderAttachment = (
                     attachment[ATTACHMENT_ITEM_FILENAME],
                     attachment[ATTACHMENT_ITEM_SIZE],
                     attachment[ATTACHMENT_ITEM_MIME_TYPE],
-                    onDownloadClick
+                    onDownloadClick,
+                    progress
                 ),
             ]
         )
-    ) as unknown as { [ATTACHMENT_REF_PROGRESS]: HTMLSpanElement };
+    );
 
-    const progressEl = attachRefs[ATTACHMENT_REF_PROGRESS];
-
-    downloadStateObs(
+    downloadState[SIGNAL_OBS](
         bindArg((event: DownloadEvent | null) => {
-            if (event === null) {
-                progressEl.hidden = true;
-                progressEl.textContent = '';
-                return;
-            }
-            if (event[DOWNLOAD_EVENT_TYPE] === DOWNLOAD_PROGRESS) {
-                progressEl.hidden = false;
-                progressEl.textContent = `${event[DOWNLOAD_PROGRESS_RECEIVED]}/${event[DOWNLOAD_PROGRESS_TOTAL]}`;
-                return;
-            }
-            if (event[DOWNLOAD_EVENT_TYPE] === DOWNLOAD_DONE) {
-                progressEl.hidden = true;
-                progressEl.textContent = '';
+            if (event?.[DOWNLOAD_EVENT_TYPE] === DOWNLOAD_DONE) {
                 triggerBrowserDownload(
                     ctx,
                     event[DOWNLOAD_DONE_BLOB] as Blob,
                     event[DOWNLOAD_DONE_FILENAME] as string
                 );
-                return;
-            }
-            if (event[DOWNLOAD_EVENT_TYPE] === DOWNLOAD_ERROR) {
-                progressEl.hidden = false;
-                progressEl.textContent = 'Error';
             }
         }, on)
     );

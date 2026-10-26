@@ -1,10 +1,14 @@
 import {
     bindArg,
     cleanHtml,
+    createStore,
+    domCreator,
     domCreatorRef,
+    domDispose,
     genClass,
     genRef,
     genTagName,
+    SIGNAL_SET,
     on,
     trigger,
     pipe,
@@ -13,6 +17,7 @@ import {
     noop,
     Task,
 } from '../../utils';
+import type { DomScope, Signal } from '../../utils';
 import type { ChatSocket } from '../protocol/incoming';
 import type { ServerFramePayload, ClientFramePayload } from '@month/gen/chat';
 import {
@@ -47,14 +52,13 @@ import {
     getUploadDoneMessageId,
     startUpload,
     uploadPreviewTemplate,
-    UPLOAD_PREVIEW_REF_REMOVE,
-    UPLOAD_PREVIEW_REF_PROGRESS,
 } from './handler';
 import type { UploadEvent } from './handler';
 import {
     CHAT_UI_EVENT_TYPE,
     CHAT_UI_INIT,
     CHAT_UI_INIT_REFS,
+    CHAT_UI_INIT_STATE,
     CHAT_UI_ERROR,
     CHAT_UI_FILE_SELECTED,
     CHAT_UI_FILE_SELECTED_FILE,
@@ -65,6 +69,7 @@ import {
     CHAT_REF_UPLOAD_PREVIEW,
     CHAT_REF_FILE_INPUT,
 } from '../chat-ui/template';
+import { CHAT_UI_STATE_UPLOAD_VISIBLE } from '../chat-ui/state';
 import { $chat__attachments } from '@month/gen/styles';
 
 // ── local ref constant for on-the-fly <ul> ────────────────────────────────────
@@ -84,7 +89,8 @@ export const initAttachments =
         const outgoing = socket[CHAT_SOCKET_OUTGOING];
         const incoming = socket[CHAT_SOCKET_INCOMING];
         let pendingFile: File | null = null;
-        let pendingProgressEl: HTMLSpanElement | null = null;
+        let pendingProgress: Signal<string> | null = null;
+        const previewScope: DomScope = [];
         let waitForMessageId: ((requestId: string) => Task<number>) | null =
             null;
         let clearUploadPreview: (() => void) | null = null;
@@ -95,31 +101,34 @@ export const initAttachments =
             bindArg((event: ChatUiEvent) => {
                 if (event[CHAT_UI_EVENT_TYPE] !== CHAT_UI_INIT) return;
                 const refs = event[CHAT_UI_INIT_REFS];
+                const state = event[CHAT_UI_INIT_STATE];
 
                 clearUploadPreview = () => {
                     pendingFile = null;
-                    pendingProgressEl = null;
-                    refs[CHAT_REF_UPLOAD_PREVIEW].hidden = true;
+                    pendingProgress = null;
+                    state[CHAT_UI_STATE_UPLOAD_VISIBLE][SIGNAL_SET](false);
+                    domDispose(previewScope);
                     cleanHtml(refs[CHAT_REF_UPLOAD_PREVIEW]);
                     refs[CHAT_REF_FILE_INPUT].value = '';
                 };
 
                 const showUploadPreview = (file: File) => {
+                    domDispose(previewScope);
                     cleanHtml(refs[CHAT_REF_UPLOAD_PREVIEW]);
-                    const previewRefs = domCreatorRef(
+                    const progress = createStore('');
+                    domCreator(
                         ctx,
                         refs[CHAT_REF_UPLOAD_PREVIEW],
-                        uploadPreviewTemplate(file.name, file.size)
-                    ) as unknown as {
-                        [UPLOAD_PREVIEW_REF_REMOVE]: HTMLButtonElement;
-                        [UPLOAD_PREVIEW_REF_PROGRESS]: HTMLSpanElement;
-                    };
-                    refs[CHAT_REF_UPLOAD_PREVIEW].hidden = false;
-                    previewRefs[UPLOAD_PREVIEW_REF_REMOVE].addEventListener(
-                        'click',
-                        clearUploadPreview!
+                        uploadPreviewTemplate(
+                            file.name,
+                            file.size,
+                            clearUploadPreview!,
+                            progress
+                        ),
+                        previewScope
                     );
-                    return previewRefs[UPLOAD_PREVIEW_REF_PROGRESS];
+                    state[CHAT_UI_STATE_UPLOAD_VISIBLE][SIGNAL_SET](true);
+                    return progress;
                 };
 
                 // WS_UPLOAD_DONE — attach new attachment to existing message
@@ -184,7 +193,7 @@ export const initAttachments =
                             bindArg([CHAT_UI_ERROR, ''] as const, trigger)
                         );
                         pendingFile = file;
-                        pendingProgressEl = showUploadPreview(file);
+                        pendingProgress = showUploadPreview(file);
                     }, on)
                 );
             }, on)
@@ -204,9 +213,9 @@ export const initAttachments =
                         CLIENT_MESSAGE_REQUEST_ID
                     ];
                 const fileToUpload = pendingFile;
-                const progressEl = pendingProgressEl;
+                const progress = pendingProgress;
                 pendingFile = null;
-                pendingProgressEl = null;
+                pendingProgress = null;
                 if (!fileToUpload || !waitForMessageId) {
                     if (clearUploadPreview) clearUploadPreview();
                     return;
@@ -226,15 +235,15 @@ export const initAttachments =
                         );
                         uploadObs(
                             bindArg((event: UploadEvent) => {
-                                if (!progressEl) return;
+                                if (!progress) return;
                                 if (event[UPLOAD_EVENT_TYPE] === UPLOAD_READY) {
-                                    progressEl.hidden = false;
-                                    progressEl.textContent = '0 chunks sent';
+                                    progress[SIGNAL_SET]('0 chunks sent');
                                 } else if (
                                     event[UPLOAD_EVENT_TYPE] === UPLOAD_PROGRESS
                                 ) {
-                                    progressEl.hidden = false;
-                                    progressEl.textContent = `${event[UPLOAD_PROGRESS_SENT]} / ${event[UPLOAD_PROGRESS_TOTAL]} chunks sent`;
+                                    progress[SIGNAL_SET](
+                                        `${event[UPLOAD_PROGRESS_SENT]} / ${event[UPLOAD_PROGRESS_TOTAL]} chunks sent`
+                                    );
                                 } else if (
                                     event[UPLOAD_EVENT_TYPE] === UPLOAD_DONE
                                 ) {
@@ -243,8 +252,7 @@ export const initAttachments =
                                 } else if (
                                     event[UPLOAD_EVENT_TYPE] === UPLOAD_ERROR
                                 ) {
-                                    progressEl.hidden = false;
-                                    progressEl.textContent = 'Upload error';
+                                    progress[SIGNAL_SET]('Upload error');
                                 }
                             }, on)
                         );

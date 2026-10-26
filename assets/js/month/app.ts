@@ -1,7 +1,6 @@
 import {
-    button,
+    genTagName,
     cleanHtml,
-    div,
     domCreator,
     domDispose,
     DomScope,
@@ -9,7 +8,6 @@ import {
     genOn,
     genProp,
     genRef,
-    h3,
 } from '@month/utils';
 import { $month } from '@month/gen/styles';
 import { CONTROL_BUTTON } from './const';
@@ -60,12 +58,14 @@ export const init = (ctx: Window, root: HTMLElement) => {
         });
     };
 
-    const backButton = button(
+    const backButton = genTagName(
+        'button',
         [genProp('style', CONTROL_BUTTON), genOn('click', back)],
         ['Выйти из тренажера']
     );
 
-    const runButtonTemplate = button(
+    const runButtonTemplate = genTagName(
+        'button',
         [
             genRef(),
             genProp('style', CONTROL_BUTTON),
@@ -73,11 +73,15 @@ export const init = (ctx: Window, root: HTMLElement) => {
                 domDispose(activeScope);
                 activeScope = [];
                 cleanHtml(root);
-                const template = div(
+                const template = genTagName(
+                    'div',
                     [genClass('month-game')],
                     [
-                        h3([], ['Тренажер запоминания месяцов']),
-                        div([genProp('style', GAME_ROOT_STYLE), genRef()]),
+                        genTagName('h3', [], ['Тренажер запоминания месяцов']),
+                        genTagName('div', [
+                            genProp('style', GAME_ROOT_STYLE),
+                            genRef(),
+                        ]),
                         backButton,
                     ]
                 );

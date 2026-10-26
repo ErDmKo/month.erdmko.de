@@ -1,68 +1,35 @@
+import { SIGNAL_SET } from '../../utils';
 import {
-    cleanHtml,
-    genClass,
-    genTagName,
-    genText,
-    domCreatorRef,
-} from '../../utils';
-import {
-    CHAT_REF_VOICE_JOIN,
-    CHAT_REF_VOICE_MUTE,
-    CHAT_REF_VOICE_LEAVE,
-    CHAT_REF_VOICE_STATUS,
-    CHAT_REF_VOICE_PARTICIPANTS,
-} from '../chat-ui/template';
-import type { ChatUiRefs } from '../chat-ui/template';
-import { $chat__voice_participant } from '@month/gen/styles';
-import { VOICE_PARTICIPANT_SENDER_NAME } from '@month/gen/chat';
+    CHAT_UI_STATE_VOICE_IN_CALL,
+    CHAT_UI_STATE_VOICE_STATUS,
+    CHAT_UI_STATE_VOICE_MUTED,
+    CHAT_UI_STATE_VOICE_PARTICIPANTS,
+} from '../chat-ui/state';
+import type { ChatUiState } from '../chat-ui/state';
 import type { VoiceParticipant } from '@month/gen/chat';
 
-// ── Button visibility: reflects whether the local user is in the call ────────
-
-export const setInCall = (refs: ChatUiRefs, inCall: boolean): void => {
-    refs[CHAT_REF_VOICE_JOIN].hidden = inCall;
-    refs[CHAT_REF_VOICE_MUTE].hidden = !inCall;
-    refs[CHAT_REF_VOICE_LEAVE].hidden = !inCall;
+export const setInCall = (state: ChatUiState, inCall: boolean): void => {
+    state[CHAT_UI_STATE_VOICE_IN_CALL][SIGNAL_SET](inCall);
 };
 
-// ── Status text ───────────────────────────────────────────────────────────────
-
-export const setStatus = (refs: ChatUiRefs, text: string): void => {
-    refs[CHAT_REF_VOICE_STATUS].textContent = text;
+export const setStatus = (state: ChatUiState, text: string): void => {
+    state[CHAT_UI_STATE_VOICE_STATUS][SIGNAL_SET](text);
 };
 
-// ── Mute button label ─────────────────────────────────────────────────────────
-
-export const setMuteLabel = (refs: ChatUiRefs, muted: boolean): void => {
-    refs[CHAT_REF_VOICE_MUTE].textContent = muted ? 'Unmute' : 'Mute';
+export const setMuteLabel = (state: ChatUiState, muted: boolean): void => {
+    state[CHAT_UI_STATE_VOICE_MUTED][SIGNAL_SET](muted);
 };
-
-// ── Participant list ──────────────────────────────────────────────────────────
 
 export const renderParticipants = (
-    ctx: Window,
-    refs: ChatUiRefs,
+    state: ChatUiState,
     participants: readonly VoiceParticipant[]
 ): void => {
-    const ulEl = refs[CHAT_REF_VOICE_PARTICIPANTS];
-    cleanHtml(ulEl);
-    for (const participant of participants) {
-        domCreatorRef(
-            ctx,
-            ulEl,
-            genTagName('li', [
-                genClass($chat__voice_participant),
-                genText(participant[VOICE_PARTICIPANT_SENDER_NAME]),
-            ])
-        );
-    }
+    state[CHAT_UI_STATE_VOICE_PARTICIPANTS][SIGNAL_SET](participants);
 };
 
-// ── Full reset after leaving/disconnecting ────────────────────────────────────
-
-export const resetVoiceUi = (ctx: Window, refs: ChatUiRefs): void => {
-    setInCall(refs, false);
-    setStatus(refs, '');
-    setMuteLabel(refs, false);
-    renderParticipants(ctx, refs, []);
+export const resetVoiceUi = (state: ChatUiState): void => {
+    setInCall(state, false);
+    setStatus(state, '');
+    setMuteLabel(state, false);
+    renderParticipants(state, []);
 };

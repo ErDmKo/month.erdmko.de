@@ -2,10 +2,8 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
     bindArg,
-    button,
     combineSignals,
     createStore,
-    div,
     DOM_CHILDREN,
     DOM_META,
     DOM_PROPS,
@@ -28,12 +26,9 @@ import {
     genOn,
     genProp,
     genRef,
-    genTagDiv,
     genTagName,
     genText,
-    input,
     isSignal,
-    li,
     mapSignal,
     META_FLAG_ANY_DYN,
     META_FLAG_HAS_REF,
@@ -49,9 +44,6 @@ import {
     SIGNAL_GET,
     SIGNAL_OBS,
     SIGNAL_SET,
-    span,
-    strong,
-    ul,
 } from './index';
 
 // Minimal mock DOM environment for pure Node testing via explicit `ctx: Window`
@@ -196,27 +188,25 @@ const createMockCtx = (): [Window, HTMLElement] => {
 
 test('DOMStruct is a four-tuple retaining readonly props, children, and literal tags', () => {
     const props = Object.freeze([genClass('card'), genAttr('data-id', 7)]);
-    const children = Object.freeze(['static', span([], [42])]);
-    const struct = div(props, children);
+    const children = Object.freeze(['static', genTagName('span', [], [42])]);
+    const struct = genTagName('div', props, children);
 
     assert.equal(struct.length, 4);
     assert.equal(struct[DOM_META], NODE_ELEMENT);
     assert.equal(struct[DOM_TAG], 'div');
     assert.equal(struct[DOM_PROPS], props);
     assert.equal(struct[DOM_CHILDREN], children);
-    assert.equal(genTagDiv(props, children)[DOM_PROPS], props);
     assert.equal(
         genTagName('section', props, children)[DOM_CHILDREN],
         children
     );
 });
 
-test('tag factories share EMPTY when props or children are omitted', () => {
+test('genTagName shares EMPTY when props or children are omitted', () => {
     for (const struct of [
-        div(),
-        span(),
-        input(),
-        genTagDiv(),
+        genTagName('div'),
+        genTagName('span'),
+        genTagName('input'),
         genTagName('p'),
     ]) {
         assert.equal(struct[DOM_PROPS], EMPTY);
@@ -226,7 +216,7 @@ test('tag factories share EMPTY when props or children are omitted', () => {
 });
 
 test('SELF_DYN marks refs, events, and signal props/attrs but not static values', () => {
-    const staticStruct = div([
+    const staticStruct = genTagName('div', [
         genClass(['card', false, 'active']),
         genProp('style', { color: 'red' }),
         genAttr('hidden', false),
@@ -243,7 +233,7 @@ test('SELF_DYN marks refs, events, and signal props/attrs but not static values'
         genClass(createStore('active')),
         genText(createStore('Hello')),
     ]) {
-        const meta = div([prop])[DOM_META];
+        const meta = genTagName('div', [prop])[DOM_META];
         assert.equal(meta & META_FLAG_SELF_DYN, META_FLAG_SELF_DYN);
         assert.equal(meta & META_FLAG_SUBTREE_DYN, 0);
         assert.equal(meta & META_KIND_MASK, NODE_ELEMENT);
@@ -251,17 +241,24 @@ test('SELF_DYN marks refs, events, and signal props/attrs but not static values'
 });
 
 test('SUBTREE_DYN propagates signal and dynamic descendant metadata', () => {
-    const child = span([], ['Count: ', createStore(0)]);
-    const parent = div([], [span([], ['static']), child]);
-    const grandparent = div([], [parent]);
+    const child = genTagName('span', [], ['Count: ', createStore(0)]);
+    const parent = genTagName(
+        'div',
+        [],
+        [genTagName('span', [], ['static']), child]
+    );
+    const grandparent = genTagName('div', [], [parent]);
     for (const struct of [child, parent, grandparent]) {
         assert.equal(struct[DOM_META], META_FLAG_SUBTREE_DYN);
     }
 
-    const refChild = span([genRef(0)], ['static text']);
-    assert.equal(div([], [refChild])[DOM_META], META_FLAG_SUBTREE_DYN);
+    const refChild = genTagName('span', [genRef(0)], ['static text']);
     assert.equal(
-        div([genOn('click', () => {})], [parent])[DOM_META],
+        genTagName('div', [], [refChild])[DOM_META],
+        META_FLAG_SUBTREE_DYN
+    );
+    assert.equal(
+        genTagName('div', [genOn('click', () => {})], [parent])[DOM_META],
         META_FLAG_SELF_DYN | META_FLAG_SUBTREE_DYN
     );
 });
@@ -270,10 +267,10 @@ test('flow nodes use the shared kind bits and always mark their parent dynamic',
     let renders = 0;
     const render = () => {
         renders++;
-        return span([], ['branch']);
+        return genTagName('span', [], ['branch']);
     };
     const flows = [
-        domShow(createStore(false), span()),
+        domShow(createStore(false), genTagName('span')),
         domIf(createStore(false), render),
         domList(createStore<readonly number[]>([]), (item) => item, render),
     ];
@@ -287,7 +284,10 @@ test('flow nodes use the shared kind bits and always mark their parent dynamic',
     );
     for (const flow of flows) {
         assert.notEqual(flow[DOM_META] & META_KIND_MASK, NODE_ELEMENT);
-        assert.equal(div([], [flow])[DOM_META], META_FLAG_SUBTREE_DYN);
+        assert.equal(
+            genTagName('div', [], [flow])[DOM_META],
+            META_FLAG_SUBTREE_DYN
+        );
     }
     assert.equal(renders, 0);
 });
@@ -298,17 +298,19 @@ test('metadata construction does not evaluate signal getters', () => {
         reads++;
         return value;
     }, createStore('value'));
-    const struct = div([genAttr('data-value', sig)], [sig]);
+    const struct = genTagName('div', [genAttr('data-value', sig)], [sig]);
     assert.equal(reads, 0);
     assert.equal(struct[DOM_META], META_FLAG_ANY_DYN);
 });
 
 test('ref metadata distinguishes unnamed refs and packs zero and maximum keys', () => {
-    const unnamedMeta = input([genRef()])[DOM_META];
+    const unnamedMeta = genTagName('input', [genRef()])[DOM_META];
     assert.equal(unnamedMeta, META_FLAG_SELF_DYN | META_FLAG_HAS_REF);
 
     for (const key of [0, 1, META_REF_MAX]) {
-        const meta = div([genRef(key)], [createStore('dynamic')])[DOM_META];
+        const meta = genTagName('div', [genRef(key)], [createStore('dynamic')])[
+            DOM_META
+        ];
         assert.equal(meta >> META_REF_SHIFT, key);
         assert.equal(meta & META_FLAG_HAS_REF, META_FLAG_HAS_REF);
         assert.equal(meta & META_FLAG_HAS_REF_KEY, META_FLAG_HAS_REF_KEY);
@@ -333,8 +335,8 @@ test('genRef rejects keys that cannot fit in the 23-bit field', () => {
 });
 
 test('last ref marker wins without leaving stale key bits', () => {
-    const unnamed = input([genRef(META_REF_MAX), genRef()]);
-    const zero = input([genRef(META_REF_MAX), genRef(0)]);
+    const unnamed = genTagName('input', [genRef(META_REF_MAX), genRef()]);
+    const zero = genTagName('input', [genRef(META_REF_MAX), genRef(0)]);
     assert.equal(unnamed[DOM_META], META_FLAG_SELF_DYN | META_FLAG_HAS_REF);
     assert.equal(
         zero[DOM_META],
@@ -349,31 +351,42 @@ test('last ref marker wins without leaving stale key bits', () => {
 test('domCreator collects every marked ref, including key zero, in fragments', () => {
     const [ctx, root] = createMockCtx();
     const refs = domCreator(ctx, root, [
-        input(),
-        input([genRef(0)]),
-        input([genRef()]),
-        input([genRef(META_REF_MAX)]),
+        genTagName('input'),
+        genTagName('input', [genRef(0)]),
+        genTagName('input', [genRef()]),
+        genTagName('input', [genRef(META_REF_MAX)]),
     ]);
     assert.equal(refs.length, 3);
 
-    const inputs: HTMLInputElement[] = domCreator(ctx, root, input([genRef()]));
+    const inputs: HTMLInputElement[] = domCreator(
+        ctx,
+        root,
+        genTagName('input', [genRef()])
+    );
     assert.equal(inputs.length, 1);
     const named: Record<number, HTMLInputElement> = domCreatorRef(
         ctx,
         root,
-        input([genRef(0)])
+        genTagName('input', [genRef(0)])
     );
     assert.equal(named[0].tagName, 'INPUT');
-    const maxRefs = domCreatorRef(ctx, root, input([genRef(META_REF_MAX)]));
+    const maxRefs = domCreatorRef(
+        ctx,
+        root,
+        genTagName('input', [genRef(META_REF_MAX)])
+    );
     assert.equal(maxRefs[META_REF_MAX].tagName, 'INPUT');
-    assert.equal(domCreatorRef(ctx, root, input([genRef()]))[0], undefined);
+    assert.equal(
+        domCreatorRef(ctx, root, genTagName('input', [genRef()]))[0],
+        undefined
+    );
 
     // Compile-time contracts: preserve tag inference and forbid void children/string refs.
-    const tag: 'input' = input()[DOM_TAG];
+    const tag: 'input' = genTagName('input')[DOM_TAG];
     assert.equal(tag, 'input');
     if (false) {
-        // @ts-expect-error void tag factories do not accept children
-        input([], ['invalid']);
+        // @ts-expect-error void tags do not accept children
+        genTagName('input', [], ['invalid']);
         // @ts-expect-error packed ref keys must be numbers
         genRef('invalid');
         // @ts-expect-error input refs must not be inferred as button refs
@@ -428,7 +441,7 @@ test('createStore, mapSignal, combineSignals, and filterOperator', () => {
     assert.deepEqual(evens, [8]);
 });
 
-test('Option C tag factories, direct text & signal children, and reactive props/attrs', () => {
+test('genTagName binds direct text, signal children, and reactive props/attrs', () => {
     const [ctx, root] = createMockCtx();
     const statusSig = createStore('connecting');
     const isDisabledSig = createStore(true);
@@ -438,17 +451,19 @@ test('Option C tag factories, direct text & signal children, and reactive props/
     const refs = domCreatorRef(
         ctx,
         root,
-        div(
+        genTagName(
+            'div',
             [genClass(['chat-header', activeClassSig])],
             [
                 'Status: ',
-                strong([], [statusSig]),
-                input([
+                genTagName('strong', [], [statusSig]),
+                genTagName('input', [
                     genRef(REF_INPUT),
                     genAttr('type', 'text'),
                     genAttr('readonly', isDisabledSig),
                 ]),
-                button(
+                genTagName(
+                    'button',
                     [genRef(REF_BTN), genProp('disabled', isDisabledSig)],
                     ['Send']
                 ),
@@ -491,7 +506,11 @@ test('genOn attaches typed event listeners and cleans up on domDispose', () => {
     const [btn] = domCreator(
         ctx,
         root,
-        button([genRef(), genOn('click', () => clicks++)], ['Click me']),
+        genTagName(
+            'button',
+            [genRef(), genOn('click', () => clicks++)],
+            ['Click me']
+        ),
         scope
     );
 
@@ -516,7 +535,8 @@ test('raw prop entries bind styles, text, and nullable attributes with scoped cl
     const [el] = domCreator(
         ctx,
         root,
-        div(
+        genTagName(
+            'div',
             [
                 genRef(),
                 genProp('style', styleSig),
@@ -569,25 +589,27 @@ test('domShow, domIf, and domList control flow primitives', () => {
     const refs = domCreatorRef(
         ctx,
         root,
-        div(
+        genTagName(
+            'div',
             [],
             [
                 domShow(
                     visibleSig,
-                    span([genRef(REF_BANNER), genText('Banner')])
+                    genTagName('span', [genRef(REF_BANNER), genText('Banner')])
                 ),
                 domIf(
                     loggedInSig,
-                    () => span([], ['Welcome user']),
-                    () => span([], ['Please log in'])
+                    () => genTagName('span', [], ['Welcome user']),
+                    () => genTagName('span', [], ['Please log in'])
                 ),
-                ul(
+                genTagName(
+                    'ul',
                     [genRef(REF_LIST)],
                     [
                         domList(
                             itemsSig,
                             (item) => item.id,
-                            (item) => li([], [item.text])
+                            (item) => genTagName('li', [], [item.text])
                         ),
                     ]
                 ),

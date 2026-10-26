@@ -19,7 +19,6 @@ import {
     DOM_META,
     DOM_CHILDREN,
     META_FLAG_HAS_REF,
-    genTagDiv,
     genTagName,
     genText,
     genClass,
@@ -190,7 +189,8 @@ test('DOMStruct tuple indices and domCreatorRef / cleanHtml', () => {
     const REF_HEADER = 0 as const;
     const REF_BTN = 1 as const;
 
-    const struct = genTagDiv(
+    const struct = genTagName(
+        'div',
         [genClass('card'), genAttr('data-id', 7)],
         [
             genTagName('h2', [genRef(REF_HEADER), genText('Title')]),

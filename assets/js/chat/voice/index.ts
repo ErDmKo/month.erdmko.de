@@ -35,20 +35,20 @@ import {
     CHAT_SOCKET_OUTGOING,
     CHAT_SOCKET_INCOMING,
 } from '../protocol/incoming';
-import {
-    CHAT_REF_VOICE_JOIN,
-    CHAT_REF_VOICE_MUTE,
-    CHAT_REF_VOICE_LEAVE,
-    CHAT_REF_VOICE_REMOTE_AUDIO,
-} from '../chat-ui/template';
+import { CHAT_REF_VOICE_REMOTE_AUDIO } from '../chat-ui/template';
 import type { ChatUiRefs } from '../chat-ui/template';
+import type { ChatUiState } from '../chat-ui/state';
 import {
     CHAT_UI_EVENT_TYPE,
     CHAT_UI_INIT,
     CHAT_UI_INIT_REFS,
+    CHAT_UI_INIT_STATE,
     CHAT_UI_JOINED,
     CHAT_UI_JOINED_SENDER_ID,
     CHAT_UI_ERROR,
+    CHAT_UI_VOICE_JOIN,
+    CHAT_UI_VOICE_MUTE,
+    CHAT_UI_VOICE_LEAVE,
 } from '../chat-ui/events';
 import type { ChatUiObs, ChatUiEvent } from '../chat-ui/events';
 import {
@@ -104,6 +104,7 @@ export const initVoice =
         const incoming = socket[CHAT_SOCKET_INCOMING];
 
         let refs: ChatUiRefs | null = null;
+        let uiState: ChatUiState | null = null;
         let localStream: MediaStream | null = null;
         let peer: VoicePeer | null = null;
         let isMuted = false;
@@ -133,7 +134,7 @@ export const initVoice =
             peer = null;
             localStream = null;
             isMuted = false;
-            if (refs) resetVoiceUi(ctx, refs);
+            if (uiState) resetVoiceUi(uiState);
         };
 
         // ── Peer event handling (ICE candidates, remote track, ICE state) ─────
@@ -172,16 +173,16 @@ export const initVoice =
                 return;
             }
             if (event[VOICE_PEER_EVENT_TYPE] === VOICE_PEER_ICE_STATE) {
-                if (!refs) return;
+                if (!uiState) return;
                 const state = event[VOICE_PEER_ICE_STATE_VALUE];
                 if (state === 'connected' || state === 'completed') {
-                    setStatus(refs, 'Connected');
+                    setStatus(uiState, 'Connected');
                 } else if (state === 'failed') {
-                    setStatus(refs, 'Connection failed');
+                    setStatus(uiState, 'Connection failed');
                     showError('Voice connection failed. Please try rejoining.');
                     leaveVoice(true);
                 } else if (state === 'disconnected') {
-                    setStatus(refs, 'Reconnecting...');
+                    setStatus(uiState, 'Reconnecting...');
                 }
             }
         };
@@ -189,20 +190,20 @@ export const initVoice =
         // ── Join ──────────────────────────────────────────────────────────────
 
         const joinVoice = (): void => {
-            if (!refs || peer || localStream) return; // already in a call
-            setStatus(refs, 'Requesting microphone...');
+            if (!uiState || peer || localStream) return; // already in a call
+            setStatus(uiState, 'Requesting microphone...');
             pipe(
                 getVoiceUserMediaTask(ctx),
                 taskChain(
                     (stream: MediaStream): Task<string> =>
                         (resolveOffer, rejectOffer) => {
-                            if (!refs) {
+                            if (!uiState) {
                                 rejectOffer(new Error('voice UI not ready'));
                                 return;
                             }
                             localStream = stream;
-                            setInCall(refs, true);
-                            setStatus(refs, 'Connecting...');
+                            setInCall(uiState, true);
+                            setStatus(uiState, 'Connecting...');
                             outgoing(
                                 bindArg(
                                     [
@@ -220,18 +221,21 @@ export const initVoice =
                             )(resolveOffer, rejectOffer);
                         }
                 ),
-                taskChain((sdp: string): Task<void> => (resolveSend) => {
-                    outgoing(
-                        bindArg(
-                            [
-                                CLIENT_FRAME_VOICE_OFFER,
-                                [`voice-offer-${ctx.Date.now()}`, sdp],
-                            ] as const,
-                            trigger
-                        )
-                    );
-                    resolveSend();
-                }),
+                taskChain(
+                    (sdp: string): Task<void> =>
+                        (resolveSend) => {
+                            outgoing(
+                                bindArg(
+                                    [
+                                        CLIENT_FRAME_VOICE_OFFER,
+                                        [`voice-offer-${ctx.Date.now()}`, sdp],
+                                    ] as const,
+                                    trigger
+                                )
+                            );
+                            resolveSend();
+                        }
+                ),
                 taskFork(noop, (e) => {
                     if (
                         e instanceof Error &&
@@ -243,7 +247,7 @@ export const initVoice =
                     // any peer connection exists) from later offer/negotiation
                     // failures, matching the ticket's two distinct error paths.
                     if (!peer) {
-                        if (refs) setStatus(refs, '');
+                        if (uiState) setStatus(uiState, '');
                         showError(`Microphone access denied: ${String(e)}`);
                         return;
                     }
@@ -256,10 +260,10 @@ export const initVoice =
         // ── Mute ──────────────────────────────────────────────────────────────
 
         const toggleMute = () => {
-            if (!refs || !localStream) return;
+            if (!uiState || !localStream) return;
             isMuted = !isMuted;
             setVoiceMuted(localStream, isMuted);
-            setMuteLabel(refs, isMuted);
+            setMuteLabel(uiState, isMuted);
         };
 
         // ── Incoming WS events ────────────────────────────────────────────────
@@ -268,10 +272,9 @@ export const initVoice =
             const variant = event[SERVER_FRAME_PAYLOAD_VARIANT];
 
             if (variant === SERVER_FRAME_VOICE_STATE) {
-                if (!refs) return;
+                if (!uiState) return;
                 renderParticipants(
-                    ctx,
-                    refs,
+                    uiState,
                     event[SERVER_FRAME_PAYLOAD_VALUE][
                         SERVER_VOICE_STATE_PARTICIPANTS
                     ]
@@ -334,30 +337,31 @@ export const initVoice =
             bindArg((event: ChatUiEvent) => {
                 if (event[CHAT_UI_EVENT_TYPE] === CHAT_UI_INIT) {
                     refs = event[CHAT_UI_INIT_REFS];
-                    resetVoiceUi(ctx, refs);
-
-                    refs[CHAT_REF_VOICE_JOIN].addEventListener(
-                        'click',
-                        joinVoice
-                    );
-                    refs[CHAT_REF_VOICE_MUTE].addEventListener(
-                        'click',
-                        toggleMute
-                    );
-                    refs[CHAT_REF_VOICE_LEAVE].addEventListener(
-                        'click',
-                        bindArg(true, leaveVoice)
-                    );
+                    uiState = event[CHAT_UI_INIT_STATE];
+                    resetVoiceUi(uiState);
 
                     resolve();
+                    return;
+                }
+
+                if (event[CHAT_UI_EVENT_TYPE] === CHAT_UI_VOICE_JOIN) {
+                    joinVoice();
+                    return;
+                }
+                if (event[CHAT_UI_EVENT_TYPE] === CHAT_UI_VOICE_MUTE) {
+                    toggleMute();
+                    return;
+                }
+                if (event[CHAT_UI_EVENT_TYPE] === CHAT_UI_VOICE_LEAVE) {
+                    leaveVoice(true);
                     return;
                 }
 
                 if (event[CHAT_UI_EVENT_TYPE] === CHAT_UI_JOINED) {
                     const senderId = event[CHAT_UI_JOINED_SENDER_ID];
                     if (senderId !== null) {
-                        if (!peer && !localStream && refs) {
-                            resetVoiceUi(ctx, refs);
+                        if (!peer && !localStream && uiState) {
+                            resetVoiceUi(uiState);
                         }
                         return;
                     }
