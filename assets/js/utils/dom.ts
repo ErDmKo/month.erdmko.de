@@ -21,25 +21,34 @@ export const ON = 3 as const;
 export const PROP_TYPE = 0 as const;
 export const PROP_KEY = 1 as const;
 export const PROP_VALUE = 2 as const;
+export const PROP_OPTIONS = 3 as const;
 export const REF_KEY = 1 as const;
 
-export const DOM_TAG = 0 as const;
-export const DOM_PROPS = 1 as const;
-export const DOM_ATTRS = 2 as const;
-export const DOM_REF = 3 as const;
-export const DOM_CHILDREN = 4 as const;
-export const DOM_KEY = 5 as const;
-export const DOM_EVENTS = 6 as const;
+export const EMPTY: readonly never[] = [] as const;
 
-export const EVENT_NAME = 0 as const;
-export const EVENT_LISTENER = 1 as const;
-export const EVENT_OPTIONS = 2 as const;
+// Bits 0..2 identify elements and flow nodes in the shared metadata slot.
+export const META_KIND_MASK = 0x7 as const;
+export const NODE_ELEMENT = 0 as const;
+export const FLOW_SHOW = 1 as const;
+export const FLOW_IF = 2 as const;
+export const FLOW_LIST = 3 as const;
+export const FLOW_ROUTER = 4 as const;
 
-export const FLOW_SHOW = 0 as const;
-export const FLOW_IF = 1 as const;
-export const FLOW_LIST = 2 as const;
+export const META_FLAG_SELF_DYN = 1 << 3;
+export const META_FLAG_SUBTREE_DYN = 1 << 4;
+export const META_FLAG_ANY_DYN = META_FLAG_SELF_DYN | META_FLAG_SUBTREE_DYN;
+export const META_FLAG_HAS_REF = 1 << 5;
+export const META_FLAG_HAS_REF_KEY = 1 << 6;
 
-export const FLOW_TYPE = 0 as const;
+// Bits 7..29 store a 23-bit ref key, keeping meta within positive SMI range.
+export const META_REF_SHIFT = 7 as const;
+export const META_REF_MAX = 0x7fffff as const;
+
+export const DOM_META = 0 as const;
+export const DOM_TAG = 1 as const;
+export const DOM_PROPS = 2 as const;
+export const DOM_CHILDREN = 3 as const;
+
 export const FLOW_SHOW_COND = 1 as const;
 export const FLOW_SHOW_CHILD = 2 as const;
 
@@ -67,16 +76,7 @@ type PropValue =
 type PropType = Reactive<PropValue>;
 type AttrValue = string | number | boolean | null | undefined;
 type AttrType = Reactive<AttrValue>;
-export type RefKey = string | number;
-type RefMarker = false | true | RefKey;
-
-export type EventEntry<
-    K extends keyof HTMLElementEventMap = keyof HTMLElementEventMap,
-> = readonly [
-    event: K,
-    listener: (ev: HTMLElementEventMap[K]) => void,
-    options?: boolean | AddEventListenerOptions,
-];
+export type RefKey = number;
 
 export type Props =
     | readonly [type: typeof ATTR, key: string, value: AttrType]
@@ -107,24 +107,21 @@ export type VoidTagName =
     | 'wbr';
 export type ContainerTagName = Exclude<TagName, VoidTagName>;
 
-type PropMap = Record<string, PropType>;
-type AttrMap = Record<string, AttrType>;
-
 export type DomShowNode = ReadonlyTupleOf<{
-    [FLOW_TYPE]: typeof FLOW_SHOW;
+    [DOM_META]: typeof FLOW_SHOW;
     [FLOW_SHOW_COND]: ReadonlySignal<boolean>;
     [FLOW_SHOW_CHILD]: DOMStruct<any, any>;
 }>;
 
-export type DomIfNode = readonly [
-    type: typeof FLOW_IF,
-    cond: ReadonlySignal<boolean>,
-    thenBranch: () => ChildItem | null | undefined | false,
-    elseBranch?: () => ChildItem | null | undefined | false,
-];
+export type DomIfNode = ReadonlyTupleOf<{
+    [DOM_META]: typeof FLOW_IF;
+    [FLOW_IF_COND]: ReadonlySignal<boolean>;
+    [FLOW_IF_THEN]: () => ChildItem | null | undefined | false;
+    [FLOW_IF_ELSE]: (() => ChildItem | null | undefined | false) | undefined;
+}>;
 
 export type DomListNode<T = any> = ReadonlyTupleOf<{
-    [FLOW_TYPE]: typeof FLOW_LIST;
+    [DOM_META]: typeof FLOW_LIST;
     [FLOW_LIST_ITEMS]: ReadonlySignal<readonly T[]>;
     [FLOW_LIST_KEY]: (item: T, index: number) => string | number;
     [FLOW_LIST_RENDER]: (item: T, index: number) => DOMStruct<any, any>;
@@ -141,16 +138,13 @@ export type ChildItem =
 
 export type DOMStruct<
     K extends TagName = TagName,
-    C extends ChildItem = DOMStruct<TagName, any>,
-> = readonly [
-    tag: K, // 0
-    props: PropMap, // 1
-    attrs: AttrMap, // 2
-    ref: RefMarker, // 3
-    children?: readonly C[], // 4
-    key?: string | number, // 5
-    events?: readonly EventEntry[], // 6
-];
+    C extends ChildItem = ChildItem,
+> = ReadonlyTupleOf<{
+    [DOM_META]: number;
+    [DOM_TAG]: K;
+    [DOM_PROPS]: readonly Props[];
+    [DOM_CHILDREN]: readonly C[];
+}>;
 
 export type DomScope = (() => void)[];
 
@@ -188,6 +182,12 @@ export const genOn = <K extends keyof HTMLElementEventMap>(
 export function genRef(): Props;
 export function genRef(key: RefKey): Props;
 export function genRef(key?: RefKey): Props {
+    if (
+        key !== undefined &&
+        (!Number.isInteger(key) || key < 0 || key > META_REF_MAX)
+    ) {
+        throw new RangeError();
+    }
     return key === undefined ? ([REF] as const) : ([REF, key] as const);
 }
 
@@ -241,57 +241,32 @@ export const genClass = (
 
 export const genTagDiv = <
     T extends TagName = 'div',
-    C extends ChildItem = DOMStruct<TagName, any>,
+    C extends ChildItem = ChildItem,
 >(
-    props: readonly Props[],
-    children: readonly C[] = []
-): DOMStruct<T, C> => {
-    const [propMap, attrMap, hasRef, events] = collectProps(props);
-    return [
-        'div' as T,
-        propMap,
-        attrMap,
-        hasRef,
-        children,
-        undefined,
-        events,
-    ] as const;
-};
+    props: readonly Props[] = EMPTY,
+    children: readonly C[] = EMPTY
+): DOMStruct<T, C> => genTagName('div' as T, props, children);
 
-export const genTagName = <
-    T extends TagName,
-    C extends ChildItem = DOMStruct<TagName, any>,
->(
+export const genTagName = <T extends TagName, C extends ChildItem = ChildItem>(
     tagName: T,
-    props: readonly Props[],
-    children: readonly C[] = []
-): DOMStruct<T, C> => {
-    const [propMap, attrMap, hasRef, events] = collectProps(props);
-    return [
-        tagName,
-        propMap,
-        attrMap,
-        hasRef,
-        children,
-        undefined,
-        events,
-    ] as const;
-};
+    props: readonly Props[] = EMPTY,
+    children: readonly C[] = EMPTY
+): DOMStruct<T, C> => [getDomMeta(props, children), tagName, props, children];
 
 // ── Option C Tag Factories ────────────────────────────────────────────────────
 
 export const createTagFactory =
     <K extends ContainerTagName>(tagName: K) =>
     <C extends ChildItem = ChildItem>(
-        props: readonly Props[] = [],
-        children: readonly C[] = []
+        props: readonly Props[] = EMPTY,
+        children: readonly C[] = EMPTY
     ): DOMStruct<K, C> =>
         genTagName(tagName, props, children);
 
 export const createVoidTagFactory =
     <K extends VoidTagName>(tagName: K) =>
-    (props: readonly Props[] = []): DOMStruct<K, never> =>
-        genTagName<K, never>(tagName, props, [] as const);
+    (props: readonly Props[] = EMPTY): DOMStruct<K, never> =>
+        genTagName<K, never>(tagName, props, EMPTY);
 
 // Container HTML elements
 export const a = /* @__PURE__ */ createTagFactory('a');
@@ -401,32 +376,36 @@ export const domList = <T>(
 
 // ── Internal Materializer ─────────────────────────────────────────────────────
 
-const collectProps = (
-    attributes: readonly Props[]
-): [PropMap, AttrMap, RefMarker, readonly EventEntry[] | undefined] => {
-    const props: PropMap = {};
-    const attrs: AttrMap = {};
-    let events: EventEntry[] | undefined;
-    let ref: RefMarker = false;
-    for (const item of attributes) {
+const getDomMeta = (
+    props: readonly Props[],
+    children: readonly ChildItem[]
+): number => {
+    let meta: number = NODE_ELEMENT;
+    for (const item of props) {
         const type = item[PROP_TYPE];
         if (type === REF) {
-            ref = item.length > 1 ? item[REF_KEY] : true;
-            continue;
-        }
-        if (type === ON) {
-            const [, event, listener, options] = item;
-            if (!events) events = [];
-            events.push([event, listener, options]);
-            continue;
-        }
-        if (type === PROP) {
-            props[item[PROP_KEY]] = item[PROP_VALUE];
-        } else {
-            attrs[item[PROP_KEY]] = item[PROP_VALUE];
+            // As before, the last ref marker wins, including an unnamed ref.
+            meta = META_FLAG_SELF_DYN | META_FLAG_HAS_REF;
+            if (item.length > 1) {
+                meta |=
+                    META_FLAG_HAS_REF_KEY | (item[REF_KEY] << META_REF_SHIFT);
+            }
+        } else if (type === ON || isSignal(item[PROP_VALUE])) {
+            meta |= META_FLAG_SELF_DYN;
         }
     }
-    return [props, attrs, ref, events];
+    for (const child of children) {
+        if (typeof child === 'string' || typeof child === 'number') continue;
+        if (
+            isSignal(child) ||
+            (child[DOM_META] & META_KIND_MASK) !== NODE_ELEMENT ||
+            (child[DOM_META] & META_FLAG_ANY_DYN) !== 0
+        ) {
+            meta |= META_FLAG_SUBTREE_DYN;
+            break;
+        }
+    }
+    return meta;
 };
 
 const FRAGMENT_FIRST = 0 as const;
@@ -438,7 +417,7 @@ const isFragment = (
 };
 
 const isFlowNode = (item: unknown): item is DomFlowNode =>
-    Array.isArray(item) && typeof item[FLOW_TYPE] === 'number';
+    Array.isArray(item) && (item[DOM_META] & META_KIND_MASK) !== NODE_ELEMENT;
 
 const applySingleProp = (
     element: HTMLElement,
@@ -466,47 +445,59 @@ const applySingleAttr = (
     }
 };
 
-const bindElementData = (
+const bindElementValue = <T>(
     element: HTMLElement,
-    props: PropMap,
-    attrs: AttrMap,
-    events: readonly EventEntry[] | undefined,
+    key: string,
+    value: Reactive<T>,
+    apply: (element: HTMLElement, key: string, value: T) => void,
     scope: DomScope
 ): void => {
-    for (const key of Object.keys(props)) {
-        const value = props[key];
-        if (isSignal<PropValue>(value)) {
-            applySingleProp(element, key, value[SIGNAL_GET]());
-            const onUpdate = (nextVal: PropValue) => {
-                applySingleProp(element, key, nextVal);
-            };
-            value[SIGNAL_OBS](bindArg(onUpdate, on));
-            scope.push(() => value[SIGNAL_OBS](bindArg(onUpdate, off)));
-        } else {
-            applySingleProp(element, key, value);
-        }
+    if (isSignal<T>(value)) {
+        apply(element, key, value[SIGNAL_GET]());
+        const onUpdate = (nextVal: T) => {
+            apply(element, key, nextVal);
+        };
+        value[SIGNAL_OBS](bindArg(onUpdate, on));
+        scope.push(() => value[SIGNAL_OBS](bindArg(onUpdate, off)));
+    } else {
+        apply(element, key, value);
     }
-    for (const key of Object.keys(attrs)) {
-        const value = attrs[key];
-        if (isSignal<AttrValue>(value)) {
-            applySingleAttr(element, key, value[SIGNAL_GET]());
-            const onUpdate = (nextVal: AttrValue) => {
-                applySingleAttr(element, key, nextVal);
-            };
-            value[SIGNAL_OBS](bindArg(onUpdate, on));
-            scope.push(() => value[SIGNAL_OBS](bindArg(onUpdate, off)));
-        } else {
-            applySingleAttr(element, key, value);
-        }
-    }
-    if (events) {
-        for (const entry of events) {
-            const eventName = entry[EVENT_NAME];
-            const listener = entry[EVENT_LISTENER] as EventListener;
-            const options = entry[EVENT_OPTIONS];
+};
+
+const bindElementData = (
+    element: HTMLElement,
+    props: readonly Props[],
+    scope: DomScope
+): void => {
+    for (const item of props) {
+        const type = item[PROP_TYPE];
+        if (type === REF) continue;
+        if (type === ON) {
+            const eventName = item[PROP_KEY];
+            const listener = item[PROP_VALUE] as EventListener;
+            const options = item[PROP_OPTIONS];
             element.addEventListener(eventName, listener, options);
             scope.push(() =>
                 element.removeEventListener(eventName, listener, options)
+            );
+            continue;
+        }
+        const key = item[PROP_KEY];
+        if (type === PROP) {
+            bindElementValue(
+                element,
+                key,
+                item[PROP_VALUE],
+                applySingleProp,
+                scope
+            );
+        } else {
+            bindElementValue(
+                element,
+                key,
+                item[PROP_VALUE],
+                applySingleAttr,
+                scope
             );
         }
     }
@@ -530,7 +521,7 @@ const mountFlowNode = (
     ctx: Window,
     parent: Element,
     flow: DomFlowNode,
-    onRef: (ref: RefMarker, el: HTMLElement) => void,
+    onRef: (meta: number, el: HTMLElement) => void,
     scope: DomScope,
     beforeAnchor?: Node
 ): Node[] => {
@@ -542,9 +533,7 @@ const mountFlowNode = (
         }
     };
 
-    const flowType = flow[FLOW_TYPE];
-
-    if (flowType === FLOW_SHOW) {
+    if (flow[DOM_META] === FLOW_SHOW) {
         const cond = flow[FLOW_SHOW_COND];
         const childStruct = flow[FLOW_SHOW_CHILD];
         const createdNodes = mountChildItem(
@@ -567,7 +556,7 @@ const mountFlowNode = (
         return createdNodes;
     }
 
-    if (flowType === FLOW_IF) {
+    if (flow[DOM_META] === FLOW_IF) {
         const cond = flow[FLOW_IF_COND];
         const thenBranch = flow[FLOW_IF_THEN];
         const elseBranch = flow[FLOW_IF_ELSE];
@@ -683,7 +672,7 @@ const mountChildItem = (
     ctx: Window,
     parent: Element,
     child: ChildItem,
-    onRef: (ref: RefMarker, el: HTMLElement) => void,
+    onRef: (meta: number, el: HTMLElement) => void,
     scope: DomScope,
     beforeAnchor?: Node
 ): Node[] => {
@@ -723,7 +712,7 @@ const mountStructQueue = (
     ctx: Window,
     root: Element,
     struct: DOMStruct<TagName, any> | readonly DOMStruct<TagName, any>[],
-    onRef: (ref: RefMarker, el: HTMLElement) => void,
+    onRef: (meta: number, el: HTMLElement) => void,
     scope: DomScope,
     beforeAnchor?: Node
 ): HTMLElement[] => {
@@ -766,25 +755,21 @@ const mountStructQueue = (
             continue;
         }
 
+        const meta = item[DOM_META];
         const tag = item[DOM_TAG];
         const props = item[DOM_PROPS];
-        const attrs = item[DOM_ATTRS];
-        const ref = item[DOM_REF];
         const children = item[DOM_CHILDREN];
-        const events = item[DOM_EVENTS];
 
         const element = ctx.document.createElement(tag);
         if (head <= topCount) {
             topElements.push(element);
         }
-        onRef(ref, element);
-        bindElementData(element, props, attrs, events, scope);
+        onRef(meta, element);
+        bindElementData(element, props, scope);
         insertNode(element);
 
-        if (children) {
-            for (let idx = 0; idx < children.length; idx++) {
-                queue.push([element, children[idx]]);
-            }
+        for (let idx = 0; idx < children.length; idx++) {
+            queue.push([element, children[idx]]);
         }
     }
     return topElements;
@@ -801,8 +786,8 @@ export const domCreator = <K extends keyof HTMLElementTagNameMap>(
         ctx,
         root,
         struct,
-        (ref, el) => {
-            if (ref) {
+        (meta, el) => {
+            if (meta & META_FLAG_HAS_REF) {
                 refs.push(el as HTMLElementTagNameMap[K]);
             }
         },
@@ -816,15 +801,15 @@ export const domCreatorRef = <K extends keyof HTMLElementTagNameMap>(
     root: Element,
     struct: DOMStruct<K, any> | readonly DOMStruct<TagName, any>[],
     scope: DomScope = []
-): Record<string, HTMLElementTagNameMap[K]> => {
-    const refs: Record<string, HTMLElementTagNameMap[K]> = {};
+): Record<RefKey, HTMLElementTagNameMap[K]> => {
+    const refs: Record<RefKey, HTMLElementTagNameMap[K]> = {};
     mountStructQueue(
         ctx,
         root,
         struct,
-        (ref, el) => {
-            if (ref !== false && ref !== true) {
-                refs[String(ref)] = el as HTMLElementTagNameMap[K];
+        (meta, el) => {
+            if (meta & META_FLAG_HAS_REF_KEY) {
+                refs[meta >> META_REF_SHIFT] = el as HTMLElementTagNameMap[K];
             }
         },
         scope

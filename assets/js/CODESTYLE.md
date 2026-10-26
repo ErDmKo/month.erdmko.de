@@ -254,6 +254,7 @@ properties, attributes, and lists directly in place.
 - **Direct text & signal children**: Pass primitive `string | number` or `ReadonlySignal<string | number>` directly in the `children` array (`createTextNode` updated in $O(1)$).
 - **Reactive props, attrs & classes**: `genProp`, `genAttr`, and `genClass` accept static values or `ReadonlySignal<T>`.
 - **Typed events**: Use `genOn('click', handler, options?)` instead of manual `addEventListener` on refs.
+- **Refs**: Use `genRef()` for positional refs or `genRef(key)` for named refs. Named keys are integers from `0` to `8,388,607`, packed into `DOM_META`; strings, fractions, and out-of-range values are rejected.
 - **Control flow**: Use `domShow(condSig, child)`, `domIf(condSig, thenFn, elseFn?)`, and keyed `domList(itemsSig, keyFn, renderItem)` instead of clearing and re-creating container children.
 - **Scoped cleanup**: Pass a `scope: DomScope = []` to `domCreator` / `domCreatorRef` and call `domDispose(scope)` when unmounting dynamic views.
 

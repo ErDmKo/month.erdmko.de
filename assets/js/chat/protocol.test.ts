@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { DOM_PROPS, DOM_CHILDREN } from '@month/utils';
+import {
+    DOM_PROPS,
+    DOM_CHILDREN,
+    PROP,
+    PROP_TYPE,
+    PROP_KEY,
+    PROP_VALUE,
+} from '@month/utils';
 import { chatMessageTemplate } from './messages/template';
 import { MAX_MESSAGE_LEN } from './chat-ui/message-form-handler';
 import { serializeCommand, validateOutgoingCommand } from './protocol/outgoing';
@@ -116,9 +123,20 @@ const MESSAGE_CHILD_BODY = 1 as const;
 test('message template renders body as plain text (XSS guard)', () => {
     const xssPayload = '<img src=x onerror=alert(1) />';
     const struct = chatMessageTemplate(10, 'alice', xssPayload);
-    assert.equal(struct[DOM_PROPS].innerHTML, undefined);
+    const body = struct[DOM_CHILDREN][MESSAGE_CHILD_BODY];
+    for (const node of [struct, body]) {
+        assert.equal(
+            node[DOM_PROPS].some(
+                (prop) =>
+                    prop[PROP_TYPE] === PROP && prop[PROP_KEY] === 'innerHTML'
+            ),
+            false
+        );
+    }
     assert.equal(
-        struct[DOM_CHILDREN]?.[MESSAGE_CHILD_BODY]?.[DOM_PROPS].innerText,
+        body[DOM_PROPS].find(
+            (prop) => prop[PROP_TYPE] === PROP && prop[PROP_KEY] === 'innerText'
+        )?.[PROP_VALUE],
         xssPayload
     );
 });

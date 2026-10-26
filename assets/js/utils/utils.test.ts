@@ -16,9 +16,9 @@ import {
     taskFork,
     DOM_TAG,
     DOM_PROPS,
-    DOM_ATTRS,
-    DOM_REF,
+    DOM_META,
     DOM_CHILDREN,
+    META_FLAG_HAS_REF,
     genTagDiv,
     genTagName,
     genText,
@@ -203,10 +203,13 @@ test('DOMStruct tuple indices and domCreatorRef / cleanHtml', () => {
     );
 
     assert.equal(struct[DOM_TAG], 'div');
-    assert.equal(struct[DOM_ATTRS].class, 'card');
-    assert.equal(struct[DOM_ATTRS]['data-id'], 7);
-    assert.equal(struct[DOM_REF], false);
-    assert.equal(struct[DOM_CHILDREN]?.length, 2);
+    assert.equal(struct.length, 4);
+    assert.deepEqual(struct[DOM_PROPS], [
+        genClass('card'),
+        genAttr('data-id', 7),
+    ]);
+    assert.equal(struct[DOM_META] & META_FLAG_HAS_REF, 0);
+    assert.equal(struct[DOM_CHILDREN].length, 2);
 
     const ctx = createMockCtx();
     const root = createMockElement('div') as unknown as HTMLElement;
