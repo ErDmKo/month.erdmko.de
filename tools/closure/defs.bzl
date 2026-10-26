@@ -13,21 +13,21 @@ def advanced_bundle(name, entry_point, deps):
     linked = name + "-esbuild"
     esbuild(
         name = linked,
+        config = "//tools/closure:esbuild_config",
         entry_point = entry_point,
         deps = deps,
         format = "iife",
         metafile = False,
-        minify = True,
+        # Preserve bracket/quoted property keys for Closure ADVANCED.
+        # The config minifies whitespace and identifiers, not syntax.
+        minify = False,
         sourcemap = False,
         target = "esnext",
         tsconfig = ":tsconfig",
     )
     native.genrule(
         name = name,
-        srcs = [
-            ":" + linked,
-            "//tools/closure:browser_externs.js",
-        ],
+        srcs = [":" + linked],
         outs = [name + ".js"],
         cmd = " ".join([
             "$(execpath //tools/closure:compiler)",
@@ -41,7 +41,6 @@ def advanced_bundle(name, entry_point, deps):
             # ts_project checks types; retain Closure's non-type diagnostics.
             "--jscomp_off checkTypes",
             "--jscomp_error undefinedVars",
-            "--externs $(location //tools/closure:browser_externs.js)",
             "--js $(location :" + linked + ")",
             "--js_output_file $@",
         ]),

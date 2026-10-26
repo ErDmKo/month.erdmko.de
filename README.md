@@ -241,10 +241,13 @@ Closure Compiler `v20261021` is fetched from Maven with a pinned SHA-256 in
 `MODULE.bazel`. Bazel also downloads the Java 21 runtime selected in `.bazelrc`;
 **no local Java or npm compiler installation is needed**, including in Docker.
 
-Closure's built-in externs protect standard browser APIs. Project-specific
-browser fields and dictionaries indexed by externally supplied strings must be
-listed in `tools/closure/browser_externs.js` so ADVANCED does not rename them.
-Do not rely on quoted source keys alone: esbuild may remove their quotes.
+Closure's built-in externs protect standard browser APIs. For project-specific
+browser fields and dictionaries indexed by externally supplied strings, use
+bracket/quoted syntax in the source (`dataset['roomId']`, `{ ['Space']: handler }`).
+`tools/closure/esbuild.config.mjs` preserves that syntax by minifying only
+whitespace and identifiers; Closure performs the final syntax optimization.
+Do not mix quoted/bracket access with renameable dot/unquoted access for the
+same property. No project-specific browser externs are needed.
 
 ```bash
 bazel build //server:server

@@ -1,11 +1,17 @@
+load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("@rules_java//java:defs.bzl", "java_binary", "java_import")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
-    "browser_externs.js",
     "defs.bzl",
+    "esbuild.config.mjs",
 ])
+
+copy_to_bin(
+    name = "esbuild_config",
+    srcs = ["esbuild.config.mjs"],
+)
 
 java_import(
     name = "compiler_jar",

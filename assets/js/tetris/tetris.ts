@@ -54,13 +54,13 @@ const getKeyHandlers = (
     fieldInstance: FieldInstance
 ): KeyHandlers => {
     const figureBind: KeyHandlers = {
-        Space: bindArg(ctx, addFigureRandomFigure) as any,
-        KeyE: rotateFieldFigureLeft as any,
-        KeyQ: rotateFieldFigureRight as any,
+        ['Space']: bindArg(ctx, addFigureRandomFigure) as any,
+        ['KeyE']: rotateFieldFigureLeft as any,
+        ['KeyQ']: rotateFieldFigureRight as any,
         // "KeyW": bindArgs([ctx, [0, -1]], moveFieldFigure),
-        KeyS: bindArgs([ctx, [0, 1]], moveFieldFigure),
-        KeyA: bindArgs([ctx, [-1, 0]], moveFieldFigure),
-        KeyD: bindArgs([ctx, [1, 0]], moveFieldFigure),
+        ['KeyS']: bindArgs([ctx, [0, 1]], moveFieldFigure),
+        ['KeyA']: bindArgs([ctx, [-1, 0]], moveFieldFigure),
+        ['KeyD']: bindArgs([ctx, [1, 0]], moveFieldFigure),
     };
     for (let key in figureBind) {
         figureBind[key] = bindArg(figureBind[key], fieldInstance);
@@ -79,12 +79,12 @@ const phoneControlsMap: [string, string][] = [
     ['KeyD', 'Right (D)'],
 ];
 const phoneStyleMap = (): Record<string, string> => ({
-    Space: `${$start} ${$s}`,
-    KeyE: `${$rotateR} ${$s}`,
-    KeyQ: `${$rotateL} ${$s}`,
-    KeyS: `down ${$s}`,
-    KeyA: `left ${$s}`,
-    KeyD: `right ${$s}`,
+    ['Space']: `${$start} ${$s}`,
+    ['KeyE']: `${$rotateR} ${$s}`,
+    ['KeyQ']: `${$rotateL} ${$s}`,
+    ['KeyS']: `down ${$s}`,
+    ['KeyA']: `left ${$s}`,
+    ['KeyD']: `right ${$s}`,
 });
 
 const addPhoneControls = (

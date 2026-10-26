@@ -31,6 +31,7 @@ export const TEAM_NAMES = {
     [TEAM_RIGHT]: TEAM_RIGHT_NAME,
 };
 
+// Bracketed string keys must remain stable for speech grammar/command lookup.
 export const WORDS_TO_COMMANDS: Record<string, Commands | undefined> = {
     [TEAM_NAMES[TEAM_LEFT]]: [COMMAND_TYPE, TEAM_LEFT],
     [TEAM_NAMES[TEAM_RIGHT]]: [COMMAND_TYPE, TEAM_RIGHT],
