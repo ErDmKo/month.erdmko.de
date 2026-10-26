@@ -1,6 +1,8 @@
-# Isomorphic Routing, Bit-Packed `DOMStruct` & SSR Hydration (`@month/utils`)
+# Isomorphic Routing & SSR Hydration (`@month/utils`)
 
-This document describes the architecture for unifying **Client-Side Direct DOM Routing & Hydration** (`@month/utils/router.ts` & `@month/utils/dom.ts`) with **Compile-Time Server-Side Rendering (SSR)** for the Rust (`actix-web` + Tera) backend.
+This document describes the remaining work to unify **Client-Side Direct DOM Routing & Hydration** (`@month/utils/router.ts` & `@month/utils/dom.ts`) with **Compile-Time Server-Side Rendering (SSR)** for the Rust (`actix-web` + Tera) backend.
+
+The bit-packed 4-tuple `DOMStruct` is implemented; its layout and metadata constants are defined in [`assets/js/utils/dom.ts`](js/utils/dom.ts). Hydration, router runtime (including `FLOW_ROUTER`), and symbolic SSR generation below are still planned.
 
 ---
 
@@ -44,86 +46,11 @@ Because `DOMStruct` is a pure data tuple and every `Signal` exposes a synchronou
 
 ---
 
-## 3. Bit-Packed `DOM_META` & 4-Tuple `DOMStruct` (`assets/js/utils/dom.ts`)
-
-Instead of a 7-element tuple (`[tag, propMap, attrMap, ref, children, key, events]`) that allocates intermediate `{}` and `[]` maps on every tag call, `DOMStruct` is a compact **4-tuple** `[DOM_META, DOM_TAG, DOM_PROPS, DOM_CHILDREN]`:
-
-- **`DOM_META` (slot `0`)**: A positive 31-bit V8 Small Integer (SMI, using bits `0..29`) packing the node kind (Element vs. Flow node), dynamic subtree flags, and numeric ref key.
-- **`DOM_TAG` (slot `1`)**: The lowercase tag string literal `K extends TagName` (`'div'`, `'span'`, etc.). Keeping `DOM_TAG` as an interned string literal rather than a numeric tag ID avoids shipping an 83-tag `TAG_NAMES` whitelist in the client bundle, avoids allocating new strings on `ctx.document.createElement(tag)`, preserves `DOMStruct<K, C>` return-type inference (`HTMLElementTagNameMap[K][]`), and allows `domHydrate` to assert `cursor.localName === struct[DOM_TAG]` in dev/test builds.
-- **No `META_FLAG_VOID` in client runtime**: Neither `domCreator` nor `domHydrate` needs to check whether a tag is a void element (`<input>`, `<br>`) because `VoidTagName` forbids `children` at compile time and the browser's SSR DOM parser already produces zero child nodes for void tags. Only the build-time `jsonToTera` compiler in Node consults a 13-tag `VOID_TAGS` set when emitting HTML strings.
-
-### 31-Bit `DOM_META` SMI Layout (Bits `0..29`)
-
-```
-Bits 29..7 (23 bits)   │ Bit 6       │ Bit 5   │ Bit 4       │ Bit 3    │ Bits 2..0 (3 bits)
-───────────────────────┼─────────────┼─────────┼─────────────┼──────────┼─────────────────────
-REF_KEY (0..8,388,607) │ HAS_REF_KEY │ HAS_REF │ SUBTREE_DYN │ SELF_DYN │ NODE_KIND (0..4)
-```
-
-```ts
-import type { ReadonlyTupleOf } from './tuple';
-
-// Shared empty tuple to avoid allocating [] when props or children are omitted
-export const EMPTY: readonly never[] = [] as const;
-
-// Bits 0..2: Unified Node Kind (0 = HTML Element, 1..4 = Flow Nodes)
-export const META_KIND_MASK = 0x7 as const;
-
-export const NODE_ELEMENT = 0 as const;
-export const FLOW_SHOW    = 1 as const;
-export const FLOW_IF      = 2 as const;
-export const FLOW_LIST    = 3 as const;
-export const FLOW_ROUTER  = 4 as const;
-
-// Bit 3: Element itself has genRef, genOn, or a Signal in props/attrs
-export const META_FLAG_SELF_DYN = (1 << 3) as const;
-
-// Bit 4: At least one child/descendant is a Signal, DomFlowNode, or dynamic DOMStruct
-export const META_FLAG_SUBTREE_DYN = (1 << 4) as const;
-
-// Combined mask: is anything in this node or its subtree dynamic?
-export const META_FLAG_ANY_DYN = (META_FLAG_SELF_DYN | META_FLAG_SUBTREE_DYN) as const;
-
-// Bits 5..6: Ref presence and named-key flag
-export const META_FLAG_HAS_REF     = (1 << 5) as const;
-export const META_FLAG_HAS_REF_KEY = (1 << 6) as const;
-
-// Bits 7..29 (23 bits, kept within positive 31-bit V8 SMI range): Named Ref Key (0..8,388,607)
-export const META_REF_SHIFT = 7 as const;
-
-// 4-Tuple DOMStruct
-export const DOM_META     = 0 as const;
-export const DOM_TAG      = 1 as const;
-export const DOM_PROPS    = 2 as const;
-export const DOM_CHILDREN = 3 as const;
-
-export type DOMStruct<
-    K extends TagName = TagName,
-    C extends ChildItem = ChildItem,
-> = ReadonlyTupleOf<{
-    [DOM_META]: number;
-    [DOM_TAG]: K;
-    [DOM_PROPS]: readonly Props[];
-    [DOM_CHILDREN]: readonly C[];
-}>;
-```
-
-### Why Bit-Packing `DOM_META` + Interned `DOM_TAG` Matters
-
-| Operation | Check / Access | Cost |
-| :--- | :--- | :--- |
-| Is node a `DomFlowNode` vs HTML element? | `(meta & META_KIND_MASK) !== NODE_ELEMENT` | $O(1)$ SMI bitwise |
-| Can `domHydrate` skip this entire subtree? | `(meta & META_FLAG_ANY_DYN) === 0` | $O(1)$ SMI bitwise |
-| Does this element itself need listener/signal binding? | `(meta & META_FLAG_SELF_DYN) !== 0` | $O(1)$ SMI bitwise |
-| Does `domHydrate` need to descend into `children`? | `(meta & META_FLAG_SUBTREE_DYN) !== 0` | $O(1)$ SMI bitwise |
-| Extract named `genRef(key)` integer | `meta >> META_REF_SHIFT` | $O(1)$ SMI bitshift |
-| Create DOM element in `domCreator` | `ctx.document.createElement(struct[DOM_TAG])` | $O(1)$ interned string atom (0 whitelist in bundle) |
-
----
-
-## 4. Parallel Cursor Hydration (`domHydrate` / `domHydrateRef`)
+## 3. Parallel Cursor Hydration (`domHydrate` / `domHydrateRef`)
 
 Instead of embedding XPath strings or `data-h="N"` attributes into Tera HTML, `domHydrate` traverses `DOMStruct` and the live SSR DOM (`root.childNodes`) in lockstep using a cursor, relying on `DOM_META` to skip static branches.
+
+In dev/test builds, assert that each matched element's `localName` equals `struct[DOM_TAG]`.
 
 ### Hydration Traversal Rules
 
@@ -157,7 +84,7 @@ div.$wrapper (ANY_DYN = 1, SELF_DYN = 0)  <div class="_wrapper">          [Skip 
 
 ---
 
-## 5. Router & Flow Node Tuples (`assets/js/utils/router.ts`)
+## 4. Router & Flow Node Tuples (`assets/js/utils/router.ts`)
 
 All router structures follow `assets/js/CODESTYLE.md`: top-level named index constants and tuple types derived via `ReadonlyTupleOf`.
 
@@ -217,7 +144,7 @@ export type DomRouterNode = ReadonlyTupleOf<{
 
 ---
 
-## 6. Nested Routes (`domRouter` Inside `domRouter`)
+## 5. Nested Routes (`domRouter` Inside `domRouter`)
 
 Because `DomRouterNode` is part of `DomFlowNode`, `domRouter(router, routes)` is a valid `ChildItem` anywhere in a `DOMStruct` tree, supporting arbitrary route nesting.
 
@@ -286,9 +213,11 @@ const chatAppView = (ctx: Window, router: Router) =>
 
 ---
 
-## 7. Symbolic Tracing to JSON IR (`domToJson`) & Tera Generation (`jsonToTera`)
+## 6. Symbolic Tracing to JSON IR (`domToJson`) & Tera Generation (`jsonToTera`)
 
 At compile time, `domToJson` evaluates the `DOMStruct` tree without a browser `Window` by feeding symbolic parameter tokens (`"\0$param:room_id\0"`) through `paramsSig`.
+
+When emitting HTML, `jsonToTera` must consult a build-time 13-tag `VOID_TAGS` set for void elements. No client-runtime void flag is needed.
 
 ### Resulting Language-Agnostic JSON IR
 
@@ -347,13 +276,11 @@ At compile time, `domToJson` evaluates the `DOMStruct` tree without a browser `W
 
 ---
 
-## 8. Implementation Roadmap
+## 7. Remaining Implementation Roadmap
 
-1. **Step 1 — Bit-Packed `DOM_META` & 4-Tuple `DOMStruct` (`assets/js/utils/dom.ts`)**:
-   - Replace the 7-slot `DOMStruct` with the 4-tuple `[meta, tag, props, children]`, keeping `tag: K` as an interned string literal (no tag whitelist in bundle, full `HTMLElementTagNameMap[K]` return types) and packing `DOM_META` as a 31-bit SMI (`NODE_KIND`, `META_FLAG_SELF_DYN`, `META_FLAG_SUBTREE_DYN`, `META_FLAG_HAS_REF`, `META_FLAG_HAS_REF_KEY`, `REF_KEY`).
-2. **Step 2 — Parallel Cursor Hydration (`domHydrate` / `domHydrateRef` in `dom.ts`)**:
+1. **Step 1 — Parallel Cursor Hydration (`domHydrate` / `domHydrateRef` in `dom.ts`)**:
    - Implement in-place hydration skipping static subtrees via `(meta & META_FLAG_ANY_DYN) === 0`, splitting adjacent text nodes via `splitText`, and adopting `<!---->` flow anchors.
-3. **Step 3 — Router & Nested Flow Primitives (`assets/js/utils/router.ts` & `dom.ts`)**:
+2. **Step 2 — Router & Nested Routing (`assets/js/utils/router.ts` & `dom.ts`)**:
    - Add `RouteLocation`, `RouteDef`, `Router`, and `DomRouterNode` (`FLOW_ROUTER`) with prefix matching and `paramsSig` inheritance.
-4. **Step 4 — Symbolic JSON Serializer, Tera Compiler & Bazel Rule (`assets/js/utils/ssr.ts` & `BUILD.bazel`)**:
+3. **Step 3 — Symbolic JSON Serializer, Tera Compiler & Bazel Rule (`assets/js/utils/ssr.ts` & `BUILD.bazel`)**:
    - Implement `domToJson` and `jsonToTera`, wire the Bazel `genrule`, and pre-render `tennis`, `month`, and `chat`.
