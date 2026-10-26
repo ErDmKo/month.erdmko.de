@@ -46,6 +46,18 @@ use_repo(rules_ts_ext, "npm_typescript")
 
 bazel_dep(name = "aspect_rules_esbuild", version = "0.25.1")
 
+# Closure Compiler and its runtime are fetched by Bazel, not installed locally.
+bazel_dep(name = "rules_java", version = "9.1.0")
+
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+http_file(
+    name = "closure_compiler_jar",
+    downloaded_file_path = "closure-compiler.jar",
+    sha256 = "8a0d71ccce8ab78afe8c3cee130cda3af4178a6732435982815a37738ad9078a",
+    urls = ["https://repo.maven.apache.org/maven2/com/google/javascript/closure-compiler/v20261021/closure-compiler-v20261021.jar"],
+)
+
 # Rust
 bazel_dep(name = "rules_rust", version = "0.70.0")
 bazel_dep(name = "rules_rust_prost", version = "0.70.0")

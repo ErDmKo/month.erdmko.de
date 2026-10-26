@@ -1,6 +1,7 @@
 load("@aspect_rules_esbuild//esbuild:defs.bzl", "esbuild")
 load("@aspect_rules_js//js:defs.bzl", "js_test")
 load("@aspect_rules_ts//ts:defs.bzl", "ts_config", "ts_project")
+load("//tools/closure:defs.bzl", "advanced_bundle")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -71,14 +72,9 @@ ts_project(
     ],
 )
 
-esbuild(
+advanced_bundle(
     name = "tetris-bundle",
     entry_point = "tetris-effect.ts",
-    metafile = False,
-    minify = True,
-    sourcemap = False,
-    target = "esnext",
-    tsconfig = ":tsconfig",
     deps = [
         ":tetris",
     ],
@@ -96,14 +92,9 @@ ts_project(
     ],
 )
 
-esbuild(
+advanced_bundle(
     name = "snowflake-bundle",
     entry_point = "snowflake-effect.ts",
-    metafile = False,
-    minify = True,
-    sourcemap = False,
-    target = "esnext",
-    tsconfig = ":tsconfig",
     deps = [
         ":snowflake",
     ],
@@ -121,15 +112,9 @@ ts_project(
     ],
 )
 
-esbuild(
+advanced_bundle(
     name = "tennis-bundle",
-    bundle = True,
     entry_point = "tennis-effect.ts",
-    metafile = False,
-    minify = True,
-    sourcemap = False,
-    target = "esnext",
-    tsconfig = ":tsconfig",
     deps = [
         ":tennis",
     ],
@@ -203,27 +188,17 @@ ts_project(
     for src in glob(["**/*.test.ts"])
 ]
 
-esbuild(
+advanced_bundle(
     name = "chat-bundle",
     entry_point = "chat-effect.ts",
-    metafile = False,
-    minify = True,
-    sourcemap = False,
-    target = "esnext",
-    tsconfig = ":tsconfig",
     deps = [
         ":chat",
     ],
 )
 
-esbuild(
+advanced_bundle(
     name = "month-bundle",
     entry_point = "month-effect.ts",
-    metafile = False,
-    minify = True,
-    sourcemap = False,
-    target = "esnext",
-    tsconfig = ":tsconfig",
     deps = [
         ":month",
     ],

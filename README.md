@@ -229,6 +229,29 @@ For editor-only copies of those generated files in `assets/js/gen/`, run:
 npm run gen
 ```
 
+### Browser bundle optimization
+
+All five browser bundles use **esbuild → Closure Compiler ADVANCED** through
+`tools/closure/defs.bzl`. Existing `*-bundle` targets and `.js` filenames are
+unchanged. esbuild links/minifies the modules; Closure folds the named tuple
+indices and flags, eliminates dead code, and renames internal properties.
+TypeScript type-checking remains in `ts_project`.
+
+Closure Compiler `v20261021` is fetched from Maven with a pinned SHA-256 in
+`MODULE.bazel`. Bazel also downloads the Java 21 runtime selected in `.bazelrc`;
+**no local Java or npm compiler installation is needed**, including in Docker.
+
+Closure's built-in externs protect standard browser APIs. Project-specific
+browser fields and dictionaries indexed by externally supplied strings must be
+listed in `tools/closure/browser_externs.js` so ADVANCED does not rename them.
+Do not rely on quoted source keys alone: esbuild may remove their quotes.
+
+```bash
+bazel build //server:server
+# Exercises the actual optimized bundles, including native browser boundaries:
+cd tests/e2e && npm test -- --runInBand
+```
+
 ### Run Bazel tests
 
 Run all tests:

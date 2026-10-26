@@ -4,6 +4,9 @@ startup --windows_enable_symlinks
 build:windows --enable_runfiles
 
 build --enable_bzlmod
+# Use Bazel's downloaded JDK for Closure Compiler; no local Java installation.
+build --java_runtime_version=remotejdk_21
+build --tool_java_runtime_version=remotejdk_21
 # Homebrew paths are macOS-specific; applying them on Linux hides system
 # pkg-config packages such as GStreamer. Both Apple Silicon and Intel prefixes
 # are included; nonexistent entries are harmless.

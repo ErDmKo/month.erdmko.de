@@ -1,0 +1,20 @@
+load("@rules_java//java:defs.bzl", "java_binary", "java_import")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "browser_externs.js",
+    "defs.bzl",
+])
+
+java_import(
+    name = "compiler_jar",
+    jars = ["@closure_compiler_jar//file"],
+)
+
+java_binary(
+    name = "compiler",
+    jvm_flags = ["-Xmx512m"],
+    main_class = "com.google.javascript.jscomp.CommandLineRunner",
+    runtime_deps = [":compiler_jar"],
+)
