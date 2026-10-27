@@ -1,7 +1,7 @@
 ---
 title: "Direct ETH Payment Receipt Verification via Public RPC"
 ticket: "AUTH-30"
-status: "pending"
+status: "completed"
 draft: false
 weight: 30
 ---
@@ -54,3 +54,11 @@ Verify direct ETH transfers sent to `0xEFF121F128e0e64C0E64AE8Eb6eB042a0E5Aa81c`
 ## Acceptance
 - Zero smart contract deployment and zero self-hosted node required.
 - Only one HTTPS RPC call occurs when a user submits a payment `txHash`; all subsequent access checks read SQLite locally.
+
+## Result
+
+**Status: DONE**
+
+### Implemented modules
+- `server/src/auth/payment.rs` — `PaymentConfig`, `parse_hex_wei()`, `validate_rpc_payment()`, `PaymentVerifier` trait, and `RpcPaymentVerifier` sending a single batched JSON-RPC 2.0 `POST` (`eth_getTransactionByHash` + `eth_getTransactionReceipt`) via `awc`.
+- `server/src/pages/auth.rs` — `POST /auth/claim-payment` and `POST /auth/nickname` endpoints registered in `server/src/main.rs`.

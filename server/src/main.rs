@@ -157,6 +157,8 @@ async fn main() -> std::io::Result<()> {
             .service(pages::post_auth_verify_handler)
             .service(pages::get_auth_session_handler)
             .service(pages::post_auth_logout_handler)
+            .service(pages::post_auth_claim_payment_handler)
+            .service(pages::post_auth_nickname_handler)
             .service(pages::month_page_handler)
             .service(pages::month_no_page_handler)
             .service(pages::slugify_page_handler)

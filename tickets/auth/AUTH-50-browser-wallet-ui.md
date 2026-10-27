@@ -11,7 +11,6 @@ weight: 50
 ## Depends on
 - `AUTH-20`
 - `AUTH-30`
-- `AUTH-40`
 
 ## Goal
 Add native `window.ethereum` (EIP-1193) wallet connect, free SIWE signature login (`personal_sign`), and one-click ETH payment (`eth_sendTransaction` to `0xEFF121F128e0e64C0E64AE8Eb6eB042a0E5Aa81c`) to the chat welcome screen, following `assets/js/CODESTYLE.md` (`ctx: Window`, `Task` pipelines, `TupleOf` / `ReadonlyTupleOf`, declarative DOM, zero external SDK dependencies).

@@ -1,5 +1,6 @@
 pub mod db;
 pub mod error;
+pub mod payment;
 pub mod service;
 pub mod siwe;
 

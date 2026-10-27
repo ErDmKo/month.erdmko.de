@@ -7,16 +7,16 @@ Source: `tickets/chat-mvp/CHAT-80-onchain-auth-payments.md`
 1. `AUTH-10` Wallet Identity, Profile, Payment & Session Data Layer
 2. `AUTH-20` SIWE Signature Verification & HTTP Session Endpoints
 3. `AUTH-30` Direct ETH Payment Receipt Verification via Public RPC
-4. `AUTH-40` WebSocket Chat Authentication & Ownership Enforcement
-5. `AUTH-50` Browser Wallet (`window.ethereum`) Connect, SIWE & Payment UI
+4. `AUTH-50` Browser Wallet (`window.ethereum`) Connect, SIWE & Payment UI
+5. `AUTH-40` WebSocket Chat Authentication & Ownership Enforcement
 
 ## Dependency Map
 
 - `AUTH-10` → none
 - `AUTH-20` → `AUTH-10`
 - `AUTH-30` → `AUTH-10`, `AUTH-20`
-- `AUTH-40` → `AUTH-20`, `AUTH-30`
-- `AUTH-50` → `AUTH-20`, `AUTH-30`, `AUTH-40`
+- `AUTH-50` → `AUTH-20`, `AUTH-30`
+- `AUTH-40` → `AUTH-20`, `AUTH-30`, `AUTH-50`
 
 ## Ticket Files
 

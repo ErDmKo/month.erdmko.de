@@ -87,6 +87,6 @@ Detailed implementation tickets are tracked in `tickets/auth/README.md`:
 
 1. `AUTH-10` Wallet Identity, Profile, Payment & Session Data Layer (`completed`)
 2. `AUTH-20` SIWE Signature Verification & HTTP Session Endpoints (`completed`)
-3. `AUTH-30` Direct ETH Payment Receipt Verification via Public RPC (`pending`)
-4. `AUTH-40` WebSocket Chat Authentication & Ownership Enforcement (`pending`)
-5. `AUTH-50` Browser Wallet (`window.ethereum`) Connect, SIWE & Payment UI (`pending`)
+3. `AUTH-30` Direct ETH Payment Receipt Verification via Public RPC (`completed`)
+4. `AUTH-50` Browser Wallet (`window.ethereum`) Connect, SIWE & Payment UI (`pending`)
+5. `AUTH-40` WebSocket Chat Authentication & Ownership Enforcement (`pending`)

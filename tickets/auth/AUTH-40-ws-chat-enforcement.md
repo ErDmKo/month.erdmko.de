@@ -11,6 +11,7 @@ weight: 40
 ## Depends on
 - `AUTH-20`
 - `AUTH-30`
+- `AUTH-50`
 
 ## Goal
 Bind `/ws/chat/{room_id}` connections to the verified wallet session, enforce active paid access and unique nickname from SQLite (`wallet_profiles`) on room join, and restrict message deletion to the message author's wallet.

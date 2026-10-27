@@ -6,11 +6,14 @@ use serde::{Deserialize, Serialize};
 use crate::app::AppCtx;
 use crate::auth::db::{
     WalletProfile, create_session, get_valid_session_wallet, get_wallet_profile, issue_nonce,
-    revoke_session,
+    record_payment_and_extend_access, revoke_session, set_wallet_nickname,
 };
 use crate::auth::error::{AuthError, AuthErrorKind};
+use crate::auth::payment::{PaymentVerifier, RpcPaymentVerifier};
+use crate::auth::service::{normalize_tx_hash, validate_ascii_nickname};
 use crate::auth::siwe::verify_siwe_and_consume_nonce;
 use crate::auth::{NONCE_TTL_SECS, SESSION_COOKIE_NAME, SESSION_TTL_SECS};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +34,19 @@ pub struct NonceResponse {
 pub struct VerifySiweRequest {
     pub message: String,
     pub signature: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimPaymentRequest {
+    pub tx_hash: String,
+    pub nickname: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetNicknameRequest {
+    pub nickname: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -226,6 +242,152 @@ pub async fn post_auth_logout_handler(
         .json(serde_json::json!({ "ok": true }))
 }
 
+#[post("/auth/claim-payment")]
+pub async fn post_auth_claim_payment_handler(
+    req: HttpRequest,
+    app_ctx: web::Data<AppCtx>,
+    verifier: Option<web::Data<Arc<dyn PaymentVerifier>>>,
+    payload: web::Json<ClaimPaymentRequest>,
+) -> HttpResponse {
+    let Some(token) = extract_session_token(&req) else {
+        return auth_error_to_response(AuthError::unauthorized(
+            "UNAUTHORIZED",
+            "Missing session cookie.",
+        ));
+    };
+
+    let req_body = payload.into_inner();
+    let tx_hash = match normalize_tx_hash(&req_body.tx_hash) {
+        Ok(h) => h,
+        Err(err) => return auth_error_to_response(err),
+    };
+    let normalized_nickname = match req_body
+        .nickname
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(raw_nick) => match validate_ascii_nickname(raw_nick) {
+            Ok(n) => Some(n),
+            Err(err) => return auth_error_to_response(err),
+        },
+        None => None,
+    };
+
+    let pool_for_session = app_ctx.pool.clone();
+    let now_unix = Utc::now().timestamp();
+    let session_wallet_res = web::block(move || {
+        let conn = pool_for_session.get().map_err(|err| {
+            AuthError::internal("Database connection pool unavailable.", format!("{err:?}"))
+        })?;
+        get_valid_session_wallet(&conn, &token, now_unix)?.ok_or_else(|| {
+            AuthError::unauthorized("UNAUTHORIZED", "Session is invalid or expired.")
+        })
+    })
+    .await;
+
+    let wallet_address = match session_wallet_res {
+        Ok(Ok(w)) => w,
+        Ok(Err(err)) => return auth_error_to_response(err),
+        Err(err) => {
+            return auth_error_to_response(AuthError::internal(
+                "Failed to resolve auth session.",
+                format!("{err:?}"),
+            ));
+        }
+    };
+
+    let payment_verifier: Arc<dyn PaymentVerifier> = match verifier {
+        Some(v) => v.get_ref().clone(),
+        None => Arc::new(RpcPaymentVerifier::from_env()),
+    };
+
+    let verified = match payment_verifier
+        .verify_payment(&tx_hash, &wallet_address)
+        .await
+    {
+        Ok(v) => v,
+        Err(err) => return auth_error_to_response(err),
+    };
+
+    let pool_for_claim = app_ctx.pool.clone();
+    let claim_res = web::block(move || {
+        let conn = pool_for_claim.get().map_err(|err| {
+            AuthError::internal("Database connection pool unavailable.", format!("{err:?}"))
+        })?;
+        if let Some(ref nick) = normalized_nickname {
+            // Validate/assign nickname first so a NICKNAME_TAKEN conflict does not consume tx_hash
+            set_wallet_nickname(&conn, &wallet_address, nick, now_unix)?;
+        }
+        record_payment_and_extend_access(
+            &conn,
+            &wallet_address,
+            &verified.tx_hash,
+            &verified.amount_wei.to_string(),
+            now_unix,
+            verified.access_duration_secs,
+        )
+    })
+    .await;
+
+    match claim_res {
+        Ok(Ok(profile)) => HttpResponse::Ok().json(SessionStatusResponse::from(profile)),
+        Ok(Err(err)) => auth_error_to_response(err),
+        Err(err) => auth_error_to_response(AuthError::internal(
+            "Failed to record claimed payment.",
+            format!("{err:?}"),
+        )),
+    }
+}
+
+#[post("/auth/nickname")]
+pub async fn post_auth_nickname_handler(
+    req: HttpRequest,
+    app_ctx: web::Data<AppCtx>,
+    payload: web::Json<SetNicknameRequest>,
+) -> HttpResponse {
+    let Some(token) = extract_session_token(&req) else {
+        return auth_error_to_response(AuthError::unauthorized(
+            "UNAUTHORIZED",
+            "Missing session cookie.",
+        ));
+    };
+
+    let raw_nickname = payload.into_inner().nickname;
+    let pool = app_ctx.pool.clone();
+    let now_unix = Utc::now().timestamp();
+
+    let result = web::block(move || {
+        let conn = pool.get().map_err(|err| {
+            AuthError::internal("Database connection pool unavailable.", format!("{err:?}"))
+        })?;
+        let Some(wallet_address) = get_valid_session_wallet(&conn, &token, now_unix)? else {
+            return Err(AuthError::unauthorized(
+                "UNAUTHORIZED",
+                "Session is invalid or expired.",
+            ));
+        };
+        let profile = get_wallet_profile(&conn, &wallet_address, now_unix)?;
+        if !profile.has_active_access {
+            return Err(AuthError::unauthorized(
+                "PAYMENT_REQUIRED",
+                "Active paid access is required to update nickname.",
+            ));
+        }
+        set_wallet_nickname(&conn, &wallet_address, &raw_nickname, now_unix)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(profile)) => HttpResponse::Ok().json(SessionStatusResponse::from(profile)),
+        Ok(Err(err)) => auth_error_to_response(err),
+        Err(err) => auth_error_to_response(AuthError::internal(
+            "Failed to update wallet nickname.",
+            format!("{err:?}"),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,5 +542,121 @@ mod tests {
             .to_request();
         let after_logout_resp = test::call_service(&app, after_logout_req).await;
         assert_eq!(after_logout_resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    struct MockVerifier {
+        expected_tx: String,
+    }
+
+    impl PaymentVerifier for MockVerifier {
+        fn verify_payment<'a>(
+            &'a self,
+            tx_hash: &'a str,
+            expected_sender_wallet: &'a str,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = crate::auth::error::AuthResult<
+                            crate::auth::payment::VerifiedPayment,
+                        >,
+                    > + 'a,
+            >,
+        > {
+            Box::pin(async move {
+                let norm_tx = normalize_tx_hash(tx_hash)?;
+                if norm_tx != self.expected_tx {
+                    return Err(AuthError::validation("unknown transaction hash"));
+                }
+                Ok(crate::auth::payment::VerifiedPayment {
+                    tx_hash: norm_tx,
+                    from_wallet: expected_sender_wallet.to_string(),
+                    to_wallet: crate::auth::RECIPIENT_WALLET_ADDRESS.to_string(),
+                    amount_wei: 1_000_000_000_000_000,
+                    access_duration_secs: crate::auth::DEFAULT_ACCESS_DURATION_SECS,
+                })
+            })
+        }
+    }
+
+    #[actix_web::test]
+    async fn claim_payment_extends_access_sets_nickname_and_rejects_replay() {
+        let ctx = setup_test_ctx();
+        let tx_hash =
+            "0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789".to_string();
+        let verifier: Arc<dyn PaymentVerifier> = Arc::new(MockVerifier {
+            expected_tx: tx_hash.clone(),
+        });
+
+        let app = test::init_service(
+            App::new()
+                .app_data(ctx.clone())
+                .app_data(web::Data::new(verifier))
+                .service(post_auth_claim_payment_handler)
+                .service(post_auth_nickname_handler),
+        )
+        .await;
+
+        let wallet = wallet_address_from_private_key(&PRIV_KEY_1);
+        let now_unix = Utc::now().timestamp();
+        let session = {
+            let conn = ctx.pool.get().unwrap();
+            create_session(&conn, &wallet, now_unix, SESSION_TTL_SECS).unwrap()
+        };
+        let cookie_header = format!("{SESSION_COOKIE_NAME}={}", session.token);
+
+        // Unpaid wallet cannot call POST /auth/nickname before claiming payment
+        let early_nick_req = test::TestRequest::post()
+            .uri("/auth/nickname")
+            .insert_header((header::COOKIE, cookie_header.clone()))
+            .set_json(SetNicknameRequest {
+                nickname: "alice_eth".to_string(),
+            })
+            .to_request();
+        let early_nick_resp = test::call_service(&app, early_nick_req).await;
+        assert_eq!(early_nick_resp.status(), StatusCode::UNAUTHORIZED);
+
+        // 1. First payment claim succeeds, extends access_until, and sets nickname
+        let claim_req = test::TestRequest::post()
+            .uri("/auth/claim-payment")
+            .insert_header((header::COOKIE, cookie_header.clone()))
+            .set_json(ClaimPaymentRequest {
+                tx_hash: tx_hash.clone(),
+                nickname: Some("alice_eth".to_string()),
+            })
+            .to_request();
+        let claim_resp = test::call_service(&app, claim_req).await;
+        assert_eq!(claim_resp.status(), StatusCode::OK);
+        let claimed_status: SessionStatusResponse = test::read_body_json(claim_resp).await;
+        assert_eq!(claimed_status.wallet_address, wallet);
+        assert_eq!(claimed_status.nickname.as_deref(), Some("alice_eth"));
+        assert!(claimed_status.has_active_access);
+        assert!(claimed_status.access_until > now_unix);
+
+        // 2. Second claim with the same txHash is rejected with 409 Conflict (PAYMENT_ALREADY_CLAIMED)
+        let replay_req = test::TestRequest::post()
+            .uri("/auth/claim-payment")
+            .insert_header((header::COOKIE, cookie_header.clone()))
+            .set_json(ClaimPaymentRequest {
+                tx_hash,
+                nickname: None,
+            })
+            .to_request();
+        let replay_resp = test::call_service(&app, replay_req).await;
+        assert_eq!(replay_resp.status(), StatusCode::CONFLICT);
+        let replay_err: AuthErrorResponse = test::read_body_json(replay_resp).await;
+        assert_eq!(replay_err.code, "PAYMENT_ALREADY_CLAIMED");
+
+        // 3. Paid wallet can update its nickname via POST /auth/nickname
+        let update_nick_req = test::TestRequest::post()
+            .uri("/auth/nickname")
+            .insert_header((header::COOKIE, cookie_header))
+            .set_json(SetNicknameRequest {
+                nickname: "alice_v2".to_string(),
+            })
+            .to_request();
+        let update_nick_resp = test::call_service(&app, update_nick_req).await;
+        assert_eq!(update_nick_resp.status(), StatusCode::OK);
+        let updated_status: SessionStatusResponse = test::read_body_json(update_nick_resp).await;
+        assert_eq!(updated_status.nickname.as_deref(), Some("alice_v2"));
     }
 }
