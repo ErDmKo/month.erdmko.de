@@ -1,7 +1,7 @@
 ---
 title: "SIWE Signature Verification & HTTP Session Endpoints"
 ticket: "AUTH-20"
-status: "pending"
+status: "completed"
 draft: false
 weight: 20
 ---
@@ -43,3 +43,11 @@ Implement EIP-4361 (Sign-In with Ethereum) message parsing, secp256k1 `personal_
 ## Acceptance
 - Login requires zero gas and no third-party OAuth or SIWE provider.
 - Reused, expired, or wrong-domain challenges are rejected before session creation.
+
+## Result
+
+**Status: DONE**
+
+### Implemented modules
+- `server/src/auth/siwe.rs` — EIP-4361 message parser/formatter/validator (`parse_siwe_message`, `format_siwe_message`, `validate_siwe_message`), EIP-191 `personal_sign` digest & secp256k1 signature recovery via `sha3` (`Keccak256`) and `k256` (`VerifyingKey::recover_from_prehash`), and single-use SQLite nonce verification (`verify_siwe_and_consume_nonce`).
+- `server/src/pages/auth.rs` — HTTP endpoints (`POST /auth/nonce`, `POST /auth/verify`, `GET /auth/session`, `POST /auth/logout`) registered in `server/src/main.rs`, issuing and revoking `HttpOnly; Secure; SameSite=Lax` `month_session` cookies.

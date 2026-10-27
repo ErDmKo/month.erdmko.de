@@ -1,3 +1,4 @@
+pub(crate) mod auth;
 mod base64;
 pub(crate) mod chat;
 mod main_page;
@@ -6,6 +7,7 @@ mod random;
 mod slugify;
 mod some_js_pages;
 mod utils;
+pub use self::auth::*;
 pub use self::base64::*;
 pub use self::chat::*;
 pub use self::main_page::*;
