@@ -410,7 +410,10 @@ fn parse_signature_bytes(raw_signature: &str) -> AuthResult<[u8; 65]> {
         ));
     }
     let decoded = hex::decode(hex_part).map_err(|_| {
-        AuthError::unauthorized("INVALID_SIGNATURE", "Signature contains non-hex characters.")
+        AuthError::unauthorized(
+            "INVALID_SIGNATURE",
+            "Signature contains non-hex characters.",
+        )
     })?;
     decoded.try_into().map_err(|_| {
         AuthError::unauthorized("INVALID_SIGNATURE", "Signature must be exactly 65 bytes.")
@@ -469,16 +472,14 @@ pub(crate) mod test_helpers {
 
     /// Derive the normalized (`0x` + 40 lowercase hex) Ethereum address for a 32-byte private key.
     pub fn wallet_address_from_private_key(priv_key_bytes: &[u8; 32]) -> String {
-        let signing_key =
-            SigningKey::from_bytes(priv_key_bytes.into()).expect("valid private key");
+        let signing_key = SigningKey::from_bytes(priv_key_bytes.into()).expect("valid private key");
         verifying_key_to_address(signing_key.verifying_key())
     }
 
     /// Deterministically sign an EIP-191 `personal_sign` message with a 32-byte private key,
     /// returning a `0x`-prefixed 65-byte `(r, s, v)` hex signature (`v` in `{27, 28}`).
     pub fn sign_personal_message(priv_key_bytes: &[u8; 32], message: &str) -> String {
-        let signing_key =
-            SigningKey::from_bytes(priv_key_bytes.into()).expect("valid private key");
+        let signing_key = SigningKey::from_bytes(priv_key_bytes.into()).expect("valid private key");
         let digest = eip191_message_digest(message);
         let (signature, recovery_id) = signing_key
             .sign_prehash_recoverable(&digest)

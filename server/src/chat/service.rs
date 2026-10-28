@@ -429,6 +429,7 @@ pub async fn delete_message(
     app_ctx: &web::Data<AppCtx>,
     room_id: &str,
     message_id: i64,
+    sender_id: &str,
 ) -> ChatResult<bool> {
-    db::delete_message_by_id(app_ctx, room_id, message_id).await
+    db::delete_message_by_id(app_ctx, room_id, message_id, sender_id).await
 }

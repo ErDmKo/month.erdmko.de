@@ -76,9 +76,7 @@ const initTemplate = (ctx: Window, element: Element) => {
                 const side = command[CMD_SIDE];
                 const prev = gameStateSig[SIGNAL_GET]();
                 const nextLeft =
-                    side === TEAM_LEFT
-                        ? prev[TEAM_LEFT] + 1
-                        : prev[TEAM_LEFT];
+                    side === TEAM_LEFT ? prev[TEAM_LEFT] + 1 : prev[TEAM_LEFT];
                 const nextRight =
                     side === TEAM_RIGHT
                         ? prev[TEAM_RIGHT] + 1

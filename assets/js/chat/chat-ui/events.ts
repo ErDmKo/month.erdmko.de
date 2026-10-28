@@ -11,6 +11,7 @@ export const CHAT_UI_FILE_SELECTED = 3 as const;
 export const CHAT_UI_VOICE_JOIN = 4 as const;
 export const CHAT_UI_VOICE_MUTE = 5 as const;
 export const CHAT_UI_VOICE_LEAVE = 6 as const;
+export const CHAT_UI_AUTH_VERIFIED = 7 as const;
 
 // ── Field indices ─────────────────────────────────────────────────────────────
 
@@ -28,6 +29,9 @@ export const CHAT_UI_JOINED_SENDER_ID = 1 as const;
 
 // CHAT_UI_FILE_SELECTED: [type, file]
 export const CHAT_UI_FILE_SELECTED_FILE = 1 as const;
+
+// CHAT_UI_AUTH_VERIFIED: [type, walletAddress]
+export const CHAT_UI_AUTH_VERIFIED_WALLET = 1 as const;
 
 // ── ChatUiEvent tuple type ────────────────────────────────────────────────────
 
@@ -54,6 +58,10 @@ export type ChatUiEvent =
     | ReadonlyTupleOf<{
           [CHAT_UI_EVENT_TYPE]: typeof CHAT_UI_FILE_SELECTED;
           [CHAT_UI_FILE_SELECTED_FILE]: File;
+      }>
+    | ReadonlyTupleOf<{
+          [CHAT_UI_EVENT_TYPE]: typeof CHAT_UI_AUTH_VERIFIED;
+          [CHAT_UI_AUTH_VERIFIED_WALLET]: string;
       }>;
 
 export type ChatUiObs = ObserverInstance<ChatUiEvent>;

@@ -253,7 +253,10 @@ impl PaymentVerifier for RpcPaymentVerifier {
                 .send_json(&batch_payload)
                 .await
                 .map_err(|err| {
-                    AuthError::internal("Failed to reach ETH JSON-RPC endpoint.", format!("{err:?}"))
+                    AuthError::internal(
+                        "Failed to reach ETH JSON-RPC endpoint.",
+                        format!("{err:?}"),
+                    )
                 })?;
 
             if !response.status().is_success() {
@@ -264,12 +267,18 @@ impl PaymentVerifier for RpcPaymentVerifier {
             }
 
             let body_bytes = response.body().await.map_err(|err| {
-                AuthError::internal("Failed to read ETH JSON-RPC response body.", format!("{err:?}"))
+                AuthError::internal(
+                    "Failed to read ETH JSON-RPC response body.",
+                    format!("{err:?}"),
+                )
             })?;
 
             let rpc_items: Vec<JsonRpcResponse> =
                 serde_json::from_slice(&body_bytes).map_err(|err| {
-                    AuthError::internal("Failed to parse ETH JSON-RPC response.", format!("{err:?}"))
+                    AuthError::internal(
+                        "Failed to parse ETH JSON-RPC response.",
+                        format!("{err:?}"),
+                    )
                 })?;
 
             let mut tx: Option<RpcTransaction> = None;
@@ -404,8 +413,14 @@ mod tests {
             status: Some("0x0".to_string()),
         };
         assert!(
-            validate_rpc_payment(VALID_TX_HASH, ALICE_WALLET, &cfg, Some(&tx), Some(&reverted))
-                .is_err()
+            validate_rpc_payment(
+                VALID_TX_HASH,
+                ALICE_WALLET,
+                &cfg,
+                Some(&tx),
+                Some(&reverted)
+            )
+            .is_err()
         );
 
         // 4. Wrong recipient
@@ -423,14 +438,9 @@ mod tests {
         );
 
         // 5. Wrong sender
-        let wrong_sender_err = validate_rpc_payment(
-            VALID_TX_HASH,
-            BOB_WALLET,
-            &cfg,
-            Some(&tx),
-            Some(&receipt),
-        )
-        .expect_err("wrong sender must fail");
+        let wrong_sender_err =
+            validate_rpc_payment(VALID_TX_HASH, BOB_WALLET, &cfg, Some(&tx), Some(&receipt))
+                .expect_err("wrong sender must fail");
         assert_eq!(wrong_sender_err.code(), "PAYMENT_SENDER_MISMATCH");
 
         // 6. Underpaid amount

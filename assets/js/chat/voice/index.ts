@@ -221,21 +221,18 @@ export const initVoice =
                             )(resolveOffer, rejectOffer);
                         }
                 ),
-                taskChain(
-                    (sdp: string): Task<void> =>
-                        (resolveSend) => {
-                            outgoing(
-                                bindArg(
-                                    [
-                                        CLIENT_FRAME_VOICE_OFFER,
-                                        [`voice-offer-${ctx.Date.now()}`, sdp],
-                                    ] as const,
-                                    trigger
-                                )
-                            );
-                            resolveSend();
-                        }
-                ),
+                taskChain((sdp: string): Task<void> => (resolveSend) => {
+                    outgoing(
+                        bindArg(
+                            [
+                                CLIENT_FRAME_VOICE_OFFER,
+                                [`voice-offer-${ctx.Date.now()}`, sdp],
+                            ] as const,
+                            trigger
+                        )
+                    );
+                    resolveSend();
+                }),
                 taskFork(noop, (e) => {
                     if (
                         e instanceof Error &&

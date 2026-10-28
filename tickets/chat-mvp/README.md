@@ -12,7 +12,7 @@
 6. `CHAT-50` Home Page Integration
 7. `CHAT-60` Stability & Security
 8. `CHAT-70` QA & Release
-9. `CHAT-80` Onchain Authentication and Paid Chat Access (proposed)
+9. `CHAT-80` Wallet Authentication and Paid Chat Access
 
 ## Dependency Map
 

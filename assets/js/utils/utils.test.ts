@@ -11,8 +11,10 @@ import {
     createStore,
     combineLatestWith,
     taskOf,
+    taskFromPromise,
     taskMap,
     taskChain,
+    taskCatch,
     taskFork,
     DOM_TAG,
     DOM_PROPS,
@@ -28,6 +30,13 @@ import {
     domCreator,
     domCreatorRef,
     cleanHtml,
+    isString,
+    isNumber,
+    isBoolean,
+    isFunction,
+    objectStruct,
+    trim,
+    validate,
 } from './index';
 import type { Task, TupleOf, ReadonlyTupleOf } from './index';
 
@@ -270,4 +279,95 @@ test('TupleOf and ReadonlyTupleOf bind index constants to tuple slots and reject
     }>;
     const _unused: InvalidSkippedTuple | null = null;
     assert.equal(_unused, null);
+});
+
+test('objectStruct and validate extract typed tuples from nested runtime objects', () => {
+    const ERR_MSG = 0 as const;
+    const ERR_CODE = 1 as const;
+    const ERR_ACTIVE = 2 as const;
+    const ERR_DATA = 3 as const;
+    const DATA_DETAIL = 0 as const;
+
+    const errorStruct = objectStruct(
+        ['message', isString, trim],
+        ['code', isNumber],
+        ['active', isBoolean],
+        ['data', objectStruct(['detail', isString, trim])]
+    );
+
+    assert.equal(validate(null, errorStruct), undefined);
+    assert.equal(validate('not-an-object', errorStruct), undefined);
+    assert.equal(validate([1, 2], errorStruct), undefined);
+    assert.equal(validate('  hello  ', isString, trim), 'hello');
+    assert.equal(validate('   ', isString, trim), undefined);
+
+    const parsed = validate(
+        {
+            message: '  User rejected  ',
+            code: 4001,
+            active: true,
+            data: { detail: '  inner reason  ' },
+        },
+        errorStruct
+    );
+    assert.ok(parsed);
+    assert.equal(parsed[ERR_MSG], 'User rejected');
+    assert.equal(parsed[ERR_CODE], 4001);
+    assert.equal(parsed[ERR_ACTIVE], true);
+    assert.equal(parsed[ERR_DATA][DATA_DETAIL], 'inner reason');
+
+    // Missing required field causes validate(..., errorStruct) to return undefined
+    assert.equal(
+        validate(
+            {
+                message: 'User rejected',
+                code: 4001,
+                active: true,
+                data: {},
+            },
+            errorStruct
+        ),
+        undefined
+    );
+
+    // Extracted methods remain bound to their owning object (prevents WebIDL Illegal invocation)
+    const FN_SLOT = 0 as const;
+    const host = {
+        tag: 'window-host',
+        fetch(this: { tag: string }, path: string) {
+            if (this !== host) {
+                throw new TypeError('Illegal invocation');
+            }
+            return `${this.tag}:${path}`;
+        },
+    };
+    const hostStruct = objectStruct(['fetch', isFunction<typeof host.fetch>]);
+    const extracted = validate(host, hostStruct);
+    assert.ok(extracted);
+    assert.equal(extracted[FN_SLOT]('/auth/nonce'), 'window-host:/auth/nonce');
+});
+
+test('taskFromPromise and taskCatch flatten Promise chains and recover from rejections', async () => {
+    const doubleAsync = taskFromPromise((n: number) => Promise.resolve(n * 2));
+    const failAsync = taskFromPromise(() =>
+        Promise.reject(new Error('network down'))
+    );
+
+    const doubled = await new Promise<number>((resolve, reject) => {
+        pipe(
+            doubleAsync(21),
+            taskMap((v: number) => v + 1),
+            taskFork(resolve, reject)
+        );
+    });
+    assert.equal(doubled, 43);
+
+    const recovered = await new Promise<string | null>((resolve, reject) => {
+        pipe(
+            failAsync(),
+            taskCatch(() => null),
+            taskFork(resolve, reject)
+        );
+    });
+    assert.equal(recovered, null);
 });

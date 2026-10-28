@@ -14,6 +14,10 @@ export const CHAT_UI_STATE_VOICE_IN_CALL = 8 as const;
 export const CHAT_UI_STATE_VOICE_STATUS = 9 as const;
 export const CHAT_UI_STATE_VOICE_MUTED = 10 as const;
 export const CHAT_UI_STATE_VOICE_PARTICIPANTS = 11 as const;
+export const CHAT_UI_STATE_WALLET_ADDRESS = 12 as const;
+export const CHAT_UI_STATE_HAS_ACTIVE_ACCESS = 13 as const;
+export const CHAT_UI_STATE_ACCESS_UNTIL = 14 as const;
+export const CHAT_UI_STATE_AUTH_IN_FLIGHT = 15 as const;
 
 export type ChatUiState = TupleOf<{
     [CHAT_UI_STATE_IS_JOINED]: Signal<boolean>;
@@ -28,9 +32,18 @@ export type ChatUiState = TupleOf<{
     [CHAT_UI_STATE_VOICE_STATUS]: Signal<string>;
     [CHAT_UI_STATE_VOICE_MUTED]: Signal<boolean>;
     [CHAT_UI_STATE_VOICE_PARTICIPANTS]: Signal<readonly VoiceParticipant[]>;
+    [CHAT_UI_STATE_WALLET_ADDRESS]: Signal<string>;
+    [CHAT_UI_STATE_HAS_ACTIVE_ACCESS]: Signal<boolean>;
+    [CHAT_UI_STATE_ACCESS_UNTIL]: Signal<number>;
+    [CHAT_UI_STATE_AUTH_IN_FLIGHT]: Signal<boolean>;
 }>;
 
-export const createChatUiState = (nickname: string = ''): ChatUiState => [
+export const createChatUiState = (
+    nickname: string = '',
+    walletAddress: string = '',
+    hasActiveAccess: boolean = false,
+    accessUntil: number = 0
+): ChatUiState => [
     createStore(false),
     createStore(false),
     createStore(false),
@@ -43,4 +56,8 @@ export const createChatUiState = (nickname: string = ''): ChatUiState => [
     createStore(''),
     createStore(false),
     createStore<readonly VoiceParticipant[]>([]),
+    createStore(walletAddress),
+    createStore(hasActiveAccess),
+    createStore(accessUntil),
+    createStore(false),
 ];

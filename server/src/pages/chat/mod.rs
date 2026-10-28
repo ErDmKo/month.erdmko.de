@@ -57,7 +57,14 @@ pub async fn chat_ws_page_handler(
         .cloned()
         .ok_or_else(|| actix_web::error::ErrorInternalServerError("app context is missing"))?;
     let room_id = room_id.into_inner();
-    let sender_id = format!("anon-{:x}", random::<u64>());
+    let now_unix = chrono::Utc::now().timestamp();
+    let verified_wallet = crate::pages::auth::extract_session_token(&req).and_then(|token| {
+        let conn = app_ctx.pool.get().ok()?;
+        crate::auth::db::get_valid_session_wallet(&conn, &token, now_unix)
+            .ok()
+            .flatten()
+    });
+    let sender_id = verified_wallet.unwrap_or_else(|| format!("anon-{:x}", random::<u64>()));
 
     ws::WsResponseBuilder::new(
         ChatWs {

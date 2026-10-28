@@ -15,6 +15,7 @@ async fn join_sends_joined_and_history() {
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
+    register_test_ctx(addr, ctx.clone());
     let sctx = ctx.clone();
     let server = HttpServer::new(move || {
         App::new()
@@ -30,9 +31,11 @@ async fn join_sends_joined_and_history() {
     let handle = server.handle();
     actix_web::rt::spawn(server);
 
+    let cookie = issue_paid_cookie_for_addr(addr, "dima");
     let (_resp, mut ws) = awc::Client::new()
         .ws(format!("ws://{}/ws/chat/{}", addr, room_id))
         .set_header("Origin", "http://localhost:8080")
+        .set_header("Cookie", cookie)
         .connect()
         .await
         .unwrap();
@@ -117,9 +120,11 @@ async fn oversized_payload_returns_bad_payload_and_connection_survives() {
     let room_id = format!("room-{}", random::<u64>());
     let (addr, handle) = spawn_server!(ctx);
 
+    let cookie = issue_paid_cookie_for_addr(addr, "dima");
     let (_resp, mut ws) = awc::Client::new()
         .ws(format!("ws://{}/ws/chat/{}", addr, room_id))
         .set_header("Origin", "http://localhost:8080")
+        .set_header("Cookie", cookie)
         .connect()
         .await
         .unwrap();
@@ -185,9 +190,11 @@ async fn malformed_payload_does_not_break_connection() {
     let room_id = format!("room-{}", random::<u64>());
     let (addr, handle) = spawn_server!(ctx);
 
+    let cookie = issue_paid_cookie_for_addr(addr, "alice");
     let (_resp, mut ws) = awc::Client::new()
         .ws(format!("ws://{}/ws/chat/{}", addr, room_id))
         .set_header("Origin", "http://localhost:8080")
+        .set_header("Cookie", cookie)
         .connect()
         .await
         .unwrap();
@@ -245,7 +252,7 @@ async fn delete_broadcasts_deleted_event_to_room_clients() {
         _ => unreachable!(),
     };
 
-    ws2.send(awc::ws::Message::Binary(
+    ws1.send(awc::ws::Message::Binary(
         encode_delete("d1", message_id).into(),
     ))
     .await
@@ -272,6 +279,165 @@ async fn delete_broadcasts_deleted_event_to_room_clients() {
     };
     assert_eq!(id1, message_id);
     assert_eq!(id2, message_id);
+
+    handle.stop(true).await;
+}
+
+#[actix_web::test]
+async fn reconnecting_with_same_session_cookie_preserves_wallet_sender_id_and_nickname() {
+    let ctx = setup_ctx();
+    let room_id = format!("room-{}", random::<u64>());
+    let (addr, handle) = spawn_server!(ctx.clone());
+
+    let wallet_a = wallet_for_label("wallet_alice");
+    let cookie_a = issue_test_session_cookie(&ctx, &wallet_a, true);
+
+    // First connection: join with "alice_eth"
+    let (_resp1, mut ws1) = awc::Client::new()
+        .ws(format!("ws://{}/ws/chat/{}", addr, room_id))
+        .set_header("Origin", "http://localhost:8080")
+        .set_header("Cookie", cookie_a.clone())
+        .connect()
+        .await
+        .unwrap();
+    ws1.send(awc::ws::Message::Binary(
+        encode_join("j1", "alice_eth").into(),
+    ))
+    .await
+    .unwrap();
+
+    let joined1 = match read_next_binary(&mut ws1).await {
+        server_frame::Payload::Joined(j) => j,
+        other => panic!("expected Joined frame, got {other:?}"),
+    };
+    assert_eq!(joined1.sender_id, wallet_a);
+    assert_eq!(joined1.sender_name, "alice_eth");
+    let _ = read_next_binary(&mut ws1).await; // history
+    drop(ws1);
+
+    // Reconnect with the same session cookie and empty nickname: preserves wallet sender_id and saved nickname
+    let (_resp2, mut ws2) = awc::Client::new()
+        .ws(format!("ws://{}/ws/chat/{}", addr, room_id))
+        .set_header("Origin", "http://localhost:8080")
+        .set_header("Cookie", cookie_a)
+        .connect()
+        .await
+        .unwrap();
+    ws2.send(awc::ws::Message::Binary(encode_join("j2", "").into()))
+        .await
+        .unwrap();
+
+    let joined2 = match read_next_binary(&mut ws2).await {
+        server_frame::Payload::Joined(j) => j,
+        other => panic!("expected Joined frame on reconnect, got {other:?}"),
+    };
+    assert_eq!(joined2.sender_id, wallet_a);
+    assert_eq!(joined2.sender_name, "alice_eth");
+
+    handle.stop(true).await;
+}
+
+#[actix_web::test]
+async fn unpaid_wallet_is_rejected_on_join_with_payment_required() {
+    let ctx = setup_ctx();
+    let room_id = format!("room-{}", random::<u64>());
+    let (addr, handle) = spawn_server!(ctx.clone());
+
+    let unpaid_wallet = wallet_for_label("unpaid_user");
+    let unpaid_cookie = issue_test_session_cookie(&ctx, &unpaid_wallet, false);
+
+    let (_resp, mut ws) = awc::Client::new()
+        .ws(format!("ws://{}/ws/chat/{}", addr, room_id))
+        .set_header("Origin", "http://localhost:8080")
+        .set_header("Cookie", unpaid_cookie)
+        .connect()
+        .await
+        .unwrap();
+
+    ws.send(awc::ws::Message::Binary(
+        encode_join("j-unpaid", "unpaid_nick").into(),
+    ))
+    .await
+    .unwrap();
+
+    let err = unwrap_error(read_next_binary(&mut ws).await);
+    assert_eq!(err.code, "PAYMENT_REQUIRED");
+
+    handle.stop(true).await;
+}
+
+#[actix_web::test]
+async fn second_wallet_claiming_taken_nickname_receives_nickname_taken() {
+    let ctx = setup_ctx();
+    let room_id = format!("room-{}", random::<u64>());
+    let (addr, handle) = spawn_server!(ctx.clone());
+
+    let _ws_alice = ws_join!(addr, room_id, "shared_nick");
+
+    let wallet_bob = wallet_for_label("distinct_bob_wallet");
+    let cookie_bob = issue_test_session_cookie(&ctx, &wallet_bob, true);
+    let (_resp, mut ws_bob) = awc::Client::new()
+        .ws(format!("ws://{}/ws/chat/{}", addr, room_id))
+        .set_header("Origin", "http://localhost:8080")
+        .set_header("Cookie", cookie_bob)
+        .connect()
+        .await
+        .unwrap();
+
+    ws_bob
+        .send(awc::ws::Message::Binary(
+            encode_join("j-bob", "shared_nick").into(),
+        ))
+        .await
+        .unwrap();
+
+    let err = unwrap_error(read_next_binary(&mut ws_bob).await);
+    assert_eq!(err.code, "NICKNAME_TAKEN");
+
+    handle.stop(true).await;
+}
+
+#[actix_web::test]
+async fn wallet_a_cannot_delete_wallet_b_message() {
+    let ctx = setup_ctx();
+    let room_id = format!("room-{}", random::<u64>());
+    let (addr, handle) = spawn_server!(ctx);
+
+    let mut ws_a = ws_join!(addr, room_id, "alice");
+    let mut ws_b = ws_join!(addr, room_id, "bob");
+
+    // Wallet B sends a message
+    ws_b.send(awc::ws::Message::Binary(
+        encode_message("m-b", "bob message").into(),
+    ))
+    .await
+    .unwrap();
+
+    let msg_a = find_binary(&mut ws_a, 5, |f| {
+        matches!(f, server_frame::Payload::Message(_))
+    })
+    .await
+    .expect("ws_a receives bob's message");
+    let _ = find_binary(&mut ws_b, 5, |f| {
+        matches!(f, server_frame::Payload::Message(_))
+    })
+    .await
+    .expect("ws_b receives own message");
+
+    let bob_message_id = match msg_a {
+        server_frame::Payload::Message(m) => m.item.unwrap().id,
+        _ => unreachable!(),
+    };
+
+    // Wallet A attempts to delete Wallet B's message -> receives VALIDATION_ERROR
+    ws_a.send(awc::ws::Message::Binary(
+        encode_delete("del-unauth", bob_message_id).into(),
+    ))
+    .await
+    .unwrap();
+
+    let err = unwrap_error(read_next_binary(&mut ws_a).await);
+    assert_eq!(err.code, "VALIDATION_ERROR");
 
     handle.stop(true).await;
 }

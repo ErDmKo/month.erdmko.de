@@ -9,3 +9,4 @@ export * from './dom';
 export * from './logger';
 export * from './ws-logger';
 export * from './tuple';
+export * from './validator';

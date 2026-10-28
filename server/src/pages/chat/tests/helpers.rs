@@ -85,6 +85,67 @@ pub(super) fn prepare_chat_schema(ctx: &actix_web::web::Data<crate::app::AppCtx>
     .expect("messages index should be created");
     crate::attachments::db::init_attachments_schema(&conn)
         .expect("attachments schema should be initialized");
+    crate::auth::db::init_auth_schema(&conn).expect("auth schema should be initialized");
+}
+
+static TEST_CTX_BY_ADDR: std::sync::LazyLock<
+    std::sync::Mutex<
+        std::collections::HashMap<std::net::SocketAddr, actix_web::web::Data<crate::app::AppCtx>>,
+    >,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+pub(super) fn register_test_ctx(
+    addr: std::net::SocketAddr,
+    ctx: actix_web::web::Data<crate::app::AppCtx>,
+) {
+    TEST_CTX_BY_ADDR.lock().unwrap().insert(addr, ctx);
+}
+
+pub(super) fn wallet_for_label(label: &str) -> String {
+    let hash = crate::auth::siwe::keccak256(label.trim().to_ascii_lowercase().as_bytes());
+    format!("0x{}", hex::encode(&hash[12..]))
+}
+
+pub(super) fn issue_test_session_cookie(
+    ctx: &actix_web::web::Data<crate::app::AppCtx>,
+    wallet_address: &str,
+    paid: bool,
+) -> String {
+    static TX_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let now_unix = chrono::Utc::now().timestamp();
+    let conn = ctx.pool.get().expect("pool connection should be available");
+    if paid {
+        let seq = TX_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tx_hash = format!("0x{seq:064x}");
+        crate::auth::db::record_payment_and_extend_access(
+            &conn,
+            wallet_address,
+            &tx_hash,
+            "1000000000000000",
+            now_unix,
+            crate::auth::DEFAULT_ACCESS_DURATION_SECS,
+        )
+        .expect("test payment claim should succeed");
+    }
+    let session = crate::auth::db::create_session(
+        &conn,
+        wallet_address,
+        now_unix,
+        crate::auth::SESSION_TTL_SECS,
+    )
+    .expect("test session should be created");
+    format!("{}={}", crate::auth::SESSION_COOKIE_NAME, session.token)
+}
+
+pub(super) fn issue_paid_cookie_for_addr(addr: std::net::SocketAddr, nick: &str) -> String {
+    let ctx = TEST_CTX_BY_ADDR
+        .lock()
+        .unwrap()
+        .get(&addr)
+        .cloned()
+        .expect("test context registered for server address");
+    let wallet = wallet_for_label(nick);
+    issue_test_session_cookie(&ctx, &wallet, true)
 }
 
 // ── ClientFrame encode ────────────────────────────────────────────────────────
@@ -280,6 +341,7 @@ macro_rules! spawn_server {
     ($ctx:expr) => {{
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
+        register_test_ctx(addr, $ctx.clone());
         let sctx = $ctx.clone();
         let server = HttpServer::new(move || {
             App::new()
@@ -303,15 +365,20 @@ pub(super) use spawn_server;
 
 macro_rules! ws_join {
     ($addr:expr, $room:expr, $nick:expr) => {{
+        let norm_nick = ($nick).trim().to_ascii_lowercase();
+        let cookie = issue_paid_cookie_for_addr($addr, &norm_nick);
         let (_r, mut ws) = awc::Client::new()
             .ws(format!("ws://{}/ws/chat/{}", $addr, $room))
             .set_header("Origin", "http://localhost:8080")
+            .set_header("Cookie", cookie)
             .connect()
             .await
             .unwrap();
-        ws.send(awc::ws::Message::Binary(encode_join("j", $nick).into()))
-            .await
-            .unwrap();
+        ws.send(awc::ws::Message::Binary(
+            encode_join("j", &norm_nick).into(),
+        ))
+        .await
+        .unwrap();
         let _ = read_next_binary(&mut ws).await; // joined
         let _ = read_next_binary(&mut ws).await; // history
         ws

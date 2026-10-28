@@ -68,11 +68,7 @@ type ListEntry = TupleOf<{
 }>;
 
 type PropValue =
-    | string
-    | Function
-    | Partial<CSSStyleDeclaration>
-    | number
-    | boolean;
+    string | Function | Partial<CSSStyleDeclaration> | number | boolean;
 type PropType = Reactive<PropValue>;
 type AttrValue = string | number | boolean | null | undefined;
 type AttrType = Reactive<AttrValue>;

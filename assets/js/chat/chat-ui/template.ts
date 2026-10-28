@@ -38,8 +38,10 @@ import {
 } from '@month/gen/chat';
 import type { ClientFramePayload, VoiceParticipant } from '@month/gen/chat';
 import {
+    handleConnectWallet,
     handleJoinSubmit,
     handleNicknameInput,
+    handlePayAndUnlock,
     isValidNickname,
     MAX_NICKNAME_LEN,
 } from './join-form-handler';
@@ -57,7 +59,10 @@ import {
 } from './events';
 import type { ChatUiObs } from './events';
 import {
+    CHAT_UI_STATE_ACCESS_UNTIL,
+    CHAT_UI_STATE_AUTH_IN_FLIGHT,
     CHAT_UI_STATE_ERROR,
+    CHAT_UI_STATE_HAS_ACTIVE_ACCESS,
     CHAT_UI_STATE_IS_JOINED,
     CHAT_UI_STATE_IS_ONLINE,
     CHAT_UI_STATE_JOIN_IN_FLIGHT,
@@ -69,6 +74,7 @@ import {
     CHAT_UI_STATE_VOICE_MUTED,
     CHAT_UI_STATE_VOICE_PARTICIPANTS,
     CHAT_UI_STATE_VOICE_STATUS,
+    CHAT_UI_STATE_WALLET_ADDRESS,
 } from './state';
 import type { ChatUiState } from './state';
 
@@ -119,18 +125,50 @@ export const chatUiTemplate = (
         )
     );
     const joinDisabled = mapSignal(
-        ([[joined, joining], [online, nickname]]) =>
-            joined || joining || !online || !isValidNickname(nickname),
+        ([[[joined, joining], [online, nickname]], hasAccess]) =>
+            joined ||
+            joining ||
+            !online ||
+            !hasAccess ||
+            !isValidNickname(nickname),
         combineSignals(
             combineSignals(
-                state[CHAT_UI_STATE_IS_JOINED],
-                state[CHAT_UI_STATE_JOIN_IN_FLIGHT]
+                combineSignals(
+                    state[CHAT_UI_STATE_IS_JOINED],
+                    state[CHAT_UI_STATE_JOIN_IN_FLIGHT]
+                ),
+                combineSignals(
+                    state[CHAT_UI_STATE_IS_ONLINE],
+                    state[CHAT_UI_STATE_NICKNAME]
+                )
             ),
-            combineSignals(
-                state[CHAT_UI_STATE_IS_ONLINE],
-                state[CHAT_UI_STATE_NICKNAME]
-            )
+            state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS]
         )
+    );
+    const walletConnected = mapSignal(
+        (wallet: string) => wallet.length > 0,
+        state[CHAT_UI_STATE_WALLET_ADDRESS]
+    );
+    const walletDisconnected = mapSignal(not, walletConnected);
+    const payHidden = mapSignal(
+        ([connected, paid]: [boolean, boolean]) => !connected || paid,
+        combineSignals(walletConnected, state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS])
+    );
+    const payDisabled = mapSignal(
+        ([authInFlight, nickname]: [boolean, string]) =>
+            authInFlight || !isValidNickname(nickname),
+        combineSignals(
+            state[CHAT_UI_STATE_AUTH_IN_FLIGHT],
+            state[CHAT_UI_STATE_NICKNAME]
+        )
+    );
+    const joinHidden = mapSignal(not, state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS]);
+    const accessUntilText = mapSignal(
+        (accessUntil: number) =>
+            accessUntil > 0
+                ? ` (active until ${new ctx.Date(accessUntil * 1000).toISOString().slice(0, 10)})`
+                : '',
+        state[CHAT_UI_STATE_ACCESS_UNTIL]
     );
     return genTagName(
         'div',
@@ -154,9 +192,67 @@ export const chatUiTemplate = (
                 [genProp('hidden', welcomeHidden)],
                 [
                     genTagName(
+                        'div',
+                        [genClass($chat__meta)],
+                        [
+                            genTagName(
+                                'div',
+                                [genProp('hidden', walletConnected)],
+                                [
+                                    genTagName(
+                                        'button',
+                                        [
+                                            genClass($chat__button),
+                                            genAttr('type', 'button'),
+                                            genProp(
+                                                'disabled',
+                                                state[
+                                                    CHAT_UI_STATE_AUTH_IN_FLIGHT
+                                                ]
+                                            ),
+                                            genOn(
+                                                'click',
+                                                bindArgs(
+                                                    [
+                                                        ctx,
+                                                        nicknameKey,
+                                                        chatUiObs,
+                                                        state,
+                                                    ],
+                                                    handleConnectWallet
+                                                )
+                                            ),
+                                        ],
+                                        ['Connect Wallet']
+                                    ),
+                                ]
+                            ),
+                            genTagName(
+                                'div',
+                                [genProp('hidden', walletDisconnected)],
+                                [
+                                    genTagName(
+                                        'span',
+                                        [],
+                                        [
+                                            'Wallet: ',
+                                            state[CHAT_UI_STATE_WALLET_ADDRESS],
+                                        ]
+                                    ),
+                                    genTagName(
+                                        'span',
+                                        [genProp('hidden', joinHidden)],
+                                        [accessUntilText]
+                                    ),
+                                ]
+                            ),
+                        ]
+                    ),
+                    genTagName(
                         'form',
                         [
                             genClass($chat__form),
+                            genProp('hidden', walletDisconnected),
                             genOn(
                                 'submit',
                                 bindArgs(
@@ -199,7 +295,25 @@ export const chatUiTemplate = (
                                         'button',
                                         [
                                             genClass($chat__button),
+                                            genAttr('type', 'button'),
+                                            genProp('hidden', payHidden),
+                                            genProp('disabled', payDisabled),
+                                            genOn(
+                                                'click',
+                                                bindArgs(
+                                                    [ctx, nicknameKey, state],
+                                                    handlePayAndUnlock
+                                                )
+                                            ),
+                                        ],
+                                        ['Pay & Unlock Chat']
+                                    ),
+                                    genTagName(
+                                        'button',
+                                        [
+                                            genClass($chat__button),
                                             genAttr('type', 'submit'),
+                                            genProp('hidden', joinHidden),
                                             genProp('disabled', joinDisabled),
                                         ],
                                         ['Join room']

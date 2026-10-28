@@ -171,20 +171,92 @@ countSig[SIGNAL_SET](countSig[SIGNAL_GET]() + 1);
 ## Async via Task Pipeline
 
 Asynchronous work is expressed as lazy **Tasks** composed with `taskOf`,
-`taskMap`, `taskChain`, `taskFork`, and `pipe` from `@month/utils`.
-Do not use `async` functions, `await`, or `Promise` chains.
+`taskFromPromise`, `taskMap`, `taskChain`, `taskCatch`, `taskFork`, and `pipe`
+from `@month/utils`.
+Do not use `async` functions, `await`, or nested `Promise` `.then` chains.
 
 A `Task<T>` is just a function `(resolve, reject) => void` — it does nothing
 until `taskFork` runs it. This keeps async logic lazy, composable, and
 free of implicit scheduling.
 
-| primitive                   | purpose                                                    |
-| --------------------------- | ---------------------------------------------------------- |
-| `taskOf(fn)`                | lift a plain function into a Task                          |
-| `taskMap(fn)`               | sync transform of the resolved value; errors pass through  |
-| `taskChain(fn)`             | async step — `fn` itself returns a Task                    |
-| `taskFork(resolve, reject)` | execute a Task, catches sync throws into reject            |
-| `pipe(value, ...fns)`       | pass a value through a left-to-right sequence of functions |
+| primitive                   | purpose                                                     |
+| --------------------------- | ----------------------------------------------------------- |
+| `taskOf(fn)`                | lift a plain function into a Task                           |
+| `taskFromPromise(fn)`       | lift a Promise-returning function into a Task               |
+| `taskMap(fn)`               | sync transform of the resolved value; errors pass through   |
+| `taskChain(fn)`             | async step — `fn` itself returns a Task                     |
+| `taskCatch(fallbackFn)`     | recover from a rejected Task with a fallback value          |
+| `taskFork(resolve, reject)` | execute a Task, catches sync throws into reject             |
+| `pipe(value, ...fns)`       | pass a value through a left-to-right sequence of functions  |
+
+### No Nested `.then` Chains
+
+When bridging native Promise-returning browser APIs (`ctx.fetch`, `res.text()`,
+`peerConnection.createOffer()`, `window.ethereum.request()`), each leaf `Task`
+wraps **at most one** `.then(resolve, reject)` boundary. Never nest `.then`
+inside another `.then` or write manual `try / catch` blocks inside `.then`
+callbacks — compose steps flat with `pipe`, `taskChain`, `taskMap`, and
+`taskCatch` (`taskMap` and `taskChain` automatically route synchronous throws
+to `reject`).
+
+```ts
+// ✗ wrong — nested .then(...).then(...) and manual try/catch
+const postJsonTask =
+    (ctx: Window, url: string, payload: Record<string, unknown>): Task<Data> =>
+    (resolve, reject) => {
+        ctx.fetch(url, { method: 'POST', body: ctx.JSON.stringify(payload) }).then(
+            (res) => {
+                res.text().then((rawText) => {
+                    try {
+                        const data = ctx.JSON.parse(rawText);
+                        if (!res.ok) {
+                            reject(new Error('Failed'));
+                            return;
+                        }
+                        resolve(data);
+                    } catch (e) {
+                        reject(e);
+                    }
+                }, reject);
+            },
+            reject
+        );
+    };
+
+// ✓ correct — flat leaf Tasks composed with pipe + taskChain + taskMap
+const rawFetchTask =
+    (ctx: Window, url: string, init: RequestInit): Task<Response> =>
+    (resolve, reject) => {
+        ctx.fetch(url, init).then(resolve, reject);
+    };
+
+const readResponseTextTask =
+    (res: Response): Task<ResponseWithText> =>
+    (resolve, reject) => {
+        res.text().then((rawText: string) => resolve([res, rawText]), reject);
+    };
+
+const fetchTask = (
+    ctx: Window,
+    url: string,
+    init: RequestInit
+): Task<Record<string, unknown>> =>
+    pipe(
+        rawFetchTask(ctx, url, init),
+        taskChain(readResponseTextTask),
+        taskMap(bindArg(ctx, parseOkResponse))
+    );
+
+export const fetchSessionTask = (ctx: Window): Task<SessionStatus | null> =>
+    pipe(
+        fetchTask(ctx, '/auth/session', {
+            ['method']: 'GET',
+            ['credentials']: 'same-origin',
+        }),
+        taskMap(parseSessionStatus),
+        taskCatch(() => null)
+    );
+```
 
 **Example: read a File, then send over WebSocket**
 
@@ -426,6 +498,71 @@ type ListEntry = [el: HTMLElement, itemScope: DomScope];
 const mountList = () => {
     const entryMap = new Map<string, ListEntry>();
 };
+```
+
+## Runtime Validation (`objectStruct` & `validate`)
+
+Avoid scattered `typeof x === 'string'`, `typeof x === 'object'`, custom
+type-guard functions, or optional tuple indexing (`?.[INDEX]`) when inspecting
+untrusted runtime values (JSON responses, `window.ethereum` providers, RPC
+error payloads, browser capabilities on `ctx: Window`).
+
+Use the closure-free `objectStruct` data tuple and `validate` from
+`@month/utils` to validate and project runtime objects directly into typed
+tuples:
+
+- **`objectStruct(...fields)`**: Pure data tuple constructor (`(...fields) => fields`) with **zero closure allocations**. Each field rule is a tuple `['key', step1, step2, ...]` where steps are top-level validator functions (`isString`, `isNumber`, `isBoolean`, `isFunction`, `isArray`, `trim`, `nullable`) or nested `objectStruct(...)` tuples.
+- **Strict by default**: If the input is not an object or any required field evaluates to `undefined`, `validate(val, struct)` returns `undefined`. When it succeeds, every slot in the returned tuple is guaranteed to be defined, eliminating `?.[INDEX]` optional chaining.
+- **Closure `ADVANCED` safe**: Because property names in `objectStruct` rules are string literals (`'ethereum'`, `'request'`, `'message'`), Closure Compiler never renames them.
+- **Optional fields (`nullable`)**: Append the top-level `nullable` step (`['nickname', isString, trim, nullable]`) when a missing or `null` property should resolve to `null` instead of failing the struct.
+
+```ts
+// ✗ wrong — ad-hoc typeof checks and optional tuple indexing
+if (
+    ctx['ethereum'] &&
+    typeof ctx['ethereum']['request'] === 'function'
+) {
+    ctx['ethereum']['request'](args);
+}
+
+// ✓ correct — closure-free objectStruct tuple + validate from ctx
+import {
+    isFunction,
+    isString,
+    nullable,
+    objectStruct,
+    trim,
+    validate,
+} from '@month/utils';
+
+const WIN_ETHEREUM = 0 as const;
+const PROVIDER_REQUEST = 0 as const;
+
+const windowEthereumStruct = objectStruct([
+    'ethereum',
+    objectStruct(['request', isFunction<EthereumProvider['request']>]),
+]);
+
+const eth = validate(ctx, windowEthereumStruct);
+if (!eth) {
+    reject(new Error('No Ethereum wallet detected.'));
+    return;
+}
+const request = eth[WIN_ETHEREUM][PROVIDER_REQUEST];
+
+// Nested optional fields with nullable (zero closures)
+const ERR_MESSAGE = 0 as const;
+const ERR_REASON = 1 as const;
+const ERR_DATA = 2 as const;
+const ERR_DATA_MESSAGE = 0 as const;
+
+const errorObjectStruct = objectStruct(
+    ['message', isString, trim, nullable],
+    ['reason', isString, trim, nullable],
+    ['data', objectStruct(['message', isString, trim]), nullable]
+);
+
+const parsed = validate(err, errorObjectStruct);
 ```
 
 ## Partial Application over Wrapper Arrows

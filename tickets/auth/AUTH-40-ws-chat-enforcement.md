@@ -1,7 +1,7 @@
 ---
 title: "WebSocket Chat Authentication & Ownership Enforcement"
 ticket: "AUTH-40"
-status: "pending"
+status: "completed"
 draft: false
 weight: 40
 ---
@@ -44,3 +44,13 @@ Bind `/ws/chat/{room_id}` connections to the verified wallet session, enforce ac
 ## Acceptance
 - WebSocket messages, attachments, and voice participants use the server-verified wallet address and unique SQLite-backed nickname.
 - Message deletion is strictly author-only.
+
+## Result
+
+**Status: DONE**
+
+### Implemented modules
+- `server/src/pages/chat/mod.rs` — resolves `month_session` cookie via `extract_session_token` + `get_valid_session_wallet` on `/ws/chat/{room_id}` upgrade and sets `ChatWs.sender_id` to the verified lowercase wallet address.
+- `server/src/chat/messaging_actor.rs` — verifies `WalletProfile` active paid access (`PAYMENT_REQUIRED`) and unique nickname ownership (`set_wallet_nickname` / `NICKNAME_TAKEN`) on `ChatWs::on_join`, and passes `sender_id` to `delete_message` on `ChatWs::on_delete`.
+- `server/src/chat/db.rs` & `server/src/chat/service.rs` — scopes `delete_message_by_id` with `AND sender_id = ?3` so only the message author's wallet can delete a message.
+- `server/src/pages/chat/tests/` — integration tests covering session reconnect preservation, `PAYMENT_REQUIRED` on unpaid join, `NICKNAME_TAKEN` on duplicate nickname claim, and author-only message deletion.

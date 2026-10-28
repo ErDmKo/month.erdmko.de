@@ -1,7 +1,7 @@
 ---
 title: "Browser Wallet (window.ethereum) Connect, SIWE & Payment UI"
 ticket: "AUTH-50"
-status: "pending"
+status: "completed"
 draft: false
 weight: 50
 ---
@@ -42,3 +42,14 @@ Add native `window.ethereum` (EIP-1193) wallet connect, free SIWE signature logi
 ## Acceptance
 - Zero external npm runtime dependencies added to the bundle.
 - Strictly follows `assets/js/CODESTYLE.md` (`ctx: Window`, `Task` pipelines, `TupleOf` / `ReadonlyTupleOf`, declarative DOM).
+
+## Result
+
+**Status: DONE**
+
+### Implemented modules
+- `assets/js/chat/auth/wallet.ts` — `hasEthereumProvider` type guard, `normalizeWalletAddress`, `normalizeTxHash`, `buildSiweMessage`, `requestAccountsTask`, `signSiweMessageTask`, and `sendPaymentTransactionTask`.
+- `assets/js/chat/auth/api.ts` — `NonceChallenge` and `SessionStatus` `ReadonlyTupleOf` tuples, `fetchNonceTask`, `verifySiweTask`, `claimPaymentTask`, `updateNicknameTask`, and `fetchSessionTask`.
+- `assets/js/chat/auth/index.ts` — `connectAndSignInTask` and `payAndClaimTask` composed `Task` pipelines.
+- `assets/js/chat/chat-ui/` (`state.ts`, `events.ts`, `join-form-handler.ts`, `template.ts`, `init.ts`) — signal-bound 3-state welcome UI (Disconnected → Connected & Unpaid → Connected & Paid), automatic session restoration via `GET /auth/session`, and WebSocket reconnection after SIWE verification.
+- `assets/js/chat/auth/auth.test.ts` & `assets/js/chat/chat-ui/chat-ui.test.ts` — unit and UI state transition tests.

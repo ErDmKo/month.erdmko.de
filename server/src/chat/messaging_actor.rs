@@ -1,8 +1,11 @@
 use actix::AsyncContext;
 use actix_web_actors::ws;
+use chrono::Utc;
 use log::{info, warn};
 
-use crate::chat::service::{self as chat_service, ChatSessionState};
+use crate::auth::db::{get_wallet_profile, set_wallet_nickname};
+use crate::auth::service::normalize_wallet_address;
+use crate::chat::service::{self as chat_service};
 use crate::pages::chat::chat_actor::{ChatWs, PushEvent};
 
 impl ChatWs {
@@ -12,17 +15,102 @@ impl ChatWs {
         nickname: String,
         ctx: &mut ws::WebsocketContext<Self>,
     ) {
-        let Some(valid_nickname) = ChatSessionState::validate_nickname(&nickname) else {
+        if normalize_wallet_address(&self.sender_id).is_err() {
+            Self::send_error(
+                &self.room_id,
+                &self.sender_id,
+                ctx,
+                request_id.as_deref(),
+                "PAYMENT_REQUIRED",
+                "Authenticated wallet with active paid access is required.",
+            );
+            return;
+        }
+
+        let now_unix = Utc::now().timestamp();
+        let conn = match self.app_ctx.pool.get() {
+            Ok(c) => c,
+            Err(err) => {
+                warn!(
+                    "event=chat_error room_id={} sender_id={} code=INTERNAL request_id={} error={:?}",
+                    self.room_id,
+                    self.sender_id,
+                    request_id.as_deref().unwrap_or("null"),
+                    err
+                );
+                Self::send_error(
+                    &self.room_id,
+                    &self.sender_id,
+                    ctx,
+                    request_id.as_deref(),
+                    "INTERNAL",
+                    "Failed to acquire DB connection.",
+                );
+                return;
+            }
+        };
+
+        let profile = match get_wallet_profile(&conn, &self.sender_id, now_unix) {
+            Ok(p) => p,
+            Err(err) => {
+                Self::send_error(
+                    &self.room_id,
+                    &self.sender_id,
+                    ctx,
+                    request_id.as_deref(),
+                    err.code(),
+                    err.message(),
+                );
+                return;
+            }
+        };
+
+        if !profile.has_active_access {
+            Self::send_error(
+                &self.room_id,
+                &self.sender_id,
+                ctx,
+                request_id.as_deref(),
+                "PAYMENT_REQUIRED",
+                "Active paid access is required to join the room.",
+            );
+            return;
+        }
+
+        let candidate_nickname = if !nickname.trim().is_empty() {
+            nickname.trim().to_string()
+        } else if let Some(existing) = profile.nickname {
+            existing
+        } else {
             Self::send_error(
                 &self.room_id,
                 &self.sender_id,
                 ctx,
                 request_id.as_deref(),
                 "VALIDATION_ERROR",
-                "Nickname must be between 1 and 32 characters.",
+                "Nickname must be between 1 and 32 lowercase ASCII characters.",
             );
             return;
         };
+
+        let updated_profile =
+            match set_wallet_nickname(&conn, &self.sender_id, &candidate_nickname, now_unix) {
+                Ok(p) => p,
+                Err(err) => {
+                    Self::send_error(
+                        &self.room_id,
+                        &self.sender_id,
+                        ctx,
+                        request_id.as_deref(),
+                        err.code(),
+                        err.message(),
+                    );
+                    return;
+                }
+            };
+        drop(conn);
+
+        let valid_nickname = updated_profile.nickname.unwrap_or(candidate_nickname);
         self.session.set_nickname(valid_nickname.clone());
         let room_id = self.room_id.clone();
         let sender_id = self.sender_id.clone();
@@ -141,7 +229,7 @@ impl ChatWs {
         let app_ctx = self.app_ctx.clone();
         let addr = ctx.address();
         actix_web::rt::spawn(async move {
-            match chat_service::delete_message(&app_ctx, &room_id, message_id).await {
+            match chat_service::delete_message(&app_ctx, &room_id, message_id, &sender_id).await {
                 Ok(true) => {
                     info!(
                         "event=chat_delete room_id={} sender_id={} message_id={}",

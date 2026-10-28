@@ -4,7 +4,15 @@
 // NAT1To1IPs (see server/src/voice/mod.rs's `init_rtc`), so ICE candidates
 // from `iceServers: []` are sufficient.
 
-import { bindArg, createLogger, observer, trigger } from '../../utils';
+import {
+    bindArg,
+    createLogger,
+    observer,
+    pipe,
+    taskChain,
+    taskMap,
+    trigger,
+} from '../../utils';
 import type { ObserverInstance, ReadonlyTupleOf, Task } from '../../utils';
 
 const voiceLog = createLogger('voice');
@@ -118,16 +126,35 @@ export const createVoicePeerConnection = (
 // boundary with `.then(resolve, reject)` (no further chaining), the same
 // pattern `readFileAsArrayBuffer` uses to wrap `FileReader`'s callback API.
 
-export const createVoiceOfferTask =
-    (ctx: Window, peerConnection: RTCPeerConnection): Task<string> =>
+const createRtcOfferTask =
+    (peerConnection: RTCPeerConnection): Task<RTCSessionDescriptionInit> =>
     (resolve, reject) => {
-        peerConnection.createOffer().then((offer) => {
-            voiceLog(ctx, 'created offer, sdp length', offer.sdp?.length ?? 0);
-            peerConnection
-                .setLocalDescription(offer)
-                .then(() => resolve(offer.sdp ?? ''), reject);
-        }, reject);
+        peerConnection.createOffer().then(resolve, reject);
     };
+
+const setLocalDescriptionTask =
+    (
+        peerConnection: RTCPeerConnection,
+        offer: RTCSessionDescriptionInit
+    ): Task<RTCSessionDescriptionInit> =>
+    (resolve, reject) => {
+        peerConnection
+            .setLocalDescription(offer)
+            .then(() => resolve(offer), reject);
+    };
+
+export const createVoiceOfferTask = (
+    ctx: Window,
+    peerConnection: RTCPeerConnection
+): Task<string> =>
+    pipe(
+        createRtcOfferTask(peerConnection),
+        taskChain((offer: RTCSessionDescriptionInit) => {
+            voiceLog(ctx, 'created offer, sdp length', offer.sdp?.length ?? 0);
+            return setLocalDescriptionTask(peerConnection, offer);
+        }),
+        taskMap((offer: RTCSessionDescriptionInit) => offer.sdp ?? '')
+    );
 
 export const applyVoiceAnswerTask =
     (ctx: Window, peerConnection: RTCPeerConnection, sdp: string): Task<void> =>

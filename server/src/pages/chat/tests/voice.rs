@@ -22,8 +22,8 @@ async fn voice_join_and_leave_broadcasts_state() {
         .unwrap();
 
     let (addr, handle) = spawn_server!(ctx);
-    let mut ws1 = ws_join!(addr, room_id, "Alice");
-    let mut ws2 = ws_join!(addr, room_id, "Bob");
+    let mut ws1 = ws_join!(addr, room_id, "alice");
+    let mut ws2 = ws_join!(addr, room_id, "bob");
 
     // Alice joins voice
     ws1.send(awc::ws::Message::Binary(encode_voice_join("v1").into()))
@@ -38,7 +38,7 @@ async fn voice_join_and_leave_broadcasts_state() {
 
     if let server_frame::Payload::VoiceState(state) = v_state1 {
         assert_eq!(state.participants.len(), 1);
-        assert_eq!(state.participants[0].sender_name, "Alice");
+        assert_eq!(state.participants[0].sender_name, "alice");
     }
 
     // Bob also receives Alice's join
@@ -50,7 +50,7 @@ async fn voice_join_and_leave_broadcasts_state() {
 
     if let server_frame::Payload::VoiceState(state) = v_state2 {
         assert_eq!(state.participants.len(), 1);
-        assert_eq!(state.participants[0].sender_name, "Alice");
+        assert_eq!(state.participants[0].sender_name, "alice");
     }
 
     // Alice leaves voice
@@ -82,6 +82,7 @@ async fn voice_disconnect_triggers_leave_and_serves_healthz() {
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
+    register_test_ctx(addr, ctx.clone());
     let sctx = ctx.clone();
     let server = HttpServer::new(move || {
         App::new()
@@ -204,6 +205,7 @@ async fn multi_tab_voice_join_leave_and_chat_messaging() {
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
+    register_test_ctx(addr, ctx.clone());
     let sctx = ctx.clone();
     let server = HttpServer::new(move || {
         App::new()

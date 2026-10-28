@@ -33,6 +33,14 @@ export const taskOf =
     (resolve) =>
         resolve(fn(...args));
 
+// Lift a Promise-returning function into a Task-returning function.
+export const taskFromPromise =
+    <Args extends any[], T>(fn: (...args: Args) => PromiseLike<T>) =>
+    (...args: Args): Task<T> =>
+    (resolve, reject) => {
+        fn(...args).then(resolve, reject);
+    };
+
 // ── Combinators ───────────────────────────────────────────────────────────────
 
 // Transform the resolved value of a Task (sync, no new Task returned).
@@ -62,3 +70,16 @@ export const taskChain =
                 reject(e);
             }
         }, reject);
+
+// Recover from a rejected Task with a fallback value.
+export const taskCatch =
+    <T, F>(fallbackFn: (error: unknown) => F) =>
+    (fn: Task<T>): Task<T | F> =>
+    (resolve, reject) =>
+        fn(resolve, (err) => {
+            try {
+                resolve(fallbackFn(err));
+            } catch (e) {
+                reject(e);
+            }
+        });

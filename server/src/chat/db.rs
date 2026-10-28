@@ -257,6 +257,7 @@ pub async fn delete_message_by_id(
     app_ctx: &web::Data<AppCtx>,
     room_slug: &str,
     message_id: i64,
+    sender_id: &str,
 ) -> ChatResult<bool> {
     let room = room_slug.trim();
     if room.is_empty() {
@@ -265,8 +266,13 @@ pub async fn delete_message_by_id(
     if message_id <= 0 {
         return Err(ChatError::validation("message id must be positive"));
     }
+    let sender = sender_id.trim();
+    if sender.is_empty() {
+        return Err(ChatError::validation("sender id is required"));
+    }
     let pool = app_ctx.pool.clone();
     let room_slug = room.to_string();
+    let sender_id = sender.to_string();
     let conn = web::block(move || pool.get())
         .await
         .map_err(|err| ChatError::internal("DB worker failure.", format!("{err:?}")))?
@@ -279,10 +285,12 @@ pub async fn delete_message_by_id(
         .execute(
             format!(
                 "DELETE FROM {CHAT_MESSAGES_TABLE}
-                 WHERE id = ?1 AND room_id = (SELECT id FROM {CHAT_ROOMS_TABLE} WHERE slug = ?2 LIMIT 1)"
+                 WHERE id = ?1
+                   AND room_id = (SELECT id FROM {CHAT_ROOMS_TABLE} WHERE slug = ?2 LIMIT 1)
+                   AND sender_id = ?3"
             )
             .as_str(),
-            (message_id, room_slug),
+            (message_id, room_slug, sender_id),
         )
         .map_err(|err| ChatError::internal("Failed to delete message.", format!("{err:?}")))?;
     Ok(affected > 0)
@@ -529,7 +537,7 @@ mod tests {
             .await
             .expect("insert should succeed");
 
-        let deleted = delete_message_by_id(&ctx, "general", inserted.id)
+        let deleted = delete_message_by_id(&ctx, "general", inserted.id, "u1")
             .await
             .expect("delete should succeed");
         assert!(deleted);
@@ -553,7 +561,7 @@ mod tests {
             .await
             .expect("insert should succeed");
 
-        let deleted = delete_message_by_id(&ctx, "room-b", inserted.id)
+        let deleted = delete_message_by_id(&ctx, "room-b", inserted.id, "u1")
             .await
             .expect("delete should succeed");
         assert!(!deleted);
@@ -563,6 +571,28 @@ mod tests {
             .expect("query should succeed");
         assert_eq!(room_a_messages.len(), 1);
         assert_eq!(room_a_messages[0].body, "protected");
+    }
+
+    #[actix_web::test]
+    async fn delete_message_by_id_does_not_delete_message_from_other_sender() {
+        let ctx = setup_ctx();
+        create_room_if_not_exists(&ctx, "general")
+            .await
+            .expect("room create should succeed");
+        let inserted = insert_message(&ctx, "general", "u1", "alice", "alice message")
+            .await
+            .expect("insert should succeed");
+
+        let deleted = delete_message_by_id(&ctx, "general", inserted.id, "u2")
+            .await
+            .expect("delete should succeed");
+        assert!(!deleted);
+
+        let messages = get_recent_messages(&ctx, "general", Some(10))
+            .await
+            .expect("query should succeed");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].body, "alice message");
     }
 
     #[actix_web::test]
