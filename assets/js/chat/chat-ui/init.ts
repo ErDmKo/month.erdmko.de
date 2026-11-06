@@ -29,13 +29,15 @@ import {
     serializeCommand,
     validateOutgoingCommand,
 } from '../protocol/outgoing';
-import { fetchSessionTask } from '../auth';
+import { fetchSessionTask, SESSION_STATUS_HAS_ACTIVE_ACCESS } from '../auth';
 import type { SessionStatus } from '../auth';
 import {
     applySessionStatusToState,
     getNicknameValidationError,
     MAX_NICKNAME_LEN,
+    tryAutoJoin,
 } from './join-form-handler';
+import { GLOBAL_NICKNAME_KEY, navigateToUrl } from './onboarding';
 import type { ServerFramePayload, ClientFramePayload } from '@month/gen/chat';
 import { mountChatUi } from './template';
 import {
@@ -98,7 +100,9 @@ export const initChatUi =
         const outgoing = socket[CHAT_SOCKET_OUTGOING];
         const incoming = socket[CHAT_SOCKET_INCOMING];
 
-        const savedNickname = ctx.localStorage.getItem(nicknameKey);
+        const savedNickname =
+            ctx.localStorage.getItem(nicknameKey) ||
+            ctx.localStorage.getItem(GLOBAL_NICKNAME_KEY);
         const state = createChatUiState(
             savedNickname && savedNickname.length <= MAX_NICKNAME_LEN
                 ? savedNickname
@@ -124,9 +128,12 @@ export const initChatUi =
         pipe(
             fetchSessionTask(ctx),
             taskFork((status: SessionStatus | null) => {
-                if (status) {
+                if (status && status[SESSION_STATUS_HAS_ACTIVE_ACCESS]) {
                     applySessionStatusToState(ctx, nicknameKey, status, state);
+                    tryAutoJoin(ctx, outgoing, state);
+                    return;
                 }
+                navigateToUrl(ctx, `/chat?room=${encodeURIComponent(roomId)}`);
             }, noop)
         );
 
@@ -172,6 +179,7 @@ export const initChatUi =
                 state[CHAT_UI_STATE_IS_JOINED][SIGNAL_SET](false);
                 state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](false);
                 chatUiObs(bindArg([CHAT_UI_JOINED, null] as const, trigger));
+                tryAutoJoin(ctx, outgoing, state);
             };
 
             ws.onclose = () => {

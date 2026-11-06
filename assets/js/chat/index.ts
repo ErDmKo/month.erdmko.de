@@ -11,6 +11,7 @@ import type { ObserverState } from '@month/utils';
 import type { ChatSocket } from './protocol/incoming';
 import type { ServerFramePayload, ClientFramePayload } from '@month/gen/chat';
 import { initChatUi, CHAT_UI_ERROR } from './chat-ui/init';
+import { initChatOnboarding } from './chat-ui/onboarding';
 import type { ChatUiObs } from './chat-ui/events';
 import { initMessages } from './messages/init';
 import type { MsgsObs } from './messages/handler';
@@ -73,6 +74,8 @@ const initTemplate = (ctx: Window, root: Element) => {
 };
 
 export const initChatEffect = (ctx: Window) => {
+    const onboardingTags = ctx.document.querySelectorAll('.js-chat-onboarding');
+    ctx.Array.from(onboardingTags).forEach((el) => initChatOnboarding(ctx, el));
     const tags = ctx.document.querySelectorAll('.js-chat');
     ctx.Array.from(tags).forEach((el) => initTemplate(ctx, el));
 };

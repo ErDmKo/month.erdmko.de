@@ -1,12 +1,25 @@
 {% extends "inner.html" %}
-{% block title %}Chat room {{ room_id }}{% endblock title %}
-{% block desc %}Simple room chat{% endblock desc %}
+{% block title %}Chat room #{{ room_id }} — Live Voice &amp; Web Chat{% endblock title %}
+{% block desc %}Join the #{{ room_id }} chat room for real-time messaging, WebRTC voice calls, and instant file sharing in your browser.{% endblock desc %}
+{% block robots %}{% if is_public_room %}index, follow, max-image-preview:large{% else %}noindex, follow{% endif %}{% endblock robots %}
+{% block og_title %}Join #{{ room_id }} — Live Voice &amp; Web Chat{% endblock og_title %}
+{% block twitter_title %}Join #{{ room_id }} — Live Voice &amp; Web Chat{% endblock twitter_title %}
+{% block og_desc %}Real-time browser chat room #{{ room_id }} with WebRTC voice calls and file sharing.{% endblock og_desc %}
+{% block twitter_desc %}Real-time browser chat room #{{ room_id }} with WebRTC voice calls and file sharing.{% endblock twitter_desc %}
+{% block analytics_preconnect %}{% endblock analytics_preconnect %}
+{% block analytics %}{% endblock analytics %}
 {% block head %}
 <script async src="/static/js/{{ bundle_name }}-bundle.js"></script>
 {% endblock head %}
 {% block inner_content %}
 <section class="{{ css["chat-page"] }}">
     <h1 class="{{ css.chat__title }}">Chat room: {{ room_id }}</h1>
+    <p class="{{ css.chat__meta }}">
+        Live text &amp; WebRTC voice room <strong>#{{ room_id }}</strong> · <a href="/chat">Explore all chat rooms</a>
+    </p>
     <div class="{{ css.chat }} js-chat" data-room-id="{{ room_id }}"></div>
+    <noscript>
+        <p>Enable JavaScript to connect to live chat and WebRTC voice in room #{{ room_id }}, or return to <a href="/chat">all chat rooms</a>.</p>
+    </noscript>
 </section>
 {% endblock inner_content %}

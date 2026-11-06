@@ -4,19 +4,22 @@
         <meta charset="UTF-8">
         <title>{% block title %}ErDmKo home page{% endblock title %}</title>
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="preconnect" href="https://mc.yandex.ru" crossorigin>
+        {% block analytics_preconnect %}<link rel="preconnect" href="https://mc.yandex.ru" crossorigin>{% endblock analytics_preconnect %}
         <meta name="google-site-verification" content="TFGFP-50qNSslG_4Sv7LHxG5vJdLtVeuh6zvZ2hAV1k" />
-        <meta name="robots" content="max-image-preview:large"/>
+        <meta name="robots" content="{% block robots %}index, follow, max-image-preview:large{% endblock robots %}"/>
+        <link rel="canonical" href="{% block canonical %}{{ canonical_url | default(value="https://erdmko.dev/") | safe }}{% endblock canonical %}"/>
         <meta name="twitter:card" content="summary_large_image"/>
-        <meta name="twitter:title" content="Main page"/>
-        <meta name="twitter:image" content="/static/img/avatar@2x.jpg"/>
-        <meta name="twitter:image:alt" content="ErDmKo home page"/>
-        <meta name="twitter:description" content="ErDmKo home index page"/>
-        <meta property="og:type" content="article"/>
-        <meta property="og:description" content="ErDmKo home index page">
-        <meta name="og:image" content="/static/img/avatar@2x.jpg"/>
-        <meta property="og:title" content="ErDmKo home page" />
-        <link rel="preload" as="style" href="https://fonts.googleapis.com/css?family=Poiret+One|Roboto&display=swap"/>
+        <meta name="twitter:title" content="{% block twitter_title %}ErDmKo — Online Tools, Games &amp; WebRTC Chat{% endblock twitter_title %}"/>
+        <meta name="twitter:image" content="{% block twitter_image %}{{ site_url | default(value="https://erdmko.dev") | safe }}/static/img/avatar@2x.jpg{% endblock twitter_image %}"/>
+        <meta name="twitter:image:alt" content="{% block twitter_image_alt %}ErDmKo home page{% endblock twitter_image_alt %}"/>
+        <meta name="twitter:description" content="{% block twitter_desc %}Developer tools, browser games, and instant WebRTC voice &amp; chat rooms by Dmitry Eroshenko (ErDmKo).{% endblock twitter_desc %}"/>
+        <meta property="og:type" content="{% block og_type %}website{% endblock og_type %}"/>
+        <meta property="og:site_name" content="ErDmKo"/>
+        <meta property="og:url" content="{{ canonical_url | default(value="https://erdmko.dev/") | safe }}"/>
+        <meta property="og:description" content="{% block og_desc %}Developer tools, browser games, and instant WebRTC voice &amp; chat rooms by Dmitry Eroshenko (ErDmKo).{% endblock og_desc %}">
+        <meta property="og:image" content="{% block og_image %}{{ site_url | default(value="https://erdmko.dev") | safe }}/static/img/avatar@2x.jpg{% endblock og_image %}"/>
+        <meta property="og:title" content="{% block og_title %}ErDmKo — Online Tools, Games &amp; WebRTC Chat{% endblock og_title %}" />
+        <link rel="preload" as="style" href="https://fonts.googleapis.com/css?family=Poiret+One|Roboto&subset=latin,cyrillic&display=swap"/>
         <link type="image/x-icon" rel="shortcut icon" href="/static/favicon.ico">
         <link 
             rel="apple-touch-icon"
@@ -55,12 +58,13 @@
         <link
           media="print"
           onload="this.onload=null;this.removeAttribute('media');"
-          href="https://fonts.googleapis.com/css?family=Poiret+One|Roboto&display=swap" 
+          href="https://fonts.googleapis.com/css?family=Poiret+One|Roboto&subset=latin,cyrillic&display=swap"
           rel="stylesheet">
         {% block head %}{% endblock head %}
     </head>
     <body>
-        {% block content %}{% endblock content %}
+        <main>{% block content %}{% endblock content %}</main>
+        {% block analytics %}
         <script async src="/static/js/mc.js"></script>
         <script>
           window.ym = (...args) => {
@@ -69,5 +73,6 @@
           };
           ym(64378813, "init");
         </script>
+        {% endblock analytics %}
     </body>
 </html>

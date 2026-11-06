@@ -77,6 +77,7 @@ export const applySessionStatusToState = (
     if (serverNickname) {
         state[CHAT_UI_STATE_NICKNAME][SIGNAL_SET](serverNickname);
         ctx.localStorage.setItem(nicknameKey, serverNickname);
+        ctx.localStorage.setItem('chat-nickname', serverNickname);
     }
 };
 
@@ -243,6 +244,36 @@ export const handleJoinSubmit = (
             state[CHAT_UI_STATE_ERROR][SIGNAL_SET]('Socket is not connected.');
         }
         return;
+    }
+    state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](true);
+    state[CHAT_UI_STATE_ERROR][SIGNAL_SET]('');
+    outgoing(
+        bindArg(
+            [CLIENT_FRAME_JOIN, [`join-${ctx.Date.now()}`, nickname]] as const,
+            trigger
+        )
+    );
+};
+
+export const tryAutoJoin = (
+    ctx: Window,
+    outgoing: ObserverInstance<ClientFramePayload>,
+    state: ChatUiState
+): void => {
+    if (
+        state[CHAT_UI_STATE_IS_JOINED][SIGNAL_GET]() ||
+        state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_GET]() ||
+        !state[CHAT_UI_STATE_IS_ONLINE][SIGNAL_GET]() ||
+        !state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS][SIGNAL_GET]()
+    ) {
+        return;
+    }
+    const wallet = state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_GET]();
+    if (!wallet) return;
+    let nickname = state[CHAT_UI_STATE_NICKNAME][SIGNAL_GET]().trim();
+    if (!isValidNickname(nickname)) {
+        nickname = `user_${wallet.slice(2, 8)}`;
+        state[CHAT_UI_STATE_NICKNAME][SIGNAL_SET](nickname);
     }
     state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](true);
     state[CHAT_UI_STATE_ERROR][SIGNAL_SET]('');

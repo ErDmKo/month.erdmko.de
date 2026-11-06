@@ -20,7 +20,7 @@
                     <a 
                         class="{{ css.address__ancor }}"
                         rel="noopener noreferrer"
-                        href="{{ address.href }}"
+                        href="{{ address.href | safe }}"
                         target="_blank">
                             {{ address.text }}
                     </a>
@@ -37,7 +37,7 @@
                     <a 
                         class="{{ css.address__ancor }}"
                         rel="noopener noreferrer"
-                        href="{{ tool.href }}">
+                        href="{{ tool.href | safe }}">
                             {{ tool.text }}
                     </a>
                 </li>
@@ -53,7 +53,7 @@
                     <a 
                         class="{{ css.address__ancor }}"
                         rel="noopener noreferrer"
-                        href="{{ game.href }}">
+                        href="{{ game.href | safe }}">
                             {{ game.text }}
                     </a>
                 </li>

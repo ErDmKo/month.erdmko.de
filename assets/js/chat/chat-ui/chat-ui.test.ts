@@ -51,6 +51,8 @@ import {
 } from './state';
 import type { ChatUiState } from './state';
 import { CHAT_REF_FILE_INPUT, mountChatUi } from './template';
+import { onboardingTemplate } from './onboarding';
+import { tryAutoJoin } from './join-form-handler';
 import { initChatUi } from './init';
 import {
     attachmentItemTemplate,
@@ -219,21 +221,14 @@ test('chat controls and text update from signals without rebuilding the UI', () 
     const { root, state } = fixture();
     const status = root.find('strong');
     const statusText = status.firstChild;
-    const join = root.find('button', 'Join room');
     const send = root.find('button', 'Send');
     const textarea = root.find('textarea');
-    const welcome = root.find('form').parentNode!;
     const chat = textarea.form!.parentNode!;
     assert.equal(status.textContent, 'connecting');
-    assert.equal(join.disabled, true);
     assert.equal(send.disabled, true);
-    assert.equal(welcome.hidden, false);
     assert.equal(chat.hidden, true);
 
     state[CHAT_UI_STATE_IS_ONLINE][SIGNAL_SET](true);
-    assert.equal(join.disabled, false);
-    state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](true);
-    assert.equal(join.disabled, true);
     state[CHAT_UI_STATE_STATUS][SIGNAL_SET]('online');
     state[CHAT_UI_STATE_ERROR][SIGNAL_SET]('Oops');
     assert.equal(status.textContent, 'online');
@@ -241,7 +236,6 @@ test('chat controls and text update from signals without rebuilding the UI', () 
     assert.equal(root.find('p').textContent, 'Oops');
 
     state[CHAT_UI_STATE_IS_JOINED][SIGNAL_SET](true);
-    assert.equal(welcome.hidden, true);
     assert.equal(chat.hidden, false);
     state[CHAT_UI_STATE_MESSAGE][SIGNAL_SET]('hello');
     assert.equal(textarea.value, 'hello');
@@ -250,50 +244,28 @@ test('chat controls and text update from signals without rebuilding the UI', () 
     state[CHAT_UI_STATE_MESSAGE][SIGNAL_SET]('x'.repeat(201));
     assert.equal(send.disabled, true);
     state[CHAT_UI_STATE_IS_JOINED][SIGNAL_SET](false);
-    assert.equal(welcome.hidden, false);
     assert.equal(chat.hidden, true);
     assert.equal(root.find('textarea'), textarea);
 });
 
-test('join input persists nicknames and submit prevents duplicate pending joins', () => {
-    const { root, state, sent, storage } = fixture('');
-    const input = root.find('input');
-    const join = root.find('button', 'Join room');
-    state[CHAT_UI_STATE_IS_ONLINE][SIGNAL_SET](true);
-    input.value = '   ';
-    input.dispatch('input');
-    assert.equal(join.disabled, true);
-    input.form!.dispatch('submit');
+test('tryAutoJoin automatically emits CLIENT_FRAME_JOIN when online with active paid access', () => {
+    const { ctx, state, outgoing, sent } = fixture('alice');
+    tryAutoJoin(ctx, outgoing, state);
     assert.equal(sent.length, 0);
-    assert.ok(
-        state[CHAT_UI_STATE_ERROR][SIGNAL_GET]().includes('Nickname must')
-    );
 
-    input.value = 'ErDmKo';
-    input.dispatch('input');
-    assert.equal(join.disabled, true);
-    assert.ok(
-        state[CHAT_UI_STATE_ERROR][SIGNAL_GET]().includes('lowercase only')
-    );
-
-    input.value = '  alice  ';
-    input.dispatch('input');
-    assert.equal(state[CHAT_UI_STATE_ERROR][SIGNAL_GET](), '');
-    assert.equal(storage.get('nickname'), 'alice');
-    assert.equal(join.disabled, false);
-    input.form!.dispatch('submit');
+    state[CHAT_UI_STATE_IS_ONLINE][SIGNAL_SET](true);
+    tryAutoJoin(ctx, outgoing, state);
     assert.equal(sent.length, 1);
-    assert.equal(sent[0][CLIENT_FRAME_PAYLOAD_VARIANT], CLIENT_FRAME_JOIN);
+    assert.equal(sent[0]?.[CLIENT_FRAME_PAYLOAD_VARIANT], CLIENT_FRAME_JOIN);
     assert.equal(
-        sent[0][CLIENT_FRAME_PAYLOAD_VALUE][CLIENT_JOIN_NICKNAME],
+        sent[0]?.[CLIENT_FRAME_PAYLOAD_VALUE][CLIENT_JOIN_NICKNAME],
         'alice'
     );
     assert.equal(state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_GET](), true);
-    assert.equal(join.disabled, true);
-    input.form!.dispatch('submit');
+
+    // Duplicate call while join is in flight does not send a second frame
+    tryAutoJoin(ctx, outgoing, state);
     assert.equal(sent.length, 1);
-    state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](false);
-    assert.equal(join.disabled, false);
 });
 
 test('composer events update signals, send on Enter, and emit file selections', () => {
@@ -458,19 +430,31 @@ test('WebSocket lifecycle and server join errors drive the signal-bound UI', () 
     assert.equal(root.find('button', 'Send').disabled, true);
 });
 
-test('welcome screen transitions across disconnected, connected unpaid, and connected paid states', () => {
-    const { root, state } = fixture('alice', '', false, 0);
+test('onboarding screen on /chat transitions across disconnected, connected unpaid, and connected paid states', () => {
+    const { ctx, events } = fixture('alice', '', false, 0);
+    const root = new MockNode('root');
+    const state = createChatUiState('alice', '', false, 0);
+    const roomSig = createStore('general');
+    domCreator(
+        ctx,
+        root as unknown as HTMLElement,
+        onboardingTemplate(ctx, events, [state, roomSig, 'general'])
+    );
+
     const connectBtn = root.find('button', 'Connect Wallet');
     const payBtn = root.find('button', 'Pay & Unlock Chat');
-    const joinBtn = root.find('button', 'Join room');
+    const openBtn = root.find('button', 'Open room');
     const form = root.find('form');
 
-    // 1. Disconnected: Connect Wallet is shown, form is hidden
+    // 1. Disconnected: Connect Wallet is shown, form is hidden, auth notice explains requirement
     assert.equal(connectBtn.parentNode!.hidden, false);
     assert.equal(form.hidden, true);
-    assert.equal(joinBtn.disabled, true);
+    assert.equal(openBtn.disabled, true);
+    assert.ok(
+        root.textContent.includes('Authorization required to join #general')
+    );
 
-    // 2. Connected but Unpaid: Wallet address + Pay & Unlock Chat shown, Join room hidden
+    // 2. Connected but Unpaid: Wallet address + Pay & Unlock Chat shown, Open room hidden
     state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_SET](
         '0x7e5f4552091a69125d5dfcb7b8c2659029395bdf'
     );
@@ -478,18 +462,20 @@ test('welcome screen transitions across disconnected, connected unpaid, and conn
     assert.equal(form.hidden, false);
     assert.equal(payBtn.hidden, false);
     assert.equal(payBtn.disabled, false);
-    assert.equal(joinBtn.hidden, true);
-    assert.equal(joinBtn.disabled, true);
+    assert.equal(openBtn.hidden, true);
+    assert.equal(openBtn.disabled, true);
+    assert.ok(
+        root.textContent.includes('Paid access required to join #general')
+    );
     assert.ok(
         root.textContent.includes('0x7e5f4552091a69125d5dfcb7b8c2659029395bdf')
     );
 
-    // 3. Connected & Paid: active expiration date + Join room shown, Pay & Unlock Chat hidden
-    state[CHAT_UI_STATE_IS_ONLINE][SIGNAL_SET](true);
+    // 3. Connected & Paid: active expiration date + Open room shown, Pay & Unlock Chat hidden
     state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS][SIGNAL_SET](true);
     state[CHAT_UI_STATE_ACCESS_UNTIL][SIGNAL_SET](1_795_592_000);
     assert.equal(payBtn.hidden, true);
-    assert.equal(joinBtn.hidden, false);
-    assert.equal(joinBtn.disabled, false);
+    assert.equal(openBtn.hidden, false);
+    assert.equal(openBtn.disabled, false);
     assert.ok(root.textContent.includes('active until 2026-11-25'));
 });

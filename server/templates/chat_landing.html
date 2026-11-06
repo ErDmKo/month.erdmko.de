@@ -1,0 +1,126 @@
+{% extends "inner.html" %}
+{% block title %}Instant WebRTC Voice &amp; Encrypted Chat Rooms{% endblock title %}
+{% block desc %}Create or join instant browser chat rooms with low-latency WebRTC voice calls, file sharing, and Ethereum wallet (SIWE) or anonymous access.{% endblock desc %}
+{% block og_title %}Instant WebRTC Voice &amp; Web Chat Rooms{% endblock og_title %}
+{% block twitter_title %}Instant WebRTC Voice &amp; Web Chat Rooms{% endblock twitter_title %}
+{% block og_desc %}Create or join instant browser chat rooms with low-latency WebRTC voice calls, file sharing, and Ethereum wallet (SIWE) or anonymous access.{% endblock og_desc %}
+{% block twitter_desc %}Create or join instant browser chat rooms with low-latency WebRTC voice calls, file sharing, and Ethereum wallet (SIWE) or anonymous access.{% endblock twitter_desc %}
+{% block analytics_preconnect %}{% endblock analytics_preconnect %}
+{% block analytics %}{% endblock analytics %}
+{% block head %}
+<script async src="/static/js/{{ bundle_name | default(value="chat") }}-bundle.js"></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "Instant Voice & Text Chat Rooms",
+      "url": "{{ site_url | default(value="https://erdmko.dev") | safe }}/chat",
+      "applicationCategory": "CommunicationApplication",
+      "operatingSystem": "Any",
+      "description": "Instant browser chat rooms with WebRTC voice calls, binary Protobuf WebSocket messaging, file attachments, and Ethereum wallet (SIWE) authentication.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": [
+        "Instant URL-based chat rooms without account registration",
+        "Low-latency WebRTC Opus voice calls powered by GStreamer",
+        "Binary Protobuf WebSocket transport with chunked file attachments",
+        "Optional Sign-In with Ethereum (SIWE) wallet identity"
+      ]
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How do I create a new chat room?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Enter any room name in the launcher on /chat or open /chat/{room-name} directly in your browser and share the link."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Are voice calls supported in chat rooms?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Every chat room includes built-in WebRTC Opus voice chat with mute/unmute controls directly in the browser."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
+{% endblock head %}
+{% block inner_content %}
+<section class="{{ css["chat-page"] }}">
+    <div class="{{ css.chat }}">
+        <h1 class="{{ css.chat__title }}">Instant Voice &amp; Text Chat Rooms</h1>
+        <p class="{{ css.chat__meta }}">
+            Fast, lightweight browser chat rooms with built-in WebRTC voice calls, chunked file sharing, and optional Ethereum wallet (SIWE) identity. Open any room URL and share the link to start talking.
+        </p>
+
+        <div class="{{ css.chat }} js-chat-onboarding" data-target-room="{{ target_room | default(value="") }}">
+            {% if target_room %}
+            <div class="{{ css.chat__meta }} {{ css["chat__upload-preview-item"] }}" role="status">
+                <strong>Authorization required to join #{{ target_room }} — connect your Ethereum wallet below to continue.</strong>
+            </div>
+            {% endif %}
+            <form action="/chat" method="get" class="{{ css.chat__form }}">
+                <label class="{{ css.chat__label }}" for="room-slug-input">
+                    <strong>Create or join a room by name</strong>
+                    <input
+                        id="room-slug-input"
+                        type="text"
+                        name="room"
+                        value="{{ target_room | default(value="") }}"
+                        required
+                        pattern="[A-Za-z0-9_-]{1,64}"
+                        placeholder="e.g. general, rust-devs, daily-standup"
+                        class="{{ css.chat__input }}"
+                    />
+                </label>
+                <div class="{{ css.chat__controls }}">
+                    <span class="{{ css.chat__counter }}">Letters, numbers, hyphens, or underscores</span>
+                    <button type="submit" class="{{ css.chat__button }}">Open room</button>
+                </div>
+            </form>
+        </div>
+
+        <h2>Public Chat Rooms</h2>
+        <div>
+            {% for room in featured_rooms %}
+            <div class="{{ css.chat__message }}">
+                <div class="{{ css["chat__message-head"] }}">
+                    <a href="/chat/{{ room.slug }}">#{{ room.slug }}</a> — {{ room.title }}
+                </div>
+                <div class="{{ css["chat__message-body"] }}">{{ room.description }}</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <h2>Key Features</h2>
+        <ul>
+            <li><strong>Instant URL Rooms:</strong> Every URL path under <code>/chat/{room}</code> is an independent room you can bookmark or share.</li>
+            <li><strong>WebRTC Voice Calls:</strong> One-click Opus voice chat right in your browser backed by a Rust &amp; GStreamer media pipeline.</li>
+            <li><strong>File Attachments:</strong> Stream binary file attachments with real-time chunk upload and download progress over Protobuf WebSockets.</li>
+            <li><strong>Web3 &amp; Wallet Support:</strong> Sign in with an Ethereum wallet (EIP-4361 SIWE) to claim your persistent nickname across rooms.</li>
+        </ul>
+
+        <h2>Frequently Asked Questions</h2>
+        <div class="{{ css.chat__message }}">
+            <h3>How do I invite people to a room?</h3>
+            <p class="{{ css["chat__message-body"] }}">Pick any room slug (for example <code>/chat/my-team</code>) and share the URL. Anyone with the link can join the text and voice channel immediately.</p>
+        </div>
+        <div class="{{ css.chat__message }}">
+            <h3>Are private room URLs indexed by search engines?</h3>
+            <p class="{{ css["chat__message-body"] }}">Only curated public rooms listed on this page are indexed by search engines. Custom room URLs include a <code>noindex</code> directive so ad-hoc room names stay out of search results while still showing rich link previews in messengers.</p>
+        </div>
+    </div>
+</section>
+{% endblock inner_content %}

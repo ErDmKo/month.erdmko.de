@@ -1,5 +1,4 @@
-use actix_web::HttpRequest;
-use actix_web::{Responder, get};
+use actix_web::{HttpRequest, HttpResponse, Responder, get};
 use chrono::{Datelike, Local};
 use serde::Serialize;
 use tera::Context;
@@ -119,8 +118,8 @@ fn get_page_ctx() -> MainPageContext<MainPageLinkString> {
                 text: "Catalog",
             },
             MainPageLink {
-                name: "General chat room",
-                href: "/chat/general",
+                name: "WebRTC voice & chat rooms",
+                href: "/chat",
                 text: "Open chat",
             },
         ],
@@ -146,4 +145,34 @@ pub async fn main_page_handler(req: HttpRequest) -> impl Responder {
     let page_ctx = get_page_ctx();
     let ctx = Context::from_serialize(page_ctx).unwrap();
     return utils::render(req, "main.html", &ctx).await;
+}
+
+#[get("/sitemap.xml")]
+pub async fn sitemap_xml_handler() -> HttpResponse {
+    let base = utils::site_url();
+    let static_paths = [
+        "/",
+        "/chat",
+        "/chat/general",
+        "/chat/rust",
+        "/chat/web3",
+        "/chat/voice",
+        "/base64",
+        "/random",
+        "/month",
+        "/slugify",
+        "/tetris",
+        "/tennis",
+    ];
+    let mut xml = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n",
+    );
+    for path in static_paths {
+        xml.push_str(&format!("  <url><loc>{base}{path}</loc></url>\n"));
+    }
+    xml.push_str("</urlset>\n");
+    HttpResponse::Ok()
+        .content_type("application/xml; charset=utf-8")
+        .body(xml)
 }

@@ -189,10 +189,7 @@ pub async fn get_auth_session_handler(
     app_ctx: web::Data<AppCtx>,
 ) -> HttpResponse {
     let Some(token) = extract_session_token(&req) else {
-        return auth_error_to_response(AuthError::unauthorized(
-            "UNAUTHORIZED",
-            "Missing session cookie.",
-        ));
+        return HttpResponse::Ok().json(serde_json::json!({ "authenticated": false }));
     };
 
     let pool = app_ctx.pool.clone();
@@ -203,17 +200,15 @@ pub async fn get_auth_session_handler(
             AuthError::internal("Database connection pool unavailable.", format!("{err:?}"))
         })?;
         let Some(wallet_address) = get_valid_session_wallet(&conn, &token, now_unix)? else {
-            return Err(AuthError::unauthorized(
-                "UNAUTHORIZED",
-                "Session is invalid or expired.",
-            ));
+            return Ok(None);
         };
-        get_wallet_profile(&conn, &wallet_address, now_unix)
+        get_wallet_profile(&conn, &wallet_address, now_unix).map(Some)
     })
     .await;
 
     match result {
-        Ok(Ok(profile)) => HttpResponse::Ok().json(SessionStatusResponse::from(profile)),
+        Ok(Ok(Some(profile))) => HttpResponse::Ok().json(SessionStatusResponse::from(profile)),
+        Ok(Ok(None)) => HttpResponse::Ok().json(serde_json::json!({ "authenticated": false })),
         Ok(Err(err)) => auth_error_to_response(err),
         Err(err) => auth_error_to_response(AuthError::internal(
             "Failed to resolve auth session.",
@@ -535,13 +530,15 @@ mod tests {
         let logout_resp = test::call_service(&app, logout_req).await;
         assert_eq!(logout_resp.status(), StatusCode::OK);
 
-        // 7. Subsequent GET /auth/session with the revoked cookie returns 401
+        // 7. Subsequent GET /auth/session with the revoked cookie returns 200 with authenticated=false
         let after_logout_req = test::TestRequest::get()
             .uri("/auth/session")
             .insert_header((header::COOKIE, cookie_pair))
             .to_request();
         let after_logout_resp = test::call_service(&app, after_logout_req).await;
-        assert_eq!(after_logout_resp.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(after_logout_resp.status(), StatusCode::OK);
+        let after_logout_body: serde_json::Value = test::read_body_json(after_logout_resp).await;
+        assert_eq!(after_logout_body["authenticated"], serde_json::json!(false));
     }
 
     struct MockVerifier {

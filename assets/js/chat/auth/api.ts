@@ -201,12 +201,16 @@ export const updateNicknameTask = (
         taskMap(parseSessionStatus)
     );
 
+const parseOptionalSessionStatus = (
+    data: Record<string, unknown>
+): SessionStatus | null => validate(data, sessionPayloadStruct);
+
 export const fetchSessionTask = (ctx: Window): Task<SessionStatus | null> =>
     pipe(
         fetchTask(ctx, '/auth/session', {
             ['method']: 'GET',
             ['credentials']: 'same-origin',
         }),
-        taskMap(parseSessionStatus),
+        taskMap(parseOptionalSessionStatus),
         taskCatch(() => null)
     );
