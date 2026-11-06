@@ -2,6 +2,18 @@
 
 Source: `tickets/chat-mvp/CHAT-80-onchain-auth-payments.md`
 
+## Open Deployment Blockers
+
+The 2026-11-06 review of `89bf688` found gaps in the completed authentication work.
+The follow-up tickets track the fixes; see the [deployment backlog](../deployment/README.md) for release verification.
+
+| Ticket | Priority | Goal |
+| --- | --- | --- |
+| [AUTH-60](AUTH-60-authorized-room-broadcasts.md) | P0 | Authenticate room broadcast recipients |
+| [AUTH-70](AUTH-70-pending-payment-recovery.md) | P0 | Resume payment confirmation without a second transfer |
+| [AUTH-80](AUTH-80-payment-network-consistency.md) | P1 | Enforce the supported payment network |
+| [AUTH-90](AUTH-90-atomic-payment-activation.md) | P1 | Commit payment and access activation atomically |
+
 ## Execution Order
 
 1. `AUTH-10` Wallet Identity, Profile, Payment & Session Data Layer
