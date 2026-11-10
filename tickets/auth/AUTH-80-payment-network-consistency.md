@@ -1,7 +1,7 @@
 ---
 title: "Align Wallet Network and Server Payment Configuration"
 ticket: "AUTH-80"
-status: "planned"
+status: "completed"
 draft: false
 weight: 80
 ---
@@ -52,9 +52,9 @@ This was identified in source review; no cross-chain transfer was attempted.
 
 ## Tests and Acceptance
 
-- [ ] Wrong-chain wallets cannot submit a payment until the supported chain is selected.
-- [ ] Rejecting a chain switch sends no transfer and shows an actionable banner message.
-- [ ] Network changes between sign-in and payment are detected.
-- [ ] Browser amount/recipient/chain match effective server configuration.
-- [ ] Mismatched RPC chain configuration fails visibly rather than silently accepting a different network.
-- [ ] Browser tests cover default and non-default configuration without real transfers.
+- [x] Wrong-chain wallets cannot submit a payment until the supported chain is selected.
+- [x] Rejecting a chain switch sends no transfer and shows an actionable banner message.
+- [x] Network changes between sign-in and payment are detected.
+- [x] Browser amount/recipient/chain match effective server configuration.
+- [x] Mismatched RPC chain configuration fails visibly rather than silently accepting a different network.
+- [x] Browser tests cover default and non-default configuration without real transfers.

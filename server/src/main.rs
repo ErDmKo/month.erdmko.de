@@ -84,6 +84,14 @@ async fn main() -> std::io::Result<()> {
         voice_cfg.public_ip, voice_cfg.rtp_port_min, voice_cfg.rtp_port_max
     );
     voice::init_rtc(&voice_cfg);
+    let payment_cfg = auth::payment::PaymentConfig::from_env();
+    info!(
+        "Payment config: chain_id={} recipient={} min_payment_wei={} access_duration_secs={}",
+        payment_cfg.chain_id,
+        payment_cfg.recipient_address,
+        payment_cfg.min_payment_wei,
+        payment_cfg.access_duration_secs
+    );
     let base_path = BASE_PATH.unwrap_or(&current_dir_str);
     let mut static_path = PathBuf::from(&base_path);
     let mut templates_path = PathBuf::from(&base_path);

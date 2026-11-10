@@ -53,7 +53,11 @@ import {
 } from './state';
 import type { ChatUiState } from './state';
 import { CHAT_REF_FILE_INPUT, mountChatUi } from './template';
-import { onboardingTemplate } from './onboarding';
+import {
+    initChatOnboarding,
+    ONBOARDING_CHAT_STATE,
+    onboardingTemplate,
+} from './onboarding';
 import { applySessionStatusToState, tryAutoJoin } from './join-form-handler';
 import { savePendingPaymentTx } from '../auth';
 import { initChatUi } from './init';
@@ -598,4 +602,60 @@ test('onboarding screen on /chat transitions across disconnected, connected unpa
     assert.equal(openBtn.hidden, false);
     assert.equal(openBtn.disabled, false);
     assert.ok(root.textContent.includes('active until 2026-11-25'));
+});
+
+test('initChatOnboarding reacts to chainChanged and accountsChanged wallet events', () => {
+    const { ctx: baseCtx } = fixture('alice', '', false, 0);
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    const ctx = {
+        ...baseCtx,
+        JSON,
+        ['ethereum']: {
+            ['request']: async () => '0x1',
+            ['on']: (event: string, listener: (...args: unknown[]) => void) => {
+                listeners.set(event, listener);
+            },
+        },
+        fetch: async () =>
+            ({
+                ok: true,
+                status: 200,
+                text: async () => JSON.stringify({ authenticated: false }),
+            }) as Response,
+    } as unknown as Window;
+
+    const root = new MockNode('div');
+    (root as any).dataset = { ['targetRoom']: 'general' };
+    const onboardingState = initChatOnboarding(ctx, root as unknown as Element);
+    const state = onboardingState[ONBOARDING_CHAT_STATE];
+
+    applySessionStatusToState(
+        ctx,
+        'chat-nickname',
+        ['0x7e5f4552091a69125d5dfcb7b8c2659029395bdf', null, 0, false],
+        state
+    );
+
+    // 1. Switching to wrong chain (Base 0x2105) sets actionable banner error
+    listeners.get('chainChanged')?.('0x2105');
+    assert.ok(
+        root.textContent.includes(
+            'Switch your wallet network to Ethereum Mainnet (chain ID 1) to continue.'
+        )
+    );
+
+    // 2. Switching back to Mainnet (0x1) clears the error
+    listeners.get('chainChanged')?.('0x1');
+    assert.equal(state[CHAT_UI_STATE_ERROR][SIGNAL_GET](), '');
+
+    // 3. Switching active wallet account resets onboarding wallet state and prompts reconnect
+    listeners.get('accountsChanged')?.([
+        '0x1111111111111111111111111111111111111111',
+    ]);
+    assert.equal(state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_GET](), '');
+    assert.ok(
+        root.textContent.includes(
+            'Wallet account changed — connect your wallet again to continue.'
+        )
+    );
 });

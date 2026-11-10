@@ -1,3 +1,5 @@
+import { cont } from './cont';
+
 export const noop = () => {};
 
 // ── Task type ─────────────────────────────────────────────────────────────────
@@ -30,8 +32,7 @@ export const taskFork =
 export const taskOf =
     <T>(fn: (...args: any[]) => T) =>
     (...args: any[]): Task<T> =>
-    (resolve) =>
-        resolve(fn(...args));
+        cont(fn(...args));
 
 // Lift a Promise-returning function into a Task-returning function.
 export const taskFromPromise =

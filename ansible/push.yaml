@@ -40,6 +40,11 @@
         VOICE_PUBLIC_IP={{ voice_public_ip }}
         VOICE_RTP_PORT_MIN={{ voice_rtp_port_min }}
         VOICE_RTP_PORT_MAX={{ voice_rtp_port_max }}
+        ETH_CHAIN_ID={{ eth_chain_id }}
+        ETH_RPC_URL={{ eth_rpc_url }}
+        PAYMENT_RECIPIENT_ADDRESS={{ payment_recipient_address }}
+        MIN_PAYMENT_WEI={{ min_payment_wei }}
+        ACCESS_DURATION_SECS={{ access_duration_secs }}
   - name: Stop docker container
     ansible.builtin.shell: |
       docker stop {{ app_name }} || true

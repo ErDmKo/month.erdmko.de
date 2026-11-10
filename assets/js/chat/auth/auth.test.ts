@@ -155,6 +155,9 @@ test('requestAccountsTask, signSiweMessageTask, and sendPaymentTransactionTask c
                 if (args['method'] === 'eth_requestAccounts') {
                     return [SAMPLE_WALLET_MIXED];
                 }
+                if (args['method'] === 'eth_chainId') {
+                    return '0x1';
+                }
                 if (args['method'] === 'personal_sign') {
                     return SAMPLE_SIG;
                 }
@@ -188,7 +191,8 @@ test('requestAccountsTask, signSiweMessageTask, and sendPaymentTransactionTask c
         )
     );
     assert.equal(txHash, SAMPLE_TX_HASH);
-    assert.deepEqual(calls[2], {
+    assert.equal(calls[2]?.['method'], 'eth_chainId');
+    assert.deepEqual(calls[3], {
         ['method']: 'eth_sendTransaction',
         ['params']: [
             {
@@ -224,6 +228,9 @@ test('connectAndSignInTask and payAndClaimTask execute full connect -> sign -> p
                 ethCalls.push(args);
                 if (args['method'] === 'eth_requestAccounts') {
                     return [SAMPLE_WALLET_MIXED];
+                }
+                if (args['method'] === 'eth_chainId') {
+                    return '0x1';
                 }
                 if (args['method'] === 'personal_sign') {
                     return SAMPLE_SIG;
@@ -318,7 +325,8 @@ test('connectAndSignInTask and payAndClaimTask execute full connect -> sign -> p
     assert.equal(connectedStatus[SESSION_STATUS_HAS_ACTIVE_ACCESS], false);
 
     assert.equal(ethCalls[0]?.['method'], 'eth_requestAccounts');
-    assert.equal(ethCalls[1]?.['method'], 'personal_sign');
+    assert.equal(ethCalls[1]?.['method'], 'eth_chainId');
+    assert.equal(ethCalls[2]?.['method'], 'personal_sign');
     assert.equal(fetchCalls[0]?.url, '/auth/nonce');
     assert.equal(fetchCalls[1]?.url, '/auth/verify');
     assert.equal(fetchCalls[1]?.body.signature, SAMPLE_SIG);
@@ -332,7 +340,8 @@ test('connectAndSignInTask and payAndClaimTask execute full connect -> sign -> p
     assert.equal(paidStatus[SESSION_STATUS_ACCESS_UNTIL], 1_795_592_000);
     assert.equal(paidStatus[SESSION_STATUS_HAS_ACTIVE_ACCESS], true);
 
-    assert.equal(ethCalls[2]?.['method'], 'eth_sendTransaction');
+    assert.equal(ethCalls[3]?.['method'], 'eth_chainId');
+    assert.equal(ethCalls[4]?.['method'], 'eth_sendTransaction');
     assert.equal(fetchCalls[2]?.url, '/auth/claim-payment');
     assert.deepEqual(fetchCalls[2]?.body, {
         txHash: SAMPLE_TX_HASH,
@@ -461,6 +470,9 @@ test('UI handlers drive connect -> sign -> payment -> claim -> join end-to-end',
                 if (args['method'] === 'eth_requestAccounts') {
                     return [SAMPLE_WALLET_MIXED];
                 }
+                if (args['method'] === 'eth_chainId') {
+                    return '0x1';
+                }
                 if (args['method'] === 'personal_sign') {
                     return SAMPLE_SIG;
                 }
@@ -576,6 +588,9 @@ test('payAndClaimTask persists txHash before claiming, polls Pending, reuses txH
         },
         ['ethereum']: {
             ['request']: async (args: EthereumRequestArgs) => {
+                if (args['method'] === 'eth_chainId') {
+                    return '0x1';
+                }
                 if (args['method'] === 'eth_sendTransaction') {
                     sendTxCount += 1;
                     return SAMPLE_TX_HASH;
@@ -740,4 +755,212 @@ test('payAndClaimTask recovers via fetchSessionTask when /auth/claim-payment HTT
     assert.equal(status[SESSION_STATUS_NICKNAME], 'alice_recovered');
     assert.equal(status[SESSION_STATUS_HAS_ACTIVE_ACCESS], true);
     assert.equal(loadPendingPaymentTx(ctx, SAMPLE_WALLET_LOWER), '');
+});
+
+test('wrong-chain wallet requests wallet_switchEthereumChain and sends no transfer if switch is rejected', async () => {
+    let currentChainHex = '0x2105'; // Base (8453) instead of Mainnet (1)
+    let allowSwitch = false;
+    let sendTxCount = 0;
+    const ethMethods: string[] = [];
+
+    const ctx = {
+        ['ethereum']: {
+            ['request']: async (args: EthereumRequestArgs) => {
+                ethMethods.push(args['method']);
+                if (args['method'] === 'eth_chainId') {
+                    return currentChainHex;
+                }
+                if (args['method'] === 'wallet_switchEthereumChain') {
+                    if (!allowSwitch) {
+                        throw {
+                            code: 4001,
+                            message: 'User rejected chain switch.',
+                        };
+                    }
+                    currentChainHex = '0x1';
+                    return null;
+                }
+                if (args['method'] === 'eth_sendTransaction') {
+                    sendTxCount += 1;
+                    return SAMPLE_TX_HASH;
+                }
+                throw new Error(`Unexpected method: ${args['method']}`);
+            },
+        },
+    } as unknown as Window;
+
+    // 1. Rejected chain switch stops before eth_sendTransaction with actionable message
+    await assert.rejects(
+        () =>
+            runTask(
+                sendPaymentTransactionTask(
+                    ctx,
+                    SAMPLE_WALLET_LOWER,
+                    RECIPIENT_WALLET_ADDRESS,
+                    DEFAULT_PAYMENT_VALUE_HEX
+                )
+            ),
+        /Switch your wallet network to Ethereum Mainnet \(chain ID 1\) to continue\./
+    );
+    assert.equal(
+        sendTxCount,
+        0,
+        'must not call eth_sendTransaction on wrong chain'
+    );
+    assert.deepEqual(ethMethods, ['eth_chainId', 'wallet_switchEthereumChain']);
+
+    // 2. Approved chain switch switches to 0x1, re-verifies eth_chainId, and sends payment
+    allowSwitch = true;
+    ethMethods.length = 0;
+    const txHash = await runTask(
+        sendPaymentTransactionTask(
+            ctx,
+            SAMPLE_WALLET_LOWER,
+            RECIPIENT_WALLET_ADDRESS,
+            DEFAULT_PAYMENT_VALUE_HEX
+        )
+    );
+    assert.equal(txHash, SAMPLE_TX_HASH);
+    assert.equal(sendTxCount, 1);
+    assert.deepEqual(ethMethods, [
+        'eth_chainId',
+        'wallet_switchEthereumChain',
+        'eth_chainId',
+        'eth_sendTransaction',
+    ]);
+});
+
+test('non-default server payment config drives SIWE chainId, chain switch, transfer params, and pending tx scoping', async () => {
+    const customRecipient = '0x2222222222222222222222222222222222222222';
+    const customWeiHex = '0x71afd498d0000'; // 0.002 ETH
+    const sepoliaChainId = 11_155_111; // 0xaa36a7
+    let walletChainHex = '0x1';
+    const ethCalls: EthereumRequestArgs[] = [];
+    let signedMessage = '';
+    const storage = new Map<string, string>();
+
+    const ctx = {
+        JSON,
+        Uint8Array,
+        TextEncoder,
+        TextDecoder,
+        Date: class {
+            toISOString() {
+                return '2026-10-28T12:00:00.000Z';
+            }
+        },
+        localStorage: {
+            getItem: (key: string) => storage.get(key) ?? null,
+            setItem: (key: string, value: string) => storage.set(key, value),
+            removeItem: (key: string) => storage.delete(key),
+        },
+        location: {
+            host: 'erdmko.dev',
+            href: 'https://erdmko.dev/chat',
+            protocol: 'https:',
+        },
+        ['ethereum']: {
+            ['request']: async (args: EthereumRequestArgs) => {
+                ethCalls.push(args);
+                if (args['method'] === 'eth_requestAccounts') {
+                    return [SAMPLE_WALLET_MIXED];
+                }
+                if (args['method'] === 'eth_chainId') {
+                    return walletChainHex;
+                }
+                if (args['method'] === 'wallet_switchEthereumChain') {
+                    walletChainHex = '0xaa36a7';
+                    return null;
+                }
+                if (args['method'] === 'personal_sign') {
+                    signedMessage = String(args['params']?.[0] ?? '');
+                    return SAMPLE_SIG;
+                }
+                if (args['method'] === 'eth_sendTransaction') {
+                    return SAMPLE_TX_HASH;
+                }
+                throw new Error(`Unexpected method: ${args['method']}`);
+            },
+        },
+        fetch: async (url: string, init?: RequestInit) => {
+            if (url === '/auth/nonce') {
+                return {
+                    ok: true,
+                    status: 200,
+                    text: async () =>
+                        JSON.stringify({
+                            nonce: SAMPLE_NONCE,
+                            walletAddress: SAMPLE_WALLET_LOWER,
+                            expiresAt: 1_793_000_300,
+                            chainId: sepoliaChainId,
+                            recipientAddress: customRecipient,
+                            minPaymentWei: customWeiHex,
+                            accessDurationSecs: 604_800,
+                        }),
+                } as Response;
+            }
+            if (url === '/auth/verify') {
+                return {
+                    ok: true,
+                    status: 200,
+                    text: async () =>
+                        JSON.stringify({
+                            walletAddress: SAMPLE_WALLET_LOWER,
+                            nickname: null,
+                            accessUntil: 0,
+                            hasActiveAccess: false,
+                            chainId: sepoliaChainId,
+                            recipientAddress: customRecipient,
+                            minPaymentWei: customWeiHex,
+                            accessDurationSecs: 604_800,
+                        }),
+                } as Response;
+            }
+            if (url === '/auth/claim-payment') {
+                const decodedReq = decodeClaimPaymentRequest(
+                    protoCtx,
+                    init?.body as Uint8Array
+                )!;
+                return makeProtoResponse([
+                    CLAIM_PAYMENT_RESPONSE_ACTIVATED,
+                    [
+                        SAMPLE_WALLET_LOWER,
+                        decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
+                        1_795_592_000,
+                        true,
+                    ],
+                ]);
+            }
+            throw new Error(`Unexpected URL: ${url}`);
+        },
+    } as unknown as Window;
+
+    await runTask(connectAndSignInTask(ctx));
+    assert.ok(
+        signedMessage.includes(`Chain ID: ${sepoliaChainId}\n`),
+        'SIWE message must use server configured chainId'
+    );
+    assert.ok(
+        ethCalls.some(
+            (c) =>
+                c['method'] === 'wallet_switchEthereumChain' &&
+                (c['params']?.[0] as any)?.['chainId'] === '0xaa36a7'
+        ),
+        'must switch wallet to 0xaa36a7 before signing'
+    );
+
+    // Simulate user switching wallet back to mainnet (0x1) between sign-in and payment
+    walletChainHex = '0x1';
+    await runTask(payAndClaimTask(ctx, SAMPLE_WALLET_LOWER, 'sepolia_user'));
+
+    const sendTxCall = ethCalls.find(
+        (c) => c['method'] === 'eth_sendTransaction'
+    );
+    assert.deepEqual(sendTxCall?.['params'], [
+        {
+            ['from']: SAMPLE_WALLET_LOWER,
+            ['to']: customRecipient,
+            ['value']: customWeiHex,
+        },
+    ]);
 });

@@ -55,10 +55,21 @@ ssh root@erdmko.dev \
   'docker inspect my_app --format "{{range .Config.Env}}{{println .}}{{end}}"; docker port my_app'
 ```
 
-The application startup log includes the effective `Voice config` line. For an
-ICE failure, collect that log and browser ICE candidate details before changing
-WebRTC settings. Networks that require a relay are unsupported until a TURN
-service is explicitly introduced.
+The application startup log includes the effective `Voice config` and
+`Payment config` lines. For an ICE failure, collect that log and browser ICE
+candidate details before changing WebRTC settings. Networks that require a
+relay are unsupported until a TURN service is explicitly introduced.
+
+### Paid chat & wallet payment configuration
+
+Paid chat onboarding (`SIWE` + direct ETH transfer) is configured through
+`ansible/inventory.yaml` and passed to the container via `docker-compose.yaml`:
+
+- `ETH_CHAIN_ID` (default `1` — Ethereum Mainnet)
+- `ETH_RPC_URL` (default `https://ethereum-rpc.publicnode.com`; kept server-side only and never exposed to browsers)
+- `PAYMENT_RECIPIENT_ADDRESS` (default `0xeff121f128e0e64c0e64ae8eb6eb042a0e5aa81c`)
+- `MIN_PAYMENT_WEI` (default `1000000000000000` — `0.001 ETH`)
+- `ACCESS_DURATION_SECS` (default `2592000` — 30 days)
 
 ### Health check
 

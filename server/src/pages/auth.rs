@@ -10,7 +10,9 @@ use crate::auth::db::{
     get_valid_session_wallet, get_wallet_profile, issue_nonce, revoke_session, set_wallet_nickname,
 };
 use crate::auth::error::{AuthError, AuthErrorKind};
-use crate::auth::payment::{PaymentVerificationError, PaymentVerifier, RpcPaymentVerifier};
+use crate::auth::payment::{
+    PaymentConfig, PaymentVerificationError, PaymentVerifier, RpcPaymentVerifier,
+};
 use crate::auth::service::{normalize_tx_hash, validate_ascii_nickname};
 use crate::auth::siwe::verify_siwe_and_consume_nonce;
 use crate::auth::{NONCE_TTL_SECS, SESSION_COOKIE_NAME, SESSION_TTL_SECS};
@@ -19,6 +21,11 @@ use crate::generated::chat::{
     claim_payment_response,
 };
 use std::sync::Arc;
+
+fn resolve_payment_config(cfg: Option<web::Data<PaymentConfig>>) -> PaymentConfig {
+    cfg.map(|c| c.get_ref().clone())
+        .unwrap_or_else(PaymentConfig::from_env)
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +39,10 @@ pub struct NonceResponse {
     pub nonce: String,
     pub wallet_address: String,
     pub expires_at: i64,
+    pub chain_id: u64,
+    pub recipient_address: String,
+    pub min_payment_wei: String,
+    pub access_duration_secs: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -54,16 +65,31 @@ pub struct SessionStatusResponse {
     pub nickname: Option<String>,
     pub access_until: i64,
     pub has_active_access: bool,
+    pub chain_id: u64,
+    pub recipient_address: String,
+    pub min_payment_wei: String,
+    pub access_duration_secs: i64,
 }
 
-impl From<WalletProfile> for SessionStatusResponse {
-    fn from(profile: WalletProfile) -> Self {
+impl SessionStatusResponse {
+    pub fn from_profile_and_config(profile: WalletProfile, config: &PaymentConfig) -> Self {
         Self {
             wallet_address: profile.wallet_address,
             nickname: profile.nickname,
             access_until: profile.access_until,
             has_active_access: profile.has_active_access,
+            chain_id: config.chain_id,
+            recipient_address: config.recipient_address.clone(),
+            min_payment_wei: config.min_payment_wei_hex(),
+            access_duration_secs: config.access_duration_secs,
         }
+    }
+}
+
+impl From<WalletProfile> for SessionStatusResponse {
+    fn from(profile: WalletProfile) -> Self {
+        let config = PaymentConfig::from_env();
+        Self::from_profile_and_config(profile, &config)
     }
 }
 
@@ -108,11 +134,23 @@ fn format_session_set_cookie(token: &str, max_age_secs: i64) -> String {
     )
 }
 
+fn unauthenticated_session_json(config: &PaymentConfig) -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({
+        "authenticated": false,
+        "chainId": config.chain_id,
+        "recipientAddress": config.recipient_address,
+        "minPaymentWei": config.min_payment_wei_hex(),
+        "accessDurationSecs": config.access_duration_secs,
+    }))
+}
+
 #[post("/auth/nonce")]
 pub async fn post_auth_nonce_handler(
     app_ctx: web::Data<AppCtx>,
+    payment_cfg: Option<web::Data<PaymentConfig>>,
     payload: web::Json<NonceRequest>,
 ) -> HttpResponse {
+    let config = resolve_payment_config(payment_cfg);
     let pool = app_ctx.pool.clone();
     let wallet_address = payload.into_inner().wallet_address;
     let now_unix = Utc::now().timestamp();
@@ -130,6 +168,10 @@ pub async fn post_auth_nonce_handler(
             nonce: issued.nonce,
             wallet_address: issued.wallet_address,
             expires_at: issued.expires_at,
+            chain_id: config.chain_id,
+            recipient_address: config.recipient_address.clone(),
+            min_payment_wei: config.min_payment_wei_hex(),
+            access_duration_secs: config.access_duration_secs,
         }),
         Ok(Err(err)) => auth_error_to_response(err),
         Err(err) => auth_error_to_response(AuthError::internal(
@@ -142,8 +184,11 @@ pub async fn post_auth_nonce_handler(
 #[post("/auth/verify")]
 pub async fn post_auth_verify_handler(
     app_ctx: web::Data<AppCtx>,
+    payment_cfg: Option<web::Data<PaymentConfig>>,
     payload: web::Json<VerifySiweRequest>,
 ) -> HttpResponse {
+    let config = resolve_payment_config(payment_cfg);
+    let expected_chain_id = config.chain_id;
     let pool = app_ctx.pool.clone();
     let req_body = payload.into_inner();
     let now_unix = Utc::now().timestamp();
@@ -157,7 +202,7 @@ pub async fn post_auth_verify_handler(
             &req_body.message,
             &req_body.signature,
             None,
-            None,
+            Some(expected_chain_id),
             now_unix,
         )?;
         let session = create_session(&conn, &verified.address, now_unix, SESSION_TTL_SECS)?;
@@ -172,7 +217,9 @@ pub async fn post_auth_verify_handler(
                 header::SET_COOKIE,
                 format_session_set_cookie(&session.token, SESSION_TTL_SECS),
             ))
-            .json(SessionStatusResponse::from(profile)),
+            .json(SessionStatusResponse::from_profile_and_config(
+                profile, &config,
+            )),
         Ok(Err(err)) => auth_error_to_response(err),
         Err(err) => auth_error_to_response(AuthError::internal(
             "Failed to verify SIWE signature.",
@@ -185,9 +232,11 @@ pub async fn post_auth_verify_handler(
 pub async fn get_auth_session_handler(
     req: HttpRequest,
     app_ctx: web::Data<AppCtx>,
+    payment_cfg: Option<web::Data<PaymentConfig>>,
 ) -> HttpResponse {
+    let config = resolve_payment_config(payment_cfg);
     let Some(token) = extract_session_token(&req) else {
-        return HttpResponse::Ok().json(serde_json::json!({ "authenticated": false }));
+        return unauthenticated_session_json(&config);
     };
 
     let pool = app_ctx.pool.clone();
@@ -205,8 +254,10 @@ pub async fn get_auth_session_handler(
     .await;
 
     match result {
-        Ok(Ok(Some(profile))) => HttpResponse::Ok().json(SessionStatusResponse::from(profile)),
-        Ok(Ok(None)) => HttpResponse::Ok().json(serde_json::json!({ "authenticated": false })),
+        Ok(Ok(Some(profile))) => HttpResponse::Ok().json(
+            SessionStatusResponse::from_profile_and_config(profile, &config),
+        ),
+        Ok(Ok(None)) => unauthenticated_session_json(&config),
         Ok(Err(err)) => auth_error_to_response(err),
         Err(err) => auth_error_to_response(AuthError::internal(
             "Failed to resolve auth session.",
@@ -405,8 +456,10 @@ pub async fn post_auth_claim_payment_handler(
 pub async fn post_auth_nickname_handler(
     req: HttpRequest,
     app_ctx: web::Data<AppCtx>,
+    payment_cfg: Option<web::Data<PaymentConfig>>,
     payload: web::Json<SetNicknameRequest>,
 ) -> HttpResponse {
+    let config = resolve_payment_config(payment_cfg);
     let Some(token) = extract_session_token(&req) else {
         return auth_error_to_response(AuthError::unauthorized(
             "UNAUTHORIZED",
@@ -440,7 +493,9 @@ pub async fn post_auth_nickname_handler(
     .await;
 
     match result {
-        Ok(Ok(profile)) => HttpResponse::Ok().json(SessionStatusResponse::from(profile)),
+        Ok(Ok(profile)) => HttpResponse::Ok().json(SessionStatusResponse::from_profile_and_config(
+            profile, &config,
+        )),
         Ok(Err(err)) => auth_error_to_response(err),
         Err(err) => auth_error_to_response(AuthError::internal(
             "Failed to update wallet nickname.",
@@ -869,5 +924,136 @@ mod tests {
         assert_eq!(update_nick_resp.status(), StatusCode::OK);
         let updated_status: SessionStatusResponse = test::read_body_json(update_nick_resp).await;
         assert_eq!(updated_status.nickname.as_deref(), Some("alice_v2"));
+    }
+
+    #[actix_web::test]
+    async fn exposes_effective_payment_config_and_enforces_siwe_chain_id() {
+        let ctx = setup_test_ctx();
+        let custom_cfg = PaymentConfig {
+            chain_id: 11_155_111,
+            rpc_url: "https://ethereum-sepolia-rpc.publicnode.com".to_string(),
+            recipient_address: "0x2222222222222222222222222222222222222222".to_string(),
+            min_payment_wei: 2_000_000_000_000_000, // 0.002 ETH = 0x71afd498d0000
+            access_duration_secs: 7 * 24 * 60 * 60,
+        };
+        let app = test::init_service(
+            App::new()
+                .app_data(ctx.clone())
+                .app_data(web::Data::new(custom_cfg.clone()))
+                .service(post_auth_nonce_handler)
+                .service(post_auth_verify_handler)
+                .service(get_auth_session_handler),
+        )
+        .await;
+
+        // 1. Unauthenticated /auth/session includes public payment config without exposing rpc_url
+        let unauth_resp = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/auth/session").to_request(),
+        )
+        .await;
+        assert_eq!(unauth_resp.status(), StatusCode::OK);
+        let unauth_json: serde_json::Value = test::read_body_json(unauth_resp).await;
+        assert_eq!(unauth_json["authenticated"], serde_json::json!(false));
+        assert_eq!(unauth_json["chainId"], serde_json::json!(11_155_111));
+        assert_eq!(
+            unauth_json["recipientAddress"],
+            serde_json::json!("0x2222222222222222222222222222222222222222")
+        );
+        assert_eq!(
+            unauth_json["minPaymentWei"],
+            serde_json::json!("0x71afd498d0000")
+        );
+        assert_eq!(
+            unauth_json["accessDurationSecs"],
+            serde_json::json!(7 * 24 * 60 * 60)
+        );
+        assert!(unauth_json.get("rpcUrl").is_none());
+
+        // 2. /auth/nonce includes matching payment config
+        let wallet = wallet_address_from_private_key(&PRIV_KEY_1);
+        let nonce_resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/auth/nonce")
+                .set_json(NonceRequest {
+                    wallet_address: wallet.clone(),
+                })
+                .to_request(),
+        )
+        .await;
+        let issued: NonceResponse = test::read_body_json(nonce_resp).await;
+        assert_eq!(issued.chain_id, 11_155_111);
+        assert_eq!(
+            issued.recipient_address,
+            "0x2222222222222222222222222222222222222222"
+        );
+        assert_eq!(issued.min_payment_wei, "0x71afd498d0000");
+
+        // 3. /auth/verify rejects SIWE message signed for wrong chain ID (1 instead of 11155111)
+        let now = Utc::now();
+        let wrong_chain_msg = format_siwe_message(&SiweMessage {
+            domain: "erdmko.dev".to_string(),
+            address: wallet.clone(),
+            statement: Some("Sign in to month.erdmko.de".to_string()),
+            uri: "https://erdmko.dev/chat/general".to_string(),
+            version: "1".to_string(),
+            chain_id: 1,
+            nonce: issued.nonce.clone(),
+            issued_at: now.to_rfc3339(),
+            expiration_time: None,
+            not_before: None,
+            request_id: None,
+        });
+        let wrong_sig = sign_personal_message(&PRIV_KEY_1, &wrong_chain_msg);
+        let wrong_verify_resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/auth/verify")
+                .set_json(VerifySiweRequest {
+                    message: wrong_chain_msg,
+                    signature: wrong_sig,
+                })
+                .to_request(),
+        )
+        .await;
+        assert_eq!(wrong_verify_resp.status(), StatusCode::UNAUTHORIZED);
+        let wrong_err: AuthErrorResponse = test::read_body_json(wrong_verify_resp).await;
+        assert_eq!(wrong_err.code, "CHAIN_ID_MISMATCH");
+
+        // 4. /auth/verify accepts SIWE message signed for configured chain ID (11155111)
+        let right_chain_msg = format_siwe_message(&SiweMessage {
+            domain: "erdmko.dev".to_string(),
+            address: wallet.clone(),
+            statement: Some("Sign in to month.erdmko.de".to_string()),
+            uri: "https://erdmko.dev/chat/general".to_string(),
+            version: "1".to_string(),
+            chain_id: 11_155_111,
+            nonce: issued.nonce,
+            issued_at: now.to_rfc3339(),
+            expiration_time: None,
+            not_before: None,
+            request_id: None,
+        });
+        let right_sig = sign_personal_message(&PRIV_KEY_1, &right_chain_msg);
+        let right_verify_resp = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/auth/verify")
+                .set_json(VerifySiweRequest {
+                    message: right_chain_msg,
+                    signature: right_sig,
+                })
+                .to_request(),
+        )
+        .await;
+        assert_eq!(right_verify_resp.status(), StatusCode::OK);
+        let verified_status: SessionStatusResponse = test::read_body_json(right_verify_resp).await;
+        assert_eq!(verified_status.chain_id, 11_155_111);
+        assert_eq!(
+            verified_status.recipient_address,
+            "0x2222222222222222222222222222222222222222"
+        );
+        assert_eq!(verified_status.min_payment_wei, "0x71afd498d0000");
     }
 }

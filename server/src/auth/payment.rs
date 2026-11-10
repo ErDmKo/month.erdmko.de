@@ -7,12 +7,14 @@ use super::error::{AuthError, AuthResult};
 use super::service::{normalize_tx_hash, normalize_wallet_address};
 use super::{DEFAULT_ACCESS_DURATION_SECS, RECIPIENT_WALLET_ADDRESS};
 
+pub const DEFAULT_ETH_CHAIN_ID: u64 = 1;
 pub const DEFAULT_ETH_RPC_URL: &str = "https://ethereum-rpc.publicnode.com";
 /// Default minimum transfer: 0.001 ETH (10^15 wei).
 pub const DEFAULT_MIN_PAYMENT_WEI: u128 = 1_000_000_000_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaymentConfig {
+    pub chain_id: u64,
     pub rpc_url: String,
     pub recipient_address: String,
     pub min_payment_wei: u128,
@@ -22,6 +24,7 @@ pub struct PaymentConfig {
 impl Default for PaymentConfig {
     fn default() -> Self {
         Self {
+            chain_id: DEFAULT_ETH_CHAIN_ID,
             rpc_url: DEFAULT_ETH_RPC_URL.to_string(),
             recipient_address: RECIPIENT_WALLET_ADDRESS.to_string(),
             min_payment_wei: DEFAULT_MIN_PAYMENT_WEI,
@@ -32,6 +35,21 @@ impl Default for PaymentConfig {
 
 impl PaymentConfig {
     pub fn from_env() -> Self {
+        let chain_id = std::env::var("ETH_CHAIN_ID")
+            .ok()
+            .and_then(|raw| {
+                let trimmed = raw.trim();
+                if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+                    parse_hex_wei(trimmed)
+                        .ok()
+                        .and_then(|v| u64::try_from(v).ok())
+                } else {
+                    trimmed.parse::<u64>().ok()
+                }
+            })
+            .filter(|&cid| cid > 0)
+            .unwrap_or(DEFAULT_ETH_CHAIN_ID);
+
         let rpc_url = std::env::var("ETH_RPC_URL")
             .ok()
             .map(|s| s.trim().to_string())
@@ -62,11 +80,16 @@ impl PaymentConfig {
             .unwrap_or(DEFAULT_ACCESS_DURATION_SECS);
 
         Self {
+            chain_id,
             rpc_url,
             recipient_address,
             min_payment_wei,
             access_duration_secs,
         }
+    }
+
+    pub fn min_payment_wei_hex(&self) -> String {
+        format!("0x{:x}", self.min_payment_wei)
     }
 }
 
@@ -144,6 +167,35 @@ pub fn parse_hex_wei(raw: &str) -> AuthResult<u128> {
     }
     u128::from_str_radix(stripped, 16)
         .map_err(|_| AuthError::validation("invalid hex quantity or overflow"))
+}
+
+/// Validate that the RPC endpoint's `eth_chainId` response matches the expected chain ID.
+pub fn validate_rpc_chain_id(
+    raw_chain_id: Option<&str>,
+    expected_chain_id: u64,
+) -> PaymentVerifyResult<u64> {
+    let Some(raw) = raw_chain_id else {
+        return Err(PaymentVerificationError::internal(
+            "ETH JSON-RPC response did not include eth_chainId.",
+            format!("expected_chain_id={expected_chain_id}"),
+        ));
+    };
+    let parsed_u128 = parse_hex_wei(raw).map_err(|err| {
+        PaymentVerificationError::internal(
+            "Malformed eth_chainId quantity from RPC.",
+            format!("raw={raw} err={}", err.message()),
+        )
+    })?;
+    let rpc_chain_id = u64::try_from(parsed_u128).map_err(|_| {
+        PaymentVerificationError::internal("RPC eth_chainId overflows u64.", format!("raw={raw}"))
+    })?;
+    if rpc_chain_id == 0 || rpc_chain_id != expected_chain_id {
+        return Err(PaymentVerificationError::internal(
+            "ETH JSON-RPC chain ID does not match configured payment network.",
+            format!("expected_chain_id={expected_chain_id} rpc_chain_id={rpc_chain_id}"),
+        ));
+    }
+    Ok(rpc_chain_id)
 }
 
 /// Validate RPC transaction + receipt data against the expected sender, configured recipient,
@@ -253,7 +305,7 @@ struct JsonRpcRequest<'a> {
     jsonrpc: &'static str,
     id: u64,
     method: &'static str,
-    params: [&'a str; 1],
+    params: &'a [&'a str],
 }
 
 #[derive(Deserialize)]
@@ -275,18 +327,26 @@ impl PaymentVerifier for RpcPaymentVerifier {
             let expected_sender = normalize_wallet_address(expected_sender_wallet)
                 .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
 
+            let tx_params = [tx_hash.as_str()];
+            let empty_params: [&str; 0] = [];
             let batch_payload = [
                 JsonRpcRequest {
                     jsonrpc: "2.0",
                     id: 1,
                     method: "eth_getTransactionByHash",
-                    params: [&tx_hash],
+                    params: &tx_params,
                 },
                 JsonRpcRequest {
                     jsonrpc: "2.0",
                     id: 2,
                     method: "eth_getTransactionReceipt",
-                    params: [&tx_hash],
+                    params: &tx_params,
+                },
+                JsonRpcRequest {
+                    jsonrpc: "2.0",
+                    id: 3,
+                    method: "eth_chainId",
+                    params: &empty_params,
                 },
             ];
 
@@ -330,6 +390,7 @@ impl PaymentVerifier for RpcPaymentVerifier {
 
             let mut tx: Option<RpcTransaction> = None;
             let mut receipt: Option<RpcTransactionReceipt> = None;
+            let mut rpc_chain_id: Option<String> = None;
 
             for item in rpc_items {
                 if let Some(rpc_err) = item.error {
@@ -363,9 +424,24 @@ impl PaymentVerifier for RpcPaymentVerifier {
                             }
                         }
                     }
+                    3 => {
+                        if let Some(val) = item.result {
+                            if !val.is_null() {
+                                rpc_chain_id =
+                                    Some(serde_json::from_value(val).map_err(|err| {
+                                        PaymentVerificationError::internal(
+                                            "Malformed eth_chainId from RPC.",
+                                            format!("{err:?}"),
+                                        )
+                                    })?);
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
+
+            validate_rpc_chain_id(rpc_chain_id.as_deref(), self.config.chain_id)?;
 
             validate_rpc_payment(
                 &tx_hash,
@@ -389,6 +465,7 @@ mod tests {
 
     fn sample_config() -> PaymentConfig {
         PaymentConfig {
+            chain_id: DEFAULT_ETH_CHAIN_ID,
             rpc_url: "http://127.0.0.1:8545".to_string(),
             recipient_address: RECIPIENT_WALLET_ADDRESS.to_string(),
             min_payment_wei: 1_000_000_000_000_000, // 0.001 ETH = 0x38d7ea4c68000
@@ -501,5 +578,25 @@ mod tests {
             ),
             Err(PaymentVerificationError::InvalidTransaction(_))
         ));
+    }
+
+    #[test]
+    fn validates_rpc_chain_id_and_rejects_mismatch() {
+        assert_eq!(validate_rpc_chain_id(Some("0x1"), 1).unwrap(), 1);
+        assert_eq!(
+            validate_rpc_chain_id(Some("0xaa36a7"), 11_155_111).unwrap(),
+            11_155_111
+        );
+
+        let mismatch = validate_rpc_chain_id(Some("0xaa36a7"), 1)
+            .expect_err("Sepolia RPC chain ID must fail when mainnet is expected");
+        assert!(matches!(
+            mismatch,
+            PaymentVerificationError::Internal { ref message, .. }
+                if message.contains("chain ID does not match")
+        ));
+
+        let missing = validate_rpc_chain_id(None, 1).expect_err("missing eth_chainId must fail");
+        assert!(matches!(missing, PaymentVerificationError::Internal { .. }));
     }
 }

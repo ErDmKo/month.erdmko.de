@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import {
     bindArg,
     bindArgs,
+    identity,
     pipe,
     observer,
     on,
@@ -171,7 +172,7 @@ test('Task pipeline: synchronous throw in taskMap routes to reject and skips dow
     let rejectedReason: unknown = null;
 
     pipe(
-        taskOf(() => 10)(),
+        taskOf(identity)(10),
         taskMap((): number => {
             throw new Error('boom');
         }),

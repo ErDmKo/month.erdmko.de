@@ -3,6 +3,11 @@ all:
         voice_public_ip: 188.68.223.217
         voice_rtp_port_min: 50000
         voice_rtp_port_max: 50100
+        eth_chain_id: 1
+        eth_rpc_url: https://ethereum-rpc.publicnode.com
+        payment_recipient_address: "0xeff121f128e0e64c0e64ae8eb6eb042a0e5aa81c"
+        min_payment_wei: "1000000000000000"
+        access_duration_secs: 2592000
     children:
         web:
             hosts:

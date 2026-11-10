@@ -31,6 +31,12 @@ import type {
     ClaimPaymentResponsePayload,
     PaymentClaimActivated,
 } from '@month/gen/chat';
+import {
+    DEFAULT_ACCESS_DURATION_SECS,
+    DEFAULT_CHAIN_ID,
+    DEFAULT_PAYMENT_VALUE_HEX,
+    RECIPIENT_WALLET_ADDRESS,
+} from './wallet';
 
 declare global {
     interface Window {
@@ -38,6 +44,30 @@ declare global {
         JSON: typeof JSON;
     }
 }
+
+export const PAYMENT_CONFIG_CHAIN_ID = 0 as const;
+export const PAYMENT_CONFIG_RECIPIENT = 1 as const;
+export const PAYMENT_CONFIG_MIN_WEI_HEX = 2 as const;
+export const PAYMENT_CONFIG_DURATION_SECS = 3 as const;
+
+export type PaymentConfig = ReadonlyTupleOf<{
+    [PAYMENT_CONFIG_CHAIN_ID]: number;
+    [PAYMENT_CONFIG_RECIPIENT]: string;
+    [PAYMENT_CONFIG_MIN_WEI_HEX]: string;
+    [PAYMENT_CONFIG_DURATION_SECS]: number;
+}>;
+
+const DEFAULT_PAYMENT_CONFIG: PaymentConfig = [
+    DEFAULT_CHAIN_ID,
+    RECIPIENT_WALLET_ADDRESS.toLowerCase(),
+    DEFAULT_PAYMENT_VALUE_HEX,
+    DEFAULT_ACCESS_DURATION_SECS,
+];
+
+const configByWindow = new WeakMap<object, PaymentConfig>();
+
+export const getActivePaymentConfig = (ctx?: Window): PaymentConfig =>
+    (ctx ? configByWindow.get(ctx) : undefined) ?? DEFAULT_PAYMENT_CONFIG;
 
 export const NONCE_CHALLENGE_NONCE = 0 as const;
 export const NONCE_CHALLENGE_WALLET = 1 as const;
@@ -73,6 +103,36 @@ type ResponseWithText = ReadonlyTupleOf<{
 
 const windowFetchStruct = objectStruct(['fetch', isFunction<typeof fetch>]);
 const apiErrorStruct = objectStruct(['message', isString, trim]);
+
+const paymentConfigStruct = objectStruct(
+    ['chainId', isNumber, nullable],
+    ['recipientAddress', isString, trim, nullable],
+    ['minPaymentWei', isString, trim, nullable],
+    ['accessDurationSecs', isNumber, nullable]
+);
+
+export const applyPaymentConfigFromJson = (
+    ctx: Window,
+    data: Record<string, unknown>
+): PaymentConfig => {
+    const prev = getActivePaymentConfig(ctx);
+    const parsed = validate(data, paymentConfigStruct);
+    if (!parsed) return prev;
+    const next: PaymentConfig = [
+        parsed[PAYMENT_CONFIG_CHAIN_ID] ?? prev[PAYMENT_CONFIG_CHAIN_ID],
+        (
+            parsed[PAYMENT_CONFIG_RECIPIENT] ?? prev[PAYMENT_CONFIG_RECIPIENT]
+        ).toLowerCase(),
+        (
+            parsed[PAYMENT_CONFIG_MIN_WEI_HEX] ??
+            prev[PAYMENT_CONFIG_MIN_WEI_HEX]
+        ).toLowerCase(),
+        parsed[PAYMENT_CONFIG_DURATION_SECS] ??
+            prev[PAYMENT_CONFIG_DURATION_SECS],
+    ];
+    configByWindow.set(ctx, next);
+    return next;
+};
 
 const noncePayloadStruct = objectStruct(
     ['nonce', isString, trim],
@@ -125,6 +185,7 @@ const parseOkResponse = (
             : `Request failed with status ${res.status}`;
         throw new Error(msg);
     }
+    applyPaymentConfigFromJson(ctx, data);
     return data;
 };
 
@@ -216,18 +277,26 @@ export const claimPaymentOutcomeMessage = (
     );
 };
 
-const readResponseProtoBytesTask =
-    (ctx: Window, res: Response): Task<Uint8Array> =>
+const readResponseArrayBufferTask =
+    (res: Response): Task<ArrayBuffer> =>
     (resolve, reject) => {
         if (!res.ok) {
             reject(new Error(`Request failed with status ${res.status}`));
             return;
         }
-        res.arrayBuffer().then(
-            (buf: ArrayBuffer) => resolve(new ctx.Uint8Array(buf)),
-            reject
-        );
+        res.arrayBuffer().then(resolve, reject);
     };
+
+const parseClaimPaymentProto = (
+    ctx: Window,
+    buf: ArrayBuffer
+): ClaimPaymentResponsePayload => {
+    const decoded = decodeClaimPaymentResponse(ctx, new ctx.Uint8Array(buf));
+    if (!decoded) {
+        throw new Error('Invalid payment claim response.');
+    }
+    return decoded;
+};
 
 export const claimPaymentProtoTask = (
     ctx: Window,
@@ -246,15 +315,23 @@ export const claimPaymentProtoTask = (
             ['credentials']: 'same-origin',
             ['body']: bodyBytes as unknown as BodyInit,
         }),
-        taskChain(bindArg(ctx, readResponseProtoBytesTask)),
-        taskMap((bytes: Uint8Array): ClaimPaymentResponsePayload => {
-            const decoded = decodeClaimPaymentResponse(ctx, bytes);
-            if (!decoded) {
-                throw new Error('Invalid payment claim response.');
-            }
-            return decoded;
-        })
+        taskChain(readResponseArrayBufferTask),
+        taskMap(bindArg(ctx, parseClaimPaymentProto))
     );
+};
+
+const requireActivatedOutcome = (
+    outcome: ClaimPaymentResponsePayload
+): SessionStatus => {
+    if (
+        outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VARIANT] ===
+        CLAIM_PAYMENT_RESPONSE_ACTIVATED
+    ) {
+        return activatedToSessionStatus(
+            outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VALUE]
+        );
+    }
+    throw new Error(claimPaymentOutcomeMessage(outcome));
 };
 
 export const claimPaymentTask = (
@@ -264,17 +341,7 @@ export const claimPaymentTask = (
 ): Task<SessionStatus> =>
     pipe(
         claimPaymentProtoTask(ctx, txHash, nickname),
-        taskMap((outcome: ClaimPaymentResponsePayload): SessionStatus => {
-            if (
-                outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VARIANT] ===
-                CLAIM_PAYMENT_RESPONSE_ACTIVATED
-            ) {
-                return activatedToSessionStatus(
-                    outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VALUE]
-                );
-            }
-            throw new Error(claimPaymentOutcomeMessage(outcome));
-        })
+        taskMap(requireActivatedOutcome)
     );
 
 export const updateNicknameTask = (

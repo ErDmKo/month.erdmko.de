@@ -10,7 +10,9 @@ import {
     genOn,
     genProp,
     genTagName,
+    isArray,
     isFunction,
+    isString,
     mapSignal,
     noop,
     objectStruct,
@@ -21,6 +23,7 @@ import {
     SIGNAL_OBS,
     SIGNAL_SET,
     taskFork,
+    trim,
     validate,
 } from '@month/utils';
 import type { Signal, TupleOf } from '@month/utils';
@@ -36,10 +39,17 @@ import {
 } from '@month/gen/styles';
 import {
     fetchSessionTask,
+    formatChainName,
+    formatWeiAsEth,
+    getActivePaymentConfig,
+    parseChainId,
+    PAYMENT_CONFIG_CHAIN_ID,
+    PAYMENT_CONFIG_MIN_WEI_HEX,
     SESSION_STATUS_HAS_ACTIVE_ACCESS,
     SESSION_STATUS_NICKNAME,
     updateNicknameTask,
 } from '../auth';
+import type { EthereumProvider } from '../auth/wallet';
 import type { SessionStatus } from '../auth';
 import { CHAT_UI_AUTH_VERIFIED, CHAT_UI_EVENT_TYPE } from './events';
 import type { ChatUiEvent, ChatUiObs } from './events';
@@ -237,11 +247,13 @@ export const onboardingTemplate = (
             state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS]
         )
     );
-    const pendingTxHref = mapSignal(
-        (pendingTx: string) =>
-            pendingTx ? `https://etherscan.io/tx/${pendingTx}` : '#',
-        state[CHAT_UI_STATE_PENDING_TX_HASH]
-    );
+    const pendingTxHref = mapSignal((pendingTx: string) => {
+        if (!pendingTx) return '#';
+        const chainId = getActivePaymentConfig(ctx)[PAYMENT_CONFIG_CHAIN_ID];
+        const host =
+            chainId === 11155111 ? 'sepolia.etherscan.io' : 'etherscan.io';
+        return `https://${host}/tx/${pendingTx}`;
+    }, state[CHAT_UI_STATE_PENDING_TX_HASH]);
     const authBannerText = mapSignal(
         ([[connected, hasAccess], pendingTx]: [[boolean, boolean], string]) => {
             if (hasAccess) {
@@ -257,9 +269,11 @@ export const onboardingTemplate = (
             if (pendingTx) {
                 return `Pending payment (${pendingTx.slice(0, 10)}...) — waiting for onchain confirmation or click Pay & Unlock Chat to retry without sending a second transfer.`;
             }
+            const cfg = getActivePaymentConfig(ctx);
+            const priceSummary = `${formatWeiAsEth(cfg[PAYMENT_CONFIG_MIN_WEI_HEX])} on ${formatChainName(cfg[PAYMENT_CONFIG_CHAIN_ID])}`;
             return targetRoom
-                ? `Paid access required to join #${targetRoom} — choose your nickname and unlock chat access below to continue.`
-                : 'Paid access required — choose your nickname and unlock chat access below to join chat rooms.';
+                ? `Paid access required to join #${targetRoom} (${priceSummary}) — choose your nickname and unlock chat access below to continue.`
+                : `Paid access required (${priceSummary}) — choose your nickname and unlock chat access below to join chat rooms.`;
         },
         combineSignals(
             combineSignals(
@@ -495,6 +509,53 @@ export const onboardingTemplate = (
     );
 };
 
+const WIN_ETHEREUM_EVENTS = 0 as const;
+const PROVIDER_ON = 0 as const;
+const FIRST_CHANGED_ACCOUNT = 0 as const;
+
+const windowEthereumEventsStruct = objectStruct([
+    'ethereum',
+    objectStruct(['on', isFunction<NonNullable<EthereumProvider['on']>>]),
+]);
+
+export const handleChainChanged = (
+    ctx: Window,
+    state: ChatUiState,
+    rawChainId: unknown
+): void => {
+    const expectedChainId =
+        getActivePaymentConfig(ctx)[PAYMENT_CONFIG_CHAIN_ID];
+    const nextChainId = parseChainId(rawChainId);
+    if (nextChainId !== 0 && nextChainId !== expectedChainId) {
+        state[CHAT_UI_STATE_ERROR][SIGNAL_SET](
+            `Switch your wallet network to ${formatChainName(expectedChainId)} (chain ID ${expectedChainId}) to continue.`
+        );
+    } else if (nextChainId === expectedChainId) {
+        state[CHAT_UI_STATE_ERROR][SIGNAL_SET]('');
+    }
+};
+
+export const handleAccountsChanged = (
+    state: ChatUiState,
+    rawAccounts: unknown
+): void => {
+    const accounts = isArray(rawAccounts);
+    const first = accounts
+        ? validate(accounts[FIRST_CHANGED_ACCOUNT], isString, trim)
+        : undefined;
+    const nextWallet = first ? first.toLowerCase() : '';
+    const currentWallet = state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_GET]();
+    if (currentWallet && nextWallet !== currentWallet) {
+        state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_SET]('');
+        state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS][SIGNAL_SET](false);
+        state[CHAT_UI_STATE_ACCESS_UNTIL][SIGNAL_SET](0);
+        state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_SET]('');
+        state[CHAT_UI_STATE_ERROR][SIGNAL_SET](
+            'Wallet account changed — connect your wallet again to continue.'
+        );
+    }
+};
+
 export const initChatOnboarding = (
     ctx: Window,
     root: Element
@@ -517,6 +578,19 @@ export const initChatOnboarding = (
         htmlRoot,
         onboardingTemplate(ctx, chatUiObs, onboardingState)
     );
+
+    const ethEvents = validate(ctx, windowEthereumEventsStruct);
+    if (ethEvents) {
+        const registerListener = ethEvents[WIN_ETHEREUM_EVENTS][PROVIDER_ON];
+        registerListener(
+            'chainChanged',
+            bindArgs([ctx, state], handleChainChanged)
+        );
+        registerListener(
+            'accountsChanged',
+            bindArg(state, handleAccountsChanged)
+        );
+    }
 
     chatUiObs(
         bindArg((event: ChatUiEvent) => {
