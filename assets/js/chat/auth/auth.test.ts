@@ -11,12 +11,24 @@ import {
 } from '../../utils';
 import type { Task } from '../../utils';
 import {
+    CLAIM_PAYMENT_REQUEST_NICKNAME,
+    CLAIM_PAYMENT_REQUEST_TX_HASH,
+    CLAIM_PAYMENT_RESPONSE_ACTIVATED,
+    CLAIM_PAYMENT_RESPONSE_INVALID_TRANSACTION,
+    CLAIM_PAYMENT_RESPONSE_NICKNAME_TAKEN,
+    CLAIM_PAYMENT_RESPONSE_PENDING,
+    CLAIM_PAYMENT_RESPONSE_REVERTED,
     CLIENT_FRAME_JOIN,
     CLIENT_FRAME_PAYLOAD_VALUE,
     CLIENT_FRAME_PAYLOAD_VARIANT,
     CLIENT_JOIN_NICKNAME,
+    decodeClaimPaymentRequest,
+    encodeClaimPaymentResponse,
 } from '@month/gen/chat';
-import type { ClientFramePayload } from '@month/gen/chat';
+import type {
+    ClaimPaymentResponsePayload,
+    ClientFramePayload,
+} from '@month/gen/chat';
 import { CHAT_UI_AUTH_VERIFIED, CHAT_UI_EVENT_TYPE } from '../chat-ui/events';
 import type { ChatUiEvent } from '../chat-ui/events';
 import {
@@ -29,6 +41,7 @@ import {
     CHAT_UI_STATE_HAS_ACTIVE_ACCESS,
     CHAT_UI_STATE_IS_ONLINE,
     CHAT_UI_STATE_NICKNAME,
+    CHAT_UI_STATE_PENDING_TX_HASH,
     CHAT_UI_STATE_WALLET_ADDRESS,
     createChatUiState,
 } from '../chat-ui/state';
@@ -39,6 +52,7 @@ import {
     DEFAULT_PAYMENT_VALUE_HEX,
     fetchNonceTask,
     fetchSessionTask,
+    loadPendingPaymentTx,
     NONCE_CHALLENGE_EXPIRES_AT,
     NONCE_CHALLENGE_NONCE,
     NONCE_CHALLENGE_WALLET,
@@ -47,6 +61,7 @@ import {
     payAndClaimTask,
     RECIPIENT_WALLET_ADDRESS,
     requestAccountsTask,
+    savePendingPaymentTx,
     sendPaymentTransactionTask,
     SESSION_STATUS_ACCESS_UNTIL,
     SESSION_STATUS_HAS_ACTIVE_ACCESS,
@@ -62,6 +77,25 @@ const SAMPLE_WALLET_LOWER = '0x7e5f4552091a69125d5dfcb7b8c2659029395bdf';
 const SAMPLE_NONCE = 'a1b2c3d4e5f60123456789abcdef0123';
 const SAMPLE_SIG = `0x${'11'.repeat(64)}1b`;
 const SAMPLE_TX_HASH = `0x${'ab'.repeat(32)}`;
+
+const protoCtx = {
+    Uint8Array,
+    TextEncoder,
+    TextDecoder,
+} as unknown as Window;
+
+const makeProtoResponse = (payload: ClaimPaymentResponsePayload): Response => {
+    const encoded = encodeClaimPaymentResponse(protoCtx, payload);
+    return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () =>
+            encoded.buffer.slice(
+                encoded.byteOffset,
+                encoded.byteOffset + encoded.byteLength
+            ),
+    } as Response;
+};
 
 const runTask = <T>(task: Task<T>): Promise<T> =>
     new Promise((resolve, reject) => {
@@ -172,6 +206,9 @@ test('connectAndSignInTask and payAndClaimTask execute full connect -> sign -> p
 
     const ctx = {
         JSON,
+        Uint8Array,
+        TextEncoder,
+        TextDecoder,
         Date: class {
             toISOString() {
                 return '2026-10-28T12:00:00.000Z';
@@ -198,6 +235,30 @@ test('connectAndSignInTask and payAndClaimTask execute full connect -> sign -> p
             },
         },
         fetch: async (url: string, init?: RequestInit) => {
+            if (url === '/auth/claim-payment') {
+                const decodedReq = decodeClaimPaymentRequest(
+                    protoCtx,
+                    init?.body as Uint8Array
+                )!;
+                fetchCalls.push({
+                    url,
+                    method: init?.method || 'POST',
+                    body: {
+                        txHash: decodedReq[CLAIM_PAYMENT_REQUEST_TX_HASH],
+                        nickname: decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
+                    },
+                });
+                return makeProtoResponse([
+                    CLAIM_PAYMENT_RESPONSE_ACTIVATED,
+                    [
+                        SAMPLE_WALLET_LOWER,
+                        decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
+                        1_795_592_000,
+                        true,
+                    ],
+                ]);
+            }
+
             const body = init?.body ? JSON.parse(String(init.body)) : undefined;
             fetchCalls.push({
                 url,
@@ -228,20 +289,6 @@ test('connectAndSignInTask and payAndClaimTask execute full connect -> sign -> p
                             nickname: null,
                             accessUntil: 0,
                             hasActiveAccess: false,
-                        }),
-                } as Response;
-            }
-
-            if (url === '/auth/claim-payment') {
-                return {
-                    ok: true,
-                    status: 200,
-                    text: async () =>
-                        JSON.stringify({
-                            walletAddress: SAMPLE_WALLET_LOWER,
-                            nickname: body.nickname,
-                            accessUntil: 1_795_592_000,
-                            hasActiveAccess: true,
                         }),
                 } as Response;
             }
@@ -308,17 +355,14 @@ test('tasks surface provider and HTTP error messages cleanly', async () => {
 
     const errorFetchCtx = {
         JSON,
+        Uint8Array,
+        TextEncoder,
+        TextDecoder,
         fetch: async () =>
-            ({
-                ok: false,
-                status: 409,
-                text: async () =>
-                    JSON.stringify({
-                        code: 'NICKNAME_TAKEN',
-                        message:
-                            'Nickname is already registered to another wallet.',
-                    }),
-            }) as Response,
+            makeProtoResponse([
+                CLAIM_PAYMENT_RESPONSE_NICKNAME_TAKEN,
+                ['Nickname is already registered to another wallet.'],
+            ]),
     } as unknown as Window;
 
     await assert.rejects(
@@ -391,6 +435,9 @@ test('UI handlers drive connect -> sign -> payment -> claim -> join end-to-end',
     const storage = new Map<string, string>();
     const ctx = {
         JSON,
+        Uint8Array,
+        TextEncoder,
+        TextDecoder,
         Date: Object.assign(
             class {
                 toISOString() {
@@ -402,6 +449,7 @@ test('UI handlers drive connect -> sign -> payment -> claim -> join end-to-end',
         localStorage: {
             getItem: (key: string) => storage.get(key) ?? null,
             setItem: (key: string, value: string) => storage.set(key, value),
+            removeItem: (key: string) => storage.delete(key),
         },
         location: {
             host: 'erdmko.dev',
@@ -423,7 +471,21 @@ test('UI handlers drive connect -> sign -> payment -> claim -> join end-to-end',
             },
         },
         fetch: async (url: string, init?: RequestInit) => {
-            const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+            if (url === '/auth/claim-payment') {
+                const decodedReq = decodeClaimPaymentRequest(
+                    protoCtx,
+                    init?.body as Uint8Array
+                )!;
+                return makeProtoResponse([
+                    CLAIM_PAYMENT_RESPONSE_ACTIVATED,
+                    [
+                        SAMPLE_WALLET_LOWER,
+                        decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
+                        1_795_592_000,
+                        true,
+                    ],
+                ]);
+            }
             if (url === '/auth/nonce') {
                 return {
                     ok: true,
@@ -446,19 +508,6 @@ test('UI handlers drive connect -> sign -> payment -> claim -> join end-to-end',
                             nickname: null,
                             accessUntil: 0,
                             hasActiveAccess: false,
-                        }),
-                } as Response;
-            }
-            if (url === '/auth/claim-payment') {
-                return {
-                    ok: true,
-                    status: 200,
-                    text: async () =>
-                        JSON.stringify({
-                            walletAddress: SAMPLE_WALLET_LOWER,
-                            nickname: body.nickname,
-                            accessUntil: 1_795_592_000,
-                            hasActiveAccess: true,
                         }),
                 } as Response;
             }
@@ -507,4 +556,188 @@ test('UI handlers drive connect -> sign -> payment -> claim -> join end-to-end',
         sentFrames[0]?.[CLIENT_FRAME_PAYLOAD_VALUE][CLIENT_JOIN_NICKNAME],
         'alice_eth'
     );
+});
+
+test('payAndClaimTask persists txHash before claiming, polls Pending, reuses txHash on NicknameTaken/retry, and clears on Reverted/InvalidTransaction', async () => {
+    const storage = new Map<string, string>();
+    let sendTxCount = 0;
+    let claimResponses: ClaimPaymentResponsePayload[] = [];
+    const claimedNicknames: string[] = [];
+
+    const ctx = {
+        JSON,
+        Uint8Array,
+        TextEncoder,
+        TextDecoder,
+        localStorage: {
+            getItem: (key: string) => storage.get(key) ?? null,
+            setItem: (key: string, value: string) => storage.set(key, value),
+            removeItem: (key: string) => storage.delete(key),
+        },
+        ['ethereum']: {
+            ['request']: async (args: EthereumRequestArgs) => {
+                if (args['method'] === 'eth_sendTransaction') {
+                    sendTxCount += 1;
+                    return SAMPLE_TX_HASH;
+                }
+                throw new Error(`Unexpected method: ${args['method']}`);
+            },
+        },
+        fetch: async (url: string, init?: RequestInit) => {
+            if (url === '/auth/claim-payment') {
+                // Verify txHash was persisted in localStorage BEFORE /auth/claim-payment was called
+                assert.equal(
+                    loadPendingPaymentTx(ctx, SAMPLE_WALLET_LOWER),
+                    SAMPLE_TX_HASH
+                );
+                const req = decodeClaimPaymentRequest(
+                    protoCtx,
+                    init?.body as Uint8Array
+                )!;
+                claimedNicknames.push(req[CLAIM_PAYMENT_REQUEST_NICKNAME]);
+                const next = claimResponses.shift();
+                if (!next) {
+                    throw new Error('No mock claim response queued');
+                }
+                return makeProtoResponse(next);
+            }
+            throw new Error(`Unexpected URL: ${url}`);
+        },
+    } as unknown as Window;
+
+    // 1. First attempt: Pending -> Pending -> NicknameTaken (sendTxCount === 1, txHash remains saved!)
+    claimResponses = [
+        [CLAIM_PAYMENT_RESPONSE_PENDING, ['Still in mempool']],
+        [CLAIM_PAYMENT_RESPONSE_PENDING, ['Waiting for block']],
+        [
+            CLAIM_PAYMENT_RESPONSE_NICKNAME_TAKEN,
+            ['Nickname is already registered to another wallet.'],
+        ],
+    ];
+    await assert.rejects(
+        () => runTask(payAndClaimTask(ctx, SAMPLE_WALLET_LOWER, 'taken_nick')),
+        /Nickname is already registered to another wallet/
+    );
+    assert.equal(sendTxCount, 1);
+    assert.equal(
+        loadPendingPaymentTx(ctx, SAMPLE_WALLET_LOWER),
+        SAMPLE_TX_HASH
+    );
+    assert.deepEqual(claimedNicknames, [
+        'taken_nick',
+        'taken_nick',
+        'taken_nick',
+    ]);
+
+    // 2. User changes nickname to 'alice_free' and retries -> reuses saved SAMPLE_TX_HASH without calling eth_sendTransaction!
+    claimResponses = [
+        [CLAIM_PAYMENT_RESPONSE_PENDING, ['Almost mined']],
+        [
+            CLAIM_PAYMENT_RESPONSE_ACTIVATED,
+            [SAMPLE_WALLET_LOWER, 'alice_free', 1_795_592_000, true],
+        ],
+    ];
+    const activated = await runTask(
+        payAndClaimTask(ctx, SAMPLE_WALLET_LOWER, 'alice_free')
+    );
+    assert.equal(sendTxCount, 1, 'must NOT call eth_sendTransaction again');
+    assert.equal(activated[SESSION_STATUS_NICKNAME], 'alice_free');
+    assert.equal(activated[SESSION_STATUS_HAS_ACTIVE_ACCESS], true);
+    assert.equal(
+        loadPendingPaymentTx(ctx, SAMPLE_WALLET_LOWER),
+        '',
+        'pending txHash must be cleared on Activated'
+    );
+
+    // 3. Terminal Reverted failure clears the stored txHash so a fresh payment can be sent later
+    claimResponses = [
+        [
+            CLAIM_PAYMENT_RESPONSE_REVERTED,
+            ['Payment transaction failed or reverted onchain.'],
+        ],
+    ];
+    await assert.rejects(
+        () => runTask(payAndClaimTask(ctx, SAMPLE_WALLET_LOWER, 'alice_free')),
+        /reverted onchain/
+    );
+    assert.equal(sendTxCount, 2);
+    assert.equal(
+        loadPendingPaymentTx(ctx, SAMPLE_WALLET_LOWER),
+        '',
+        'pending txHash must be cleared on Reverted'
+    );
+
+    // 4. Terminal InvalidTransaction failure also clears the stored txHash
+    savePendingPaymentTx(ctx, SAMPLE_WALLET_LOWER, SAMPLE_TX_HASH);
+    claimResponses = [
+        [
+            CLAIM_PAYMENT_RESPONSE_INVALID_TRANSACTION,
+            ['Transaction value is below the minimum required payment.'],
+        ],
+    ];
+    await assert.rejects(
+        () => runTask(payAndClaimTask(ctx, SAMPLE_WALLET_LOWER, 'alice_free')),
+        /below the minimum/
+    );
+    assert.equal(sendTxCount, 2);
+    assert.equal(loadPendingPaymentTx(ctx, SAMPLE_WALLET_LOWER), '');
+});
+
+test('payAndClaimTask recovers via fetchSessionTask when /auth/claim-payment HTTP response is lost after server commit', async () => {
+    const storage = new Map<string, string>();
+    savePendingPaymentTx(
+        {
+            localStorage: {
+                setItem: (k: string, v: string) => storage.set(k, v),
+            },
+        } as unknown as Window,
+        SAMPLE_WALLET_LOWER,
+        SAMPLE_TX_HASH
+    );
+
+    let sendTxCount = 0;
+    const ctx = {
+        JSON,
+        Uint8Array,
+        TextEncoder,
+        TextDecoder,
+        localStorage: {
+            getItem: (key: string) => storage.get(key) ?? null,
+            setItem: (key: string, value: string) => storage.set(key, value),
+            removeItem: (key: string) => storage.delete(key),
+        },
+        ['ethereum']: {
+            ['request']: async () => {
+                sendTxCount += 1;
+                return SAMPLE_TX_HASH;
+            },
+        },
+        fetch: async (url: string) => {
+            if (url === '/auth/claim-payment') {
+                throw new Error('Network connection lost');
+            }
+            if (url === '/auth/session') {
+                return {
+                    ok: true,
+                    status: 200,
+                    text: async () =>
+                        JSON.stringify({
+                            walletAddress: SAMPLE_WALLET_LOWER,
+                            nickname: 'alice_recovered',
+                            accessUntil: 1_795_592_000,
+                            hasActiveAccess: true,
+                        }),
+                } as Response;
+            }
+            throw new Error(`Unexpected URL: ${url}`);
+        },
+    } as unknown as Window;
+
+    const status = await runTask(
+        payAndClaimTask(ctx, SAMPLE_WALLET_LOWER, 'alice_recovered')
+    );
+    assert.equal(sendTxCount, 0, 'reused saved txHash without new transfer');
+    assert.equal(status[SESSION_STATUS_NICKNAME], 'alice_recovered');
+    assert.equal(status[SESSION_STATUS_HAS_ACTIVE_ACCESS], true);
+    assert.equal(loadPendingPaymentTx(ctx, SAMPLE_WALLET_LOWER), '');
 });

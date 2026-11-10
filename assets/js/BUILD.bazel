@@ -34,9 +34,9 @@ genrule(
 
 genrule(
     name = "chat_ts",
-    srcs = ["//server:chat_descriptor_json"],
+    srcs = ["//contracts/chat:chat_descriptor_json"],
     outs = ["gen/chat.ts"],
-    cmd = "BAZEL_BINDIR=$(BINDIR) $(execpath //assets/js/tools:gen_proto_bin) $$PWD/$(location //server:chat_descriptor_json) $$PWD/$@ ../utils/proto-utils",
+    cmd = "BAZEL_BINDIR=$(BINDIR) $(execpath //assets/js/tools:gen_proto_bin) $$PWD/$(location //contracts/chat:chat_descriptor_json) $$PWD/$@ ../utils/proto-utils",
     tags = ["local"],
     tools = ["//assets/js/tools:gen_proto_bin"],
 )

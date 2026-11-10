@@ -104,6 +104,8 @@ const encodeHelper = (t: ProtoFieldType): string => {
         case 'int64':
         case 'uint64':
             return 'encodeUint32Field';
+        case 'bool':
+            return 'encodeBoolField';
         case 'string':
             return 'encodeStringField';
         case 'bytes':
@@ -200,6 +202,8 @@ const genMessage = (msg: MessageDescriptor): string => {
             case 'int64':
             case 'uint64':
                 return '0';
+            case 'bool':
+                return 'false';
             case 'string':
                 return "''";
             case 'bytes':
@@ -232,6 +236,10 @@ const genMessage = (msg: MessageDescriptor): string => {
         ) {
             lines.push(
                 `            case ${f.number}: fields[${constName}] = readerVarint(reader); break;`
+            );
+        } else if (f.type === 'bool') {
+            lines.push(
+                `            case ${f.number}: fields[${constName}] = readerVarint(reader) !== 0; break;`
             );
         } else if (f.type === 'string') {
             lines.push(
@@ -342,6 +350,7 @@ const genFile = (
         ``,
         `import {`,
         `    encodeUint32Field,`,
+        `    encodeBoolField,`,
         `    encodeStringField,`,
         `    encodeBytesField,`,
         `    encodeMessageField,`,

@@ -48,12 +48,14 @@ import {
     CHAT_UI_STATE_VOICE_IN_CALL,
     CHAT_UI_STATE_VOICE_MUTED,
     CHAT_UI_STATE_VOICE_PARTICIPANTS,
+    CHAT_UI_STATE_PENDING_TX_HASH,
     CHAT_UI_STATE_WALLET_ADDRESS,
 } from './state';
 import type { ChatUiState } from './state';
 import { CHAT_REF_FILE_INPUT, mountChatUi } from './template';
 import { onboardingTemplate } from './onboarding';
-import { tryAutoJoin } from './join-form-handler';
+import { applySessionStatusToState, tryAutoJoin } from './join-form-handler';
+import { savePendingPaymentTx } from '../auth';
 import { initChatUi } from './init';
 import {
     attachmentItemTemplate,
@@ -182,6 +184,7 @@ const fixture = (
         localStorage: {
             getItem: (key: string) => storage.get(key) ?? null,
             setItem: (key: string, value: string) => storage.set(key, value),
+            removeItem: (key: string) => storage.delete(key),
         },
         Date,
     } as unknown as Window;
@@ -440,6 +443,7 @@ test('WebSocket sends CLIENT_FRAME_PING on interval and redirects to onboarding 
     outgoing(bindArg((cmd: ClientFramePayload) => sent.push(cmd), on));
 
     let ws: any;
+    const sentBuffers: ArrayBuffer[] = [];
     let intervalTick: (() => void) | undefined;
     let clearedTimerId: number | undefined;
     const locationObj = {
@@ -468,7 +472,9 @@ test('WebSocket sends CLIENT_FRAME_PING on interval and redirects to onboarding 
             constructor(public url: string) {
                 ws = this;
             }
-            send() {}
+            send(buf: ArrayBuffer) {
+                sentBuffers.push(buf);
+            }
         },
     } as unknown as Window;
 
@@ -494,6 +500,10 @@ test('WebSocket sends CLIENT_FRAME_PING on interval and redirects to onboarding 
         sent.some(
             (frame) => frame[CLIENT_FRAME_PAYLOAD_VARIANT] === CLIENT_FRAME_PING
         )
+    );
+    assert.ok(
+        sentBuffers.some((buf) => buf.byteLength >= 2),
+        'serialized CLIENT_FRAME_PING binary frame must be non-empty on the wire'
     );
 
     trigger(
@@ -550,9 +560,40 @@ test('onboarding screen on /chat transitions across disconnected, connected unpa
         root.textContent.includes('0x7e5f4552091a69125d5dfcb7b8c2659029395bdf')
     );
 
-    // 3. Connected & Paid: active expiration date + Open room shown, Pay & Unlock Chat hidden
-    state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS][SIGNAL_SET](true);
-    state[CHAT_UI_STATE_ACCESS_UNTIL][SIGNAL_SET](1_795_592_000);
+    // 2b. Pending transaction restored from localStorage displays pending banner and Etherscan link
+    const sampleTx = `0x${'ab'.repeat(32)}`;
+    savePendingPaymentTx(
+        ctx,
+        '0x7e5f4552091a69125d5dfcb7b8c2659029395bdf',
+        sampleTx
+    );
+    applySessionStatusToState(
+        ctx,
+        'chat-nickname',
+        ['0x7e5f4552091a69125d5dfcb7b8c2659029395bdf', 'alice', 0, false],
+        state
+    );
+    assert.equal(state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_GET](), sampleTx);
+    assert.ok(root.textContent.includes('Pending payment (0xabababab...)'));
+    const txLink = root.find('a', sampleTx);
+    assert.equal(
+        txLink.attributes.get('href'),
+        `https://etherscan.io/tx/${sampleTx}`
+    );
+
+    // 3. Connected & Paid: active expiration date + Open room shown, Pay & Unlock Chat hidden, pending tx cleared
+    applySessionStatusToState(
+        ctx,
+        'chat-nickname',
+        [
+            '0x7e5f4552091a69125d5dfcb7b8c2659029395bdf',
+            'alice',
+            1_795_592_000,
+            true,
+        ],
+        state
+    );
+    assert.equal(state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_GET](), '');
     assert.equal(payBtn.hidden, true);
     assert.equal(openBtn.hidden, false);
     assert.equal(openBtn.disabled, false);

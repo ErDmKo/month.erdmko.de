@@ -14,7 +14,9 @@ The follow-up tickets track the fixes; see the [deployment backlog](../deploymen
 | ↳ [AUTH-62](AUTH-62-room-registry-join-membership.md) | P0 | Separate connection slots from post-join broadcast recipients |
 | ↳ [AUTH-63](AUTH-63-direct-action-token-guards.md) | P0 | Token & joined-room guards for direct WS actions and attachments |
 | ↳ [AUTH-64](AUTH-64-session-revocation-access-expiry.md) | P0 | Live session revocation, paid-access expiry & client redirect |
-| [AUTH-70](AUTH-70-pending-payment-recovery.md) | P0 | Resume payment confirmation without a second transfer |
+| [AUTH-70](AUTH-70-pending-payment-recovery.md) | P0 | Resume payment confirmation without a second transfer (umbrella) |
+| ↳ [AUTH-71](AUTH-71-protobuf-payment-claim-backend.md) | P0 | Protobuf payment claim contract & typed verification states (backend) |
+| ↳ [AUTH-72](AUTH-72-pending-payment-recovery-frontend.md) | P0 | Pending payment persistence, protobuf claim polling & resume UI (frontend) |
 | [AUTH-80](AUTH-80-payment-network-consistency.md) | P1 | Enforce the supported payment network |
 | [AUTH-90](AUTH-90-atomic-payment-activation.md) | P1 | Commit payment and access activation atomically |
 
@@ -47,6 +49,8 @@ The follow-up tickets track the fixes; see the [deployment backlog](../deploymen
 - `AUTH-63-direct-action-token-guards.md`
 - `AUTH-64-session-revocation-access-expiry.md`
 - `AUTH-70-pending-payment-recovery.md`
+- `AUTH-71-protobuf-payment-claim-backend.md`
+- `AUTH-72-pending-payment-recovery-frontend.md`
 - `AUTH-80-payment-network-consistency.md`
 - `AUTH-90-atomic-payment-activation.md`
 

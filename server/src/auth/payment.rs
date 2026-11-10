@@ -92,6 +92,41 @@ pub struct VerifiedPayment {
     pub access_duration_secs: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PaymentVerificationError {
+    /// Transaction is not yet visible on the RPC node or has no mined receipt yet (retryable).
+    Pending(String),
+    /// Transaction was mined with status 0x0 (terminal failure for this tx_hash).
+    Reverted(String),
+    /// Transaction hash is malformed, sender/recipient does not match, or value is below minimum (terminal failure).
+    InvalidTransaction(String),
+    /// RPC transport or JSON-RPC protocol error.
+    Internal { message: String, details: String },
+}
+
+impl PaymentVerificationError {
+    pub fn pending(message: impl Into<String>) -> Self {
+        Self::Pending(message.into())
+    }
+
+    pub fn reverted(message: impl Into<String>) -> Self {
+        Self::Reverted(message.into())
+    }
+
+    pub fn invalid_transaction(message: impl Into<String>) -> Self {
+        Self::InvalidTransaction(message.into())
+    }
+
+    pub fn internal(message: impl Into<String>, details: impl Into<String>) -> Self {
+        Self::Internal {
+            message: message.into(),
+            details: details.into(),
+        }
+    }
+}
+
+pub type PaymentVerifyResult<T> = Result<T, PaymentVerificationError>;
+
 /// Parse a `0x`-prefixed hexadecimal quantity (such as `tx.value` or `receipt.status`) into `u128`.
 pub fn parse_hex_wei(raw: &str) -> AuthResult<u128> {
     let trimmed = raw.trim();
@@ -119,55 +154,65 @@ pub fn validate_rpc_payment(
     config: &PaymentConfig,
     tx: Option<&RpcTransaction>,
     receipt: Option<&RpcTransactionReceipt>,
-) -> AuthResult<VerifiedPayment> {
-    let tx_hash = normalize_tx_hash(raw_tx_hash)?;
-    let expected_sender = normalize_wallet_address(expected_sender_wallet)?;
-    let expected_recipient = normalize_wallet_address(&config.recipient_address)?;
+) -> PaymentVerifyResult<VerifiedPayment> {
+    let tx_hash = normalize_tx_hash(raw_tx_hash)
+        .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
+    let expected_sender = normalize_wallet_address(expected_sender_wallet)
+        .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
+    let expected_recipient = normalize_wallet_address(&config.recipient_address)
+        .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
 
     let Some(tx) = tx else {
-        return Err(AuthError::validation(
+        return Err(PaymentVerificationError::pending(
             "Payment transaction was not found on the network.",
         ));
     };
 
-    let Some(receipt) = receipt else {
-        return Err(AuthError::validation(
-            "Payment transaction is still pending confirmation.",
-        ));
-    };
-
-    let status_raw = receipt.status.as_deref().unwrap_or("0x0");
-    let status_val = parse_hex_wei(status_raw)?;
-    if status_val != 1 {
-        return Err(AuthError::validation(
-            "Payment transaction failed or reverted onchain.",
-        ));
-    }
-
     let Some(raw_to) = tx.to.as_deref() else {
-        return Err(AuthError::validation(
+        return Err(PaymentVerificationError::invalid_transaction(
             "Payment transaction has no recipient address.",
         ));
     };
-    let to_wallet = normalize_wallet_address(raw_to)?;
+    let to_wallet = normalize_wallet_address(raw_to)
+        .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
     if to_wallet != expected_recipient {
-        return Err(AuthError::validation(
+        return Err(PaymentVerificationError::invalid_transaction(
             "Transaction recipient does not match the project payment wallet.",
         ));
     }
 
-    let from_wallet = normalize_wallet_address(&tx.from)?;
+    let from_wallet = normalize_wallet_address(&tx.from)
+        .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
     if from_wallet != expected_sender {
-        return Err(AuthError::unauthorized(
-            "PAYMENT_SENDER_MISMATCH",
+        return Err(PaymentVerificationError::invalid_transaction(
             "Transaction sender does not match the authenticated wallet.",
         ));
     }
 
-    let amount_wei = parse_hex_wei(&tx.value)?;
+    let amount_wei = parse_hex_wei(&tx.value)
+        .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
     if amount_wei < config.min_payment_wei {
-        return Err(AuthError::validation(
+        return Err(PaymentVerificationError::invalid_transaction(
             "Transaction value is below the minimum required payment.",
+        ));
+    }
+
+    let Some(receipt) = receipt else {
+        return Err(PaymentVerificationError::pending(
+            "Payment transaction is still pending confirmation.",
+        ));
+    };
+
+    let Some(status_raw) = receipt.status.as_deref() else {
+        return Err(PaymentVerificationError::pending(
+            "Payment transaction is still pending confirmation.",
+        ));
+    };
+    let status_val = parse_hex_wei(status_raw)
+        .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
+    if status_val != 1 {
+        return Err(PaymentVerificationError::reverted(
+            "Payment transaction failed or reverted onchain.",
         ));
     }
 
@@ -185,7 +230,7 @@ pub trait PaymentVerifier: Send + Sync {
         &'a self,
         tx_hash: &'a str,
         expected_sender_wallet: &'a str,
-    ) -> Pin<Box<dyn Future<Output = AuthResult<VerifiedPayment>> + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = PaymentVerifyResult<VerifiedPayment>> + 'a>>;
 }
 
 #[derive(Debug, Clone)]
@@ -223,10 +268,12 @@ impl PaymentVerifier for RpcPaymentVerifier {
         &'a self,
         raw_tx_hash: &'a str,
         expected_sender_wallet: &'a str,
-    ) -> Pin<Box<dyn Future<Output = AuthResult<VerifiedPayment>> + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = PaymentVerifyResult<VerifiedPayment>> + 'a>> {
         Box::pin(async move {
-            let tx_hash = normalize_tx_hash(raw_tx_hash)?;
-            let expected_sender = normalize_wallet_address(expected_sender_wallet)?;
+            let tx_hash = normalize_tx_hash(raw_tx_hash)
+                .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
+            let expected_sender = normalize_wallet_address(expected_sender_wallet)
+                .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
 
             let batch_payload = [
                 JsonRpcRequest {
@@ -253,21 +300,21 @@ impl PaymentVerifier for RpcPaymentVerifier {
                 .send_json(&batch_payload)
                 .await
                 .map_err(|err| {
-                    AuthError::internal(
+                    PaymentVerificationError::internal(
                         "Failed to reach ETH JSON-RPC endpoint.",
                         format!("{err:?}"),
                     )
                 })?;
 
             if !response.status().is_success() {
-                return Err(AuthError::internal(
+                return Err(PaymentVerificationError::internal(
                     "ETH JSON-RPC returned non-success HTTP status.",
                     format!("status={}", response.status()),
                 ));
             }
 
             let body_bytes = response.body().await.map_err(|err| {
-                AuthError::internal(
+                PaymentVerificationError::internal(
                     "Failed to read ETH JSON-RPC response body.",
                     format!("{err:?}"),
                 )
@@ -275,7 +322,7 @@ impl PaymentVerifier for RpcPaymentVerifier {
 
             let rpc_items: Vec<JsonRpcResponse> =
                 serde_json::from_slice(&body_bytes).map_err(|err| {
-                    AuthError::internal(
+                    PaymentVerificationError::internal(
                         "Failed to parse ETH JSON-RPC response.",
                         format!("{err:?}"),
                     )
@@ -286,7 +333,7 @@ impl PaymentVerifier for RpcPaymentVerifier {
 
             for item in rpc_items {
                 if let Some(rpc_err) = item.error {
-                    return Err(AuthError::internal(
+                    return Err(PaymentVerificationError::internal(
                         "ETH JSON-RPC returned an error.",
                         rpc_err.to_string(),
                     ));
@@ -296,7 +343,7 @@ impl PaymentVerifier for RpcPaymentVerifier {
                         if let Some(val) = item.result {
                             if !val.is_null() {
                                 tx = Some(serde_json::from_value(val).map_err(|err| {
-                                    AuthError::internal(
+                                    PaymentVerificationError::internal(
                                         "Malformed transaction object from RPC.",
                                         format!("{err:?}"),
                                     )
@@ -308,7 +355,7 @@ impl PaymentVerifier for RpcPaymentVerifier {
                         if let Some(val) = item.result {
                             if !val.is_null() {
                                 receipt = Some(serde_json::from_value(val).map_err(|err| {
-                                    AuthError::internal(
+                                    PaymentVerificationError::internal(
                                         "Malformed transaction receipt from RPC.",
                                         format!("{err:?}"),
                                     )
@@ -400,61 +447,59 @@ mod tests {
         let tx = valid_tx();
         let receipt = valid_receipt();
 
-        // 1. Missing tx
-        assert!(
-            validate_rpc_payment(VALID_TX_HASH, ALICE_WALLET, &cfg, None, Some(&receipt)).is_err()
-        );
+        // 1. Missing tx -> Pending
+        assert!(matches!(
+            validate_rpc_payment(VALID_TX_HASH, ALICE_WALLET, &cfg, None, Some(&receipt)),
+            Err(PaymentVerificationError::Pending(_))
+        ));
 
-        // 2. Pending tx (receipt: None)
-        assert!(validate_rpc_payment(VALID_TX_HASH, ALICE_WALLET, &cfg, Some(&tx), None).is_err());
+        // 2. Pending tx (receipt: None) -> Pending
+        assert!(matches!(
+            validate_rpc_payment(VALID_TX_HASH, ALICE_WALLET, &cfg, Some(&tx), None),
+            Err(PaymentVerificationError::Pending(_))
+        ));
 
-        // 3. Reverted tx (status: 0x0)
+        // 3. Reverted tx (status: 0x0) -> Reverted
         let reverted = RpcTransactionReceipt {
             status: Some("0x0".to_string()),
         };
-        assert!(
+        assert!(matches!(
             validate_rpc_payment(
                 VALID_TX_HASH,
                 ALICE_WALLET,
                 &cfg,
                 Some(&tx),
                 Some(&reverted)
-            )
-            .is_err()
-        );
+            ),
+            Err(PaymentVerificationError::Reverted(_))
+        ));
 
-        // 4. Wrong recipient
+        // 4. Wrong recipient -> InvalidTransaction (even if receipt is still None)
         let mut wrong_to = valid_tx();
         wrong_to.to = Some(BOB_WALLET.to_string());
-        assert!(
-            validate_rpc_payment(
-                VALID_TX_HASH,
-                ALICE_WALLET,
-                &cfg,
-                Some(&wrong_to),
-                Some(&receipt)
-            )
-            .is_err()
-        );
+        assert!(matches!(
+            validate_rpc_payment(VALID_TX_HASH, ALICE_WALLET, &cfg, Some(&wrong_to), None),
+            Err(PaymentVerificationError::InvalidTransaction(_))
+        ));
 
-        // 5. Wrong sender
-        let wrong_sender_err =
-            validate_rpc_payment(VALID_TX_HASH, BOB_WALLET, &cfg, Some(&tx), Some(&receipt))
-                .expect_err("wrong sender must fail");
-        assert_eq!(wrong_sender_err.code(), "PAYMENT_SENDER_MISMATCH");
+        // 5. Wrong sender -> InvalidTransaction
+        assert!(matches!(
+            validate_rpc_payment(VALID_TX_HASH, BOB_WALLET, &cfg, Some(&tx), Some(&receipt)),
+            Err(PaymentVerificationError::InvalidTransaction(_))
+        ));
 
-        // 6. Underpaid amount
+        // 6. Underpaid amount -> InvalidTransaction
         let mut underpaid = valid_tx();
         underpaid.value = "0x1".to_string();
-        assert!(
+        assert!(matches!(
             validate_rpc_payment(
                 VALID_TX_HASH,
                 ALICE_WALLET,
                 &cfg,
                 Some(&underpaid),
                 Some(&receipt)
-            )
-            .is_err()
-        );
+            ),
+            Err(PaymentVerificationError::InvalidTransaction(_))
+        ));
     }
 }

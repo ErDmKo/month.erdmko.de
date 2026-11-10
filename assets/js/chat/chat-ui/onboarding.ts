@@ -59,6 +59,7 @@ import {
     CHAT_UI_STATE_ERROR,
     CHAT_UI_STATE_HAS_ACTIVE_ACCESS,
     CHAT_UI_STATE_NICKNAME,
+    CHAT_UI_STATE_PENDING_TX_HASH,
     CHAT_UI_STATE_WALLET_ADDRESS,
     createChatUiState,
 } from './state';
@@ -228,8 +229,21 @@ export const onboardingTemplate = (
         )
     );
     const joinHidden = mapSignal(not, state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS]);
+    const pendingTxHidden = mapSignal(
+        ([pendingTx, hasAccess]: [string, boolean]) =>
+            hasAccess || pendingTx.length === 0,
+        combineSignals(
+            state[CHAT_UI_STATE_PENDING_TX_HASH],
+            state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS]
+        )
+    );
+    const pendingTxHref = mapSignal(
+        (pendingTx: string) =>
+            pendingTx ? `https://etherscan.io/tx/${pendingTx}` : '#',
+        state[CHAT_UI_STATE_PENDING_TX_HASH]
+    );
     const authBannerText = mapSignal(
-        ([connected, hasAccess]: [boolean, boolean]) => {
+        ([[connected, hasAccess], pendingTx]: [[boolean, boolean], string]) => {
             if (hasAccess) {
                 return targetRoom
                     ? `Authorized — ready to enter #${targetRoom}.`
@@ -240,11 +254,20 @@ export const onboardingTemplate = (
                     ? `Authorization required to join #${targetRoom} — connect your Ethereum wallet below to continue.`
                     : 'Authorization required — connect your Ethereum wallet (SIWE) and unlock access to join chat rooms.';
             }
+            if (pendingTx) {
+                return `Pending payment (${pendingTx.slice(0, 10)}...) — waiting for onchain confirmation or click Pay & Unlock Chat to retry without sending a second transfer.`;
+            }
             return targetRoom
                 ? `Paid access required to join #${targetRoom} — choose your nickname and unlock chat access below to continue.`
                 : 'Paid access required — choose your nickname and unlock chat access below to join chat rooms.';
         },
-        combineSignals(walletConnected, state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS])
+        combineSignals(
+            combineSignals(
+                walletConnected,
+                state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS]
+            ),
+            state[CHAT_UI_STATE_PENDING_TX_HASH]
+        )
     );
     const bannerText = mapSignal(
         ([error, notice]: [string, string]) =>
@@ -344,6 +367,25 @@ export const onboardingTemplate = (
                                 'span',
                                 [genProp('hidden', joinHidden)],
                                 [accessUntilText]
+                            ),
+                            genTagName(
+                                'span',
+                                [genProp('hidden', pendingTxHidden)],
+                                [
+                                    ' · Pending tx: ',
+                                    genTagName(
+                                        'a',
+                                        [
+                                            genAttr('href', pendingTxHref),
+                                            genAttr('target', '_blank'),
+                                            genAttr(
+                                                'rel',
+                                                'noopener noreferrer'
+                                            ),
+                                        ],
+                                        [state[CHAT_UI_STATE_PENDING_TX_HASH]]
+                                    ),
+                                ]
                             ),
                         ]
                     ),
@@ -520,6 +562,14 @@ export const initChatOnboarding = (
                         ctx,
                         `/chat/${encodeURIComponent(targetRoom)}`
                     );
+                    return;
+                }
+                if (
+                    !status[SESSION_STATUS_HAS_ACTIVE_ACCESS] &&
+                    state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_GET]() &&
+                    isValidNickname(state[CHAT_UI_STATE_NICKNAME][SIGNAL_GET]())
+                ) {
+                    handlePayAndUnlock(ctx, GLOBAL_NICKNAME_KEY, state);
                 }
             }
         }, noop)

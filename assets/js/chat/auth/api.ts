@@ -15,6 +15,22 @@ import {
     validate,
 } from '@month/utils';
 import type { ReadonlyTupleOf, Task } from '@month/utils';
+import {
+    CLAIM_PAYMENT_RESPONSE_ACTIVATED,
+    CLAIM_PAYMENT_RESPONSE_PAYLOAD_VALUE,
+    CLAIM_PAYMENT_RESPONSE_PAYLOAD_VARIANT,
+    decodeClaimPaymentResponse,
+    encodeClaimPaymentRequest,
+    PAYMENT_CLAIM_ACTIVATED_ACCESS_UNTIL,
+    PAYMENT_CLAIM_ACTIVATED_HAS_ACTIVE_ACCESS,
+    PAYMENT_CLAIM_ACTIVATED_NICKNAME,
+    PAYMENT_CLAIM_ACTIVATED_WALLET_ADDRESS,
+    PAYMENT_CLAIM_NOTICE_MESSAGE,
+} from '@month/gen/chat';
+import type {
+    ClaimPaymentResponsePayload,
+    PaymentClaimActivated,
+} from '@month/gen/chat';
 
 declare global {
     interface Window {
@@ -175,20 +191,91 @@ export const verifySiweTask = (
         taskMap(parseSessionStatus)
     );
 
+export const activatedToSessionStatus = (
+    activated: PaymentClaimActivated
+): SessionStatus => [
+    activated[PAYMENT_CLAIM_ACTIVATED_WALLET_ADDRESS],
+    activated[PAYMENT_CLAIM_ACTIVATED_NICKNAME] || null,
+    activated[PAYMENT_CLAIM_ACTIVATED_ACCESS_UNTIL],
+    activated[PAYMENT_CLAIM_ACTIVATED_HAS_ACTIVE_ACCESS],
+];
+
+export const claimPaymentOutcomeMessage = (
+    outcome: ClaimPaymentResponsePayload
+): string => {
+    if (
+        outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VARIANT] ===
+        CLAIM_PAYMENT_RESPONSE_ACTIVATED
+    ) {
+        return '';
+    }
+    return (
+        outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VALUE][
+            PAYMENT_CLAIM_NOTICE_MESSAGE
+        ] || 'Payment claim failed.'
+    );
+};
+
+const readResponseProtoBytesTask =
+    (ctx: Window, res: Response): Task<Uint8Array> =>
+    (resolve, reject) => {
+        if (!res.ok) {
+            reject(new Error(`Request failed with status ${res.status}`));
+            return;
+        }
+        res.arrayBuffer().then(
+            (buf: ArrayBuffer) => resolve(new ctx.Uint8Array(buf)),
+            reject
+        );
+    };
+
+export const claimPaymentProtoTask = (
+    ctx: Window,
+    txHash: string,
+    nickname: string
+): Task<ClaimPaymentResponsePayload> => {
+    const bodyBytes = encodeClaimPaymentRequest(
+        ctx,
+        txHash.trim(),
+        nickname.trim()
+    );
+    return pipe(
+        rawFetchTask(ctx, '/auth/claim-payment', {
+            ['method']: 'POST',
+            ['headers']: { ['Content-Type']: 'application/x-protobuf' },
+            ['credentials']: 'same-origin',
+            ['body']: bodyBytes as unknown as BodyInit,
+        }),
+        taskChain(bindArg(ctx, readResponseProtoBytesTask)),
+        taskMap((bytes: Uint8Array): ClaimPaymentResponsePayload => {
+            const decoded = decodeClaimPaymentResponse(ctx, bytes);
+            if (!decoded) {
+                throw new Error('Invalid payment claim response.');
+            }
+            return decoded;
+        })
+    );
+};
+
 export const claimPaymentTask = (
     ctx: Window,
     txHash: string,
     nickname: string
-): Task<SessionStatus> => {
-    const trimmedNick = nickname.trim();
-    const payload: Record<string, unknown> = trimmedNick
-        ? { ['txHash']: txHash, ['nickname']: trimmedNick }
-        : { ['txHash']: txHash };
-    return pipe(
-        postJsonTask(ctx, '/auth/claim-payment', payload),
-        taskMap(parseSessionStatus)
+): Task<SessionStatus> =>
+    pipe(
+        claimPaymentProtoTask(ctx, txHash, nickname),
+        taskMap((outcome: ClaimPaymentResponsePayload): SessionStatus => {
+            if (
+                outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VARIANT] ===
+                CLAIM_PAYMENT_RESPONSE_ACTIVATED
+            ) {
+                return activatedToSessionStatus(
+                    outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VALUE]
+                );
+            }
+            throw new Error(claimPaymentOutcomeMessage(outcome));
+        })
     );
-};
 
 export const updateNicknameTask = (
     ctx: Window,

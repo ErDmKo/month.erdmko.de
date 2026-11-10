@@ -12,3 +12,11 @@ rust_prost_library(
     name = "chat_rs",
     proto = ":chat_proto",
 )
+
+genrule(
+    name = "chat_descriptor_json",
+    srcs = [":chat_proto"],
+    outs = ["chat.descriptor.json"],
+    cmd = "$(execpath //tools/prost:descriptor_to_json) $(location :chat_proto) $@",
+    tools = ["//tools/prost:descriptor_to_json"],
+)

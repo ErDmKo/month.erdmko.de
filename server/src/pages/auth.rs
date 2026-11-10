@@ -1,18 +1,23 @@
 use actix_web::http::header;
 use actix_web::{HttpRequest, HttpResponse, get, post, web};
 use chrono::Utc;
+use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppCtx;
 use crate::auth::db::{
-    WalletProfile, create_session, get_valid_session_wallet, get_wallet_profile, issue_nonce,
-    record_payment_and_extend_access, revoke_session, set_wallet_nickname,
+    ClaimPaymentDbError, WalletProfile, claim_payment_atomically, create_session,
+    get_valid_session_wallet, get_wallet_profile, issue_nonce, revoke_session, set_wallet_nickname,
 };
 use crate::auth::error::{AuthError, AuthErrorKind};
-use crate::auth::payment::{PaymentVerifier, RpcPaymentVerifier};
+use crate::auth::payment::{PaymentVerificationError, PaymentVerifier, RpcPaymentVerifier};
 use crate::auth::service::{normalize_tx_hash, validate_ascii_nickname};
 use crate::auth::siwe::verify_siwe_and_consume_nonce;
 use crate::auth::{NONCE_TTL_SECS, SESSION_COOKIE_NAME, SESSION_TTL_SECS};
+use crate::generated::chat::{
+    ClaimPaymentRequest, ClaimPaymentResponse, PaymentClaimActivated, PaymentClaimNotice,
+    claim_payment_response,
+};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -34,13 +39,6 @@ pub struct NonceResponse {
 pub struct VerifySiweRequest {
     pub message: String,
     pub signature: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClaimPaymentRequest {
-    pub tx_hash: String,
-    pub nickname: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -237,34 +235,65 @@ pub async fn post_auth_logout_handler(
         .json(serde_json::json!({ "ok": true }))
 }
 
+fn claim_payment_proto_response(payload: claim_payment_response::Payload) -> HttpResponse {
+    let bytes = ClaimPaymentResponse {
+        payload: Some(payload),
+    }
+    .encode_to_vec();
+    HttpResponse::Ok()
+        .insert_header((header::CONTENT_TYPE, "application/x-protobuf"))
+        .body(bytes)
+}
+
 #[post("/auth/claim-payment")]
 pub async fn post_auth_claim_payment_handler(
     req: HttpRequest,
     app_ctx: web::Data<AppCtx>,
     verifier: Option<web::Data<Arc<dyn PaymentVerifier>>>,
-    payload: web::Json<ClaimPaymentRequest>,
+    body: web::Bytes,
 ) -> HttpResponse {
     let Some(token) = extract_session_token(&req) else {
-        return auth_error_to_response(AuthError::unauthorized(
-            "UNAUTHORIZED",
-            "Missing session cookie.",
+        return claim_payment_proto_response(claim_payment_response::Payload::Unauthorized(
+            PaymentClaimNotice {
+                message: "Missing session cookie.".to_string(),
+            },
         ));
     };
 
-    let req_body = payload.into_inner();
+    let req_body = match ClaimPaymentRequest::decode(body.as_ref()) {
+        Ok(decoded) => decoded,
+        Err(_) => {
+            return claim_payment_proto_response(
+                claim_payment_response::Payload::InvalidTransaction(PaymentClaimNotice {
+                    message: "Malformed payment claim request.".to_string(),
+                }),
+            );
+        }
+    };
+
     let tx_hash = match normalize_tx_hash(&req_body.tx_hash) {
         Ok(h) => h,
-        Err(err) => return auth_error_to_response(err),
+        Err(err) => {
+            return claim_payment_proto_response(
+                claim_payment_response::Payload::InvalidTransaction(PaymentClaimNotice {
+                    message: err.message().to_string(),
+                }),
+            );
+        }
     };
-    let normalized_nickname = match req_body
-        .nickname
-        .as_deref()
+    let normalized_nickname = match Some(req_body.nickname.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
         Some(raw_nick) => match validate_ascii_nickname(raw_nick) {
             Ok(n) => Some(n),
-            Err(err) => return auth_error_to_response(err),
+            Err(err) => {
+                return claim_payment_proto_response(
+                    claim_payment_response::Payload::InvalidTransaction(PaymentClaimNotice {
+                        message: err.message().to_string(),
+                    }),
+                );
+            }
         },
         None => None,
     };
@@ -275,14 +304,19 @@ pub async fn post_auth_claim_payment_handler(
         let conn = pool_for_session.get().map_err(|err| {
             AuthError::internal("Database connection pool unavailable.", format!("{err:?}"))
         })?;
-        get_valid_session_wallet(&conn, &token, now_unix)?.ok_or_else(|| {
-            AuthError::unauthorized("UNAUTHORIZED", "Session is invalid or expired.")
-        })
+        get_valid_session_wallet(&conn, &token, now_unix)
     })
     .await;
 
     let wallet_address = match session_wallet_res {
-        Ok(Ok(w)) => w,
+        Ok(Ok(Some(w))) => w,
+        Ok(Ok(None)) => {
+            return claim_payment_proto_response(claim_payment_response::Payload::Unauthorized(
+                PaymentClaimNotice {
+                    message: "Session is invalid or expired.".to_string(),
+                },
+            ));
+        }
         Ok(Err(err)) => return auth_error_to_response(err),
         Err(err) => {
             return auth_error_to_response(AuthError::internal(
@@ -302,21 +336,38 @@ pub async fn post_auth_claim_payment_handler(
         .await
     {
         Ok(v) => v,
-        Err(err) => return auth_error_to_response(err),
+        Err(PaymentVerificationError::Pending(message)) => {
+            return claim_payment_proto_response(claim_payment_response::Payload::Pending(
+                PaymentClaimNotice { message },
+            ));
+        }
+        Err(PaymentVerificationError::Reverted(message)) => {
+            return claim_payment_proto_response(claim_payment_response::Payload::Reverted(
+                PaymentClaimNotice { message },
+            ));
+        }
+        Err(PaymentVerificationError::InvalidTransaction(message)) => {
+            return claim_payment_proto_response(
+                claim_payment_response::Payload::InvalidTransaction(PaymentClaimNotice { message }),
+            );
+        }
+        Err(PaymentVerificationError::Internal { message, details }) => {
+            return auth_error_to_response(AuthError::internal(message, details));
+        }
     };
 
     let pool_for_claim = app_ctx.pool.clone();
     let claim_res = web::block(move || {
-        let conn = pool_for_claim.get().map_err(|err| {
-            AuthError::internal("Database connection pool unavailable.", format!("{err:?}"))
-        })?;
-        if let Some(ref nick) = normalized_nickname {
-            // Validate/assign nickname first so a NICKNAME_TAKEN conflict does not consume tx_hash
-            set_wallet_nickname(&conn, &wallet_address, nick, now_unix)?;
-        }
-        record_payment_and_extend_access(
+        let conn = pool_for_claim
+            .get()
+            .map_err(|err| ClaimPaymentDbError::Internal {
+                message: "Database connection pool unavailable.".to_string(),
+                details: format!("{err:?}"),
+            })?;
+        claim_payment_atomically(
             &conn,
             &wallet_address,
+            normalized_nickname.as_deref(),
             &verified.tx_hash,
             &verified.amount_wei.to_string(),
             now_unix,
@@ -326,8 +377,23 @@ pub async fn post_auth_claim_payment_handler(
     .await;
 
     match claim_res {
-        Ok(Ok(profile)) => HttpResponse::Ok().json(SessionStatusResponse::from(profile)),
-        Ok(Err(err)) => auth_error_to_response(err),
+        Ok(Ok(profile)) => claim_payment_proto_response(
+            claim_payment_response::Payload::Activated(PaymentClaimActivated {
+                wallet_address: profile.wallet_address,
+                nickname: profile.nickname.unwrap_or_default(),
+                access_until: profile.access_until,
+                has_active_access: profile.has_active_access,
+            }),
+        ),
+        Ok(Err(ClaimPaymentDbError::NicknameTaken(message))) => claim_payment_proto_response(
+            claim_payment_response::Payload::NicknameTaken(PaymentClaimNotice { message }),
+        ),
+        Ok(Err(ClaimPaymentDbError::InvalidTransaction(message))) => claim_payment_proto_response(
+            claim_payment_response::Payload::InvalidTransaction(PaymentClaimNotice { message }),
+        ),
+        Ok(Err(ClaimPaymentDbError::Internal { message, details })) => {
+            auth_error_to_response(AuthError::internal(message, details))
+        }
         Err(err) => auth_error_to_response(AuthError::internal(
             "Failed to record claimed payment.",
             format!("{err:?}"),
@@ -541,8 +607,15 @@ mod tests {
         assert_eq!(after_logout_body["authenticated"], serde_json::json!(false));
     }
 
+    const PRIV_KEY_2: [u8; 32] = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 2,
+    ];
+
     struct MockVerifier {
-        expected_tx: String,
+        confirmed_tx: String,
+        pending_tx: String,
+        reverted_tx: String,
     }
 
     impl PaymentVerifier for MockVerifier {
@@ -553,16 +626,29 @@ mod tests {
         ) -> std::pin::Pin<
             Box<
                 dyn std::future::Future<
-                        Output = crate::auth::error::AuthResult<
+                        Output = crate::auth::payment::PaymentVerifyResult<
                             crate::auth::payment::VerifiedPayment,
                         >,
                     > + 'a,
             >,
         > {
             Box::pin(async move {
-                let norm_tx = normalize_tx_hash(tx_hash)?;
-                if norm_tx != self.expected_tx {
-                    return Err(AuthError::validation("unknown transaction hash"));
+                let norm_tx = normalize_tx_hash(tx_hash)
+                    .map_err(|err| PaymentVerificationError::invalid_transaction(err.message()))?;
+                if norm_tx == self.pending_tx {
+                    return Err(PaymentVerificationError::pending(
+                        "Payment transaction is still pending confirmation.",
+                    ));
+                }
+                if norm_tx == self.reverted_tx {
+                    return Err(PaymentVerificationError::reverted(
+                        "Payment transaction failed or reverted onchain.",
+                    ));
+                }
+                if norm_tx != self.confirmed_tx {
+                    return Err(PaymentVerificationError::invalid_transaction(
+                        "unknown transaction hash",
+                    ));
                 }
                 Ok(crate::auth::payment::VerifiedPayment {
                     tx_hash: norm_tx,
@@ -580,8 +666,14 @@ mod tests {
         let ctx = setup_test_ctx();
         let tx_hash =
             "0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789".to_string();
+        let pending_tx_hash =
+            "0x1111111111111111111111111111111111111111111111111111111111111111".to_string();
+        let reverted_tx_hash =
+            "0x2222222222222222222222222222222222222222222222222222222222222222".to_string();
         let verifier: Arc<dyn PaymentVerifier> = Arc::new(MockVerifier {
-            expected_tx: tx_hash.clone(),
+            confirmed_tx: tx_hash.clone(),
+            pending_tx: pending_tx_hash.clone(),
+            reverted_tx: reverted_tx_hash.clone(),
         });
 
         let app = test::init_service(
@@ -594,12 +686,18 @@ mod tests {
         .await;
 
         let wallet = wallet_address_from_private_key(&PRIV_KEY_1);
+        let wallet_bob = wallet_address_from_private_key(&PRIV_KEY_2);
         let now_unix = Utc::now().timestamp();
-        let session = {
+        let (session, session_bob) = {
             let conn = ctx.pool.get().unwrap();
-            create_session(&conn, &wallet, now_unix, SESSION_TTL_SECS).unwrap()
+            set_wallet_nickname(&conn, &wallet_bob, "taken_nick", now_unix).unwrap();
+            (
+                create_session(&conn, &wallet, now_unix, SESSION_TTL_SECS).unwrap(),
+                create_session(&conn, &wallet_bob, now_unix, SESSION_TTL_SECS).unwrap(),
+            )
         };
         let cookie_header = format!("{SESSION_COOKIE_NAME}={}", session.token);
+        let bob_cookie_header = format!("{SESSION_COOKIE_NAME}={}", session_bob.token);
 
         // Unpaid wallet cannot call POST /auth/nickname before claiming payment
         let early_nick_req = test::TestRequest::post()
@@ -612,36 +710,152 @@ mod tests {
         let early_nick_resp = test::call_service(&app, early_nick_req).await;
         assert_eq!(early_nick_resp.status(), StatusCode::UNAUTHORIZED);
 
-        // 1. First payment claim succeeds, extends access_until, and sets nickname
+        // 0a. Missing session cookie returns protobuf Unauthorized variant
+        let unauth_req = test::TestRequest::post()
+            .uri("/auth/claim-payment")
+            .set_payload(
+                ClaimPaymentRequest {
+                    tx_hash: tx_hash.clone(),
+                    nickname: "alice_eth".to_string(),
+                }
+                .encode_to_vec(),
+            )
+            .to_request();
+        let unauth_resp = test::call_service(&app, unauth_req).await;
+        assert_eq!(unauth_resp.status(), StatusCode::OK);
+        let unauth_proto =
+            ClaimPaymentResponse::decode(test::read_body(unauth_resp).await.as_ref()).unwrap();
+        assert!(matches!(
+            unauth_proto.payload,
+            Some(claim_payment_response::Payload::Unauthorized(_))
+        ));
+
+        // 0b. Pending transaction returns protobuf Pending variant
+        let pending_req = test::TestRequest::post()
+            .uri("/auth/claim-payment")
+            .insert_header((header::COOKIE, cookie_header.clone()))
+            .set_payload(
+                ClaimPaymentRequest {
+                    tx_hash: pending_tx_hash,
+                    nickname: "alice_eth".to_string(),
+                }
+                .encode_to_vec(),
+            )
+            .to_request();
+        let pending_resp = test::call_service(&app, pending_req).await;
+        let pending_proto =
+            ClaimPaymentResponse::decode(test::read_body(pending_resp).await.as_ref()).unwrap();
+        assert!(matches!(
+            pending_proto.payload,
+            Some(claim_payment_response::Payload::Pending(_))
+        ));
+
+        // 0c. Reverted transaction returns protobuf Reverted variant
+        let reverted_req = test::TestRequest::post()
+            .uri("/auth/claim-payment")
+            .insert_header((header::COOKIE, cookie_header.clone()))
+            .set_payload(
+                ClaimPaymentRequest {
+                    tx_hash: reverted_tx_hash,
+                    nickname: "alice_eth".to_string(),
+                }
+                .encode_to_vec(),
+            )
+            .to_request();
+        let reverted_resp = test::call_service(&app, reverted_req).await;
+        let reverted_proto =
+            ClaimPaymentResponse::decode(test::read_body(reverted_resp).await.as_ref()).unwrap();
+        assert!(matches!(
+            reverted_proto.payload,
+            Some(claim_payment_response::Payload::Reverted(_))
+        ));
+
+        // 0d. NicknameTaken returns protobuf NicknameTaken variant and does NOT consume tx_hash
+        let taken_req = test::TestRequest::post()
+            .uri("/auth/claim-payment")
+            .insert_header((header::COOKIE, cookie_header.clone()))
+            .set_payload(
+                ClaimPaymentRequest {
+                    tx_hash: tx_hash.clone(),
+                    nickname: "taken_nick".to_string(),
+                }
+                .encode_to_vec(),
+            )
+            .to_request();
+        let taken_resp = test::call_service(&app, taken_req).await;
+        let taken_proto =
+            ClaimPaymentResponse::decode(test::read_body(taken_resp).await.as_ref()).unwrap();
+        assert!(matches!(
+            taken_proto.payload,
+            Some(claim_payment_response::Payload::NicknameTaken(_))
+        ));
+
+        // 1. First payment claim with free nickname succeeds, extends access_until, and sets nickname
         let claim_req = test::TestRequest::post()
             .uri("/auth/claim-payment")
             .insert_header((header::COOKIE, cookie_header.clone()))
-            .set_json(ClaimPaymentRequest {
-                tx_hash: tx_hash.clone(),
-                nickname: Some("alice_eth".to_string()),
-            })
+            .set_payload(
+                ClaimPaymentRequest {
+                    tx_hash: tx_hash.clone(),
+                    nickname: "alice_eth".to_string(),
+                }
+                .encode_to_vec(),
+            )
             .to_request();
         let claim_resp = test::call_service(&app, claim_req).await;
         assert_eq!(claim_resp.status(), StatusCode::OK);
-        let claimed_status: SessionStatusResponse = test::read_body_json(claim_resp).await;
+        let claim_proto =
+            ClaimPaymentResponse::decode(test::read_body(claim_resp).await.as_ref()).unwrap();
+        let claimed_status = match claim_proto.payload {
+            Some(claim_payment_response::Payload::Activated(activated)) => activated,
+            other => panic!("expected Activated variant, got {other:?}"),
+        };
         assert_eq!(claimed_status.wallet_address, wallet);
-        assert_eq!(claimed_status.nickname.as_deref(), Some("alice_eth"));
+        assert_eq!(claimed_status.nickname, "alice_eth");
         assert!(claimed_status.has_active_access);
         assert!(claimed_status.access_until > now_unix);
 
-        // 2. Second claim with the same txHash is rejected with 409 Conflict (PAYMENT_ALREADY_CLAIMED)
-        let replay_req = test::TestRequest::post()
+        // 2a. Same-wallet retry with the same txHash returns Activated idempotently without extending access_until again
+        let retry_req = test::TestRequest::post()
             .uri("/auth/claim-payment")
             .insert_header((header::COOKIE, cookie_header.clone()))
-            .set_json(ClaimPaymentRequest {
-                tx_hash,
-                nickname: None,
-            })
+            .set_payload(
+                ClaimPaymentRequest {
+                    tx_hash: tx_hash.clone(),
+                    nickname: String::new(),
+                }
+                .encode_to_vec(),
+            )
+            .to_request();
+        let retry_resp = test::call_service(&app, retry_req).await;
+        let retry_proto =
+            ClaimPaymentResponse::decode(test::read_body(retry_resp).await.as_ref()).unwrap();
+        let retry_status = match retry_proto.payload {
+            Some(claim_payment_response::Payload::Activated(activated)) => activated,
+            other => panic!("expected Activated on same-wallet retry, got {other:?}"),
+        };
+        assert_eq!(retry_status.access_until, claimed_status.access_until);
+        assert_eq!(retry_status.nickname, "alice_eth");
+
+        // 2b. Another wallet replaying the same txHash is rejected with InvalidTransaction
+        let replay_req = test::TestRequest::post()
+            .uri("/auth/claim-payment")
+            .insert_header((header::COOKIE, bob_cookie_header))
+            .set_payload(
+                ClaimPaymentRequest {
+                    tx_hash,
+                    nickname: String::new(),
+                }
+                .encode_to_vec(),
+            )
             .to_request();
         let replay_resp = test::call_service(&app, replay_req).await;
-        assert_eq!(replay_resp.status(), StatusCode::CONFLICT);
-        let replay_err: AuthErrorResponse = test::read_body_json(replay_resp).await;
-        assert_eq!(replay_err.code, "PAYMENT_ALREADY_CLAIMED");
+        let replay_proto =
+            ClaimPaymentResponse::decode(test::read_body(replay_resp).await.as_ref()).unwrap();
+        assert!(matches!(
+            replay_proto.payload,
+            Some(claim_payment_response::Payload::InvalidTransaction(_))
+        ));
 
         // 3. Paid wallet can update its nickname via POST /auth/nickname
         let update_nick_req = test::TestRequest::post()

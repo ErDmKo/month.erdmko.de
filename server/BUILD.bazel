@@ -1,16 +1,10 @@
 load("@crate_index//:defs.bzl", "aliases", "all_crate_deps")
 load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
-load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("//:variables.bzl", "api_token")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["build.rs"])
-
-copy_to_bin(
-    name = "chat_descriptor_json",
-    srcs = ["src/generated/chat.descriptor.json"],
-)
 
 rust_binary(
     name = "server",

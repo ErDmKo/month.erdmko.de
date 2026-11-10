@@ -81,6 +81,19 @@ export const encodeUint32Field = (
     ];
 };
 
+// bool field (wire type 0)
+export const encodeBoolField = (
+    ctx: Window,
+    fieldNumber: number,
+    value: boolean
+): Uint8Array[] => {
+    if (!value) return [];
+    return [
+        encodeVarint(ctx, makeTag(fieldNumber, WIRE_VARINT)),
+        encodeVarint(ctx, 1),
+    ];
+};
+
 // string field (wire type 2)
 export const encodeStringField = (
     ctx: Window,
@@ -119,7 +132,6 @@ export const encodeMessageField = <T extends readonly unknown[]>(
 ): Uint8Array => {
     if (value === null) return new ctx.Uint8Array(0);
     const encoded = encoder(ctx, ...value);
-    if (encoded.length === 0) return new ctx.Uint8Array(0);
     return concatBytes(ctx, [
         encodeVarint(ctx, makeTag(fieldNumber, WIRE_LEN)),
         encodeVarint(ctx, encoded.length),

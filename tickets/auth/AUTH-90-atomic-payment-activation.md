@@ -1,7 +1,7 @@
 ---
 title: "Commit Payment and Access Activation Atomically"
 ticket: "AUTH-90"
-status: "planned"
+status: "completed"
 draft: false
 weight: 90
 ---
@@ -49,9 +49,17 @@ The partial-write failure scenario has not yet been fault-injection tested.
 
 ## Tests and Acceptance
 
-- [ ] Injected failures between writes leave no partial payment, nickname, or access mutation.
-- [ ] Two concurrent claims of one hash activate access once.
-- [ ] Replaying a hash cannot change the nickname or extend access again.
-- [ ] A nickname conflict leaves the transaction available for a corrected retry.
-- [ ] A successful claim updates all records together and survives server restart.
-- [ ] Existing paid users retain their remaining access when another valid payment is claimed.
+- [x] Injected failures between writes leave no partial payment, nickname, or access mutation.
+- [x] Two concurrent claims of one hash activate access once.
+- [x] Replaying a hash cannot change the nickname or extend access again.
+- [x] A nickname conflict leaves the transaction available for a corrected retry.
+- [x] A successful claim updates all records together and survives server restart.
+- [x] Existing paid users retain their remaining access when another valid payment is claimed.
+
+## Result
+
+**Status: DONE**
+
+### Implemented modules
+- `server/src/auth/db.rs` — implemented `claim_payment_atomically` (and transactional `record_payment_and_extend_access`), wrapping nickname ownership verification, `claimed_payments` insertion, and `wallet_profiles` access/nickname upsert in a single SQLite transaction, with idempotent same-wallet retry and fault-injection rollback tests.
+- `server/src/pages/auth.rs` — updated `post_auth_claim_payment_handler` to keep RPC verification outside the SQLite transaction and commit nickname + payment + access atomically via `claim_payment_atomically`.

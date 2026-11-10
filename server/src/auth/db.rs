@@ -372,6 +372,178 @@ pub fn set_wallet_nickname(
     get_wallet_profile(conn, &wallet_address, now_unix)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClaimPaymentDbError {
+    NicknameTaken(String),
+    InvalidTransaction(String),
+    Internal { message: String, details: String },
+}
+
+/// Atomically validate/assign optional nickname, record `tx_hash` in `claimed_payments`,
+/// and extend `wallet_profiles.access_until` in a single SQLite transaction.
+///
+/// - If `tx_hash` was already claimed by the same `wallet_address` (e.g., lost HTTP response retry),
+///   returns the existing `WalletProfile` idempotently without extending `access_until` or mutating `nickname` again.
+/// - If `tx_hash` was already claimed by a different wallet, rejects with `ClaimPaymentDbError::InvalidTransaction`.
+/// - If `raw_nickname` is owned by another wallet, rejects with `ClaimPaymentDbError::NicknameTaken` and leaves `tx_hash` unclaimed.
+pub fn claim_payment_atomically(
+    conn: &rusqlite::Connection,
+    raw_wallet_address: &str,
+    raw_nickname: Option<&str>,
+    raw_tx_hash: &str,
+    amount_wei: &str,
+    now_unix: i64,
+    duration_secs: i64,
+) -> Result<WalletProfile, ClaimPaymentDbError> {
+    if duration_secs <= 0 {
+        return Err(ClaimPaymentDbError::InvalidTransaction(
+            "access duration must be positive".to_string(),
+        ));
+    }
+    let wallet_address = normalize_wallet_address(raw_wallet_address)
+        .map_err(|err| ClaimPaymentDbError::InvalidTransaction(err.message().to_string()))?;
+    let tx_hash = normalize_tx_hash(raw_tx_hash)
+        .map_err(|err| ClaimPaymentDbError::InvalidTransaction(err.message().to_string()))?;
+    let trimmed_amount = amount_wei.trim();
+    if trimmed_amount.is_empty() {
+        return Err(ClaimPaymentDbError::InvalidTransaction(
+            "amount_wei is required".to_string(),
+        ));
+    }
+    let nickname =
+        match raw_nickname.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(raw_nick) => Some(validate_ascii_nickname(raw_nick).map_err(|err| {
+                ClaimPaymentDbError::InvalidTransaction(err.message().to_string())
+            })?),
+            None => None,
+        };
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|err| ClaimPaymentDbError::Internal {
+            message: "Failed to start payment claim transaction.".to_string(),
+            details: format!("{err:?}"),
+        })?;
+
+    let existing_claim_wallet: Option<String> = tx
+        .query_row(
+            format!(
+                "SELECT wallet_address
+                 FROM {CLAIMED_PAYMENTS_TABLE}
+                 WHERE tx_hash = ?1"
+            )
+            .as_str(),
+            (&tx_hash,),
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|err| ClaimPaymentDbError::Internal {
+            message: "Failed to check claimed payment.".to_string(),
+            details: format!("{err:?}"),
+        })?;
+
+    if let Some(claimed_by) = existing_claim_wallet {
+        if claimed_by == wallet_address {
+            return get_wallet_profile(&tx, &wallet_address, now_unix).map_err(|err| {
+                ClaimPaymentDbError::Internal {
+                    message: err.message().to_string(),
+                    details: err.details().unwrap_or_default().to_string(),
+                }
+            });
+        }
+        return Err(ClaimPaymentDbError::InvalidTransaction(
+            "This transaction hash has already been claimed.".to_string(),
+        ));
+    }
+
+    if let Some(ref nick) = nickname {
+        let existing_owner: Option<String> = tx
+            .query_row(
+                format!(
+                    "SELECT wallet_address
+                     FROM {WALLET_PROFILES_TABLE}
+                     WHERE nickname = ?1"
+                )
+                .as_str(),
+                (nick,),
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|err| ClaimPaymentDbError::Internal {
+                message: "Failed to check nickname owner.".to_string(),
+                details: format!("{err:?}"),
+            })?;
+
+        if let Some(owner) = existing_owner {
+            if owner != wallet_address {
+                return Err(ClaimPaymentDbError::NicknameTaken(
+                    "Nickname is already registered to another wallet.".to_string(),
+                ));
+            }
+        }
+    }
+
+    tx.execute(
+        format!(
+            "INSERT INTO {CLAIMED_PAYMENTS_TABLE} (tx_hash, wallet_address, amount_wei, claimed_at)
+             VALUES (?1, ?2, ?3, ?4)"
+        )
+        .as_str(),
+        (&tx_hash, &wallet_address, trimmed_amount, now_unix),
+    )
+    .map_err(|err| ClaimPaymentDbError::Internal {
+        message: "Failed to record claimed payment.".to_string(),
+        details: format!("{err:?}"),
+    })?;
+
+    if let Some(ref nick) = nickname {
+        tx.execute(
+            format!(
+                "INSERT INTO {WALLET_PROFILES_TABLE} (wallet_address, nickname, access_until, updated_at)
+                 VALUES (?1, ?2, ?3 + ?4, ?3)
+                 ON CONFLICT(wallet_address) DO UPDATE SET
+                    nickname = excluded.nickname,
+                    access_until = MAX({WALLET_PROFILES_TABLE}.access_until, ?3) + ?4,
+                    updated_at = ?3"
+            )
+            .as_str(),
+            (&wallet_address, nick, now_unix, duration_secs),
+        )
+        .map_err(|err| ClaimPaymentDbError::Internal {
+            message: "Failed to activate wallet profile and nickname.".to_string(),
+            details: format!("{err:?}"),
+        })?;
+    } else {
+        tx.execute(
+            format!(
+                "INSERT INTO {WALLET_PROFILES_TABLE} (wallet_address, nickname, access_until, updated_at)
+                 VALUES (?1, NULL, ?2 + ?3, ?2)
+                 ON CONFLICT(wallet_address) DO UPDATE SET
+                    access_until = MAX({WALLET_PROFILES_TABLE}.access_until, ?2) + ?3,
+                    updated_at = ?2"
+            )
+            .as_str(),
+            (&wallet_address, now_unix, duration_secs),
+        )
+        .map_err(|err| ClaimPaymentDbError::Internal {
+            message: "Failed to extend wallet access.".to_string(),
+            details: format!("{err:?}"),
+        })?;
+    }
+
+    tx.commit().map_err(|err| ClaimPaymentDbError::Internal {
+        message: "Failed to commit payment claim transaction.".to_string(),
+        details: format!("{err:?}"),
+    })?;
+
+    get_wallet_profile(conn, &wallet_address, now_unix).map_err(|err| {
+        ClaimPaymentDbError::Internal {
+            message: err.message().to_string(),
+            details: err.details().unwrap_or_default().to_string(),
+        }
+    })
+}
+
 /// Record a verified ETH payment transaction hash and extend the wallet's `access_until`
 /// by `duration_secs` (stacking on top of `MAX(access_until, now_unix)`).
 /// Rejects replayed `tx_hash` values with `PAYMENT_ALREADY_CLAIMED`.
@@ -393,7 +565,11 @@ pub fn record_payment_and_extend_access(
         return Err(AuthError::validation("amount_wei is required"));
     }
 
-    let inserted = conn
+    let tx = conn.unchecked_transaction().map_err(|err| {
+        AuthError::internal("Failed to start payment transaction.", format!("{err:?}"))
+    })?;
+
+    let inserted = tx
         .execute(
             format!(
                 "INSERT OR IGNORE INTO {CLAIMED_PAYMENTS_TABLE} (tx_hash, wallet_address, amount_wei, claimed_at)
@@ -411,7 +587,7 @@ pub fn record_payment_and_extend_access(
         ));
     }
 
-    conn.execute(
+    tx.execute(
         format!(
             "INSERT INTO {WALLET_PROFILES_TABLE} (wallet_address, nickname, access_until, updated_at)
              VALUES (?1, NULL, ?2 + ?3, ?2)
@@ -423,6 +599,10 @@ pub fn record_payment_and_extend_access(
         (&wallet_address, now_unix, duration_secs),
     )
     .map_err(|err| AuthError::internal("Failed to extend wallet access.", format!("{err:?}")))?;
+
+    tx.commit().map_err(|err| {
+        AuthError::internal("Failed to commit payment transaction.", format!("{err:?}"))
+    })?;
 
     get_wallet_profile(conn, &wallet_address, now_unix)
 }
@@ -608,5 +788,108 @@ mod tests {
         )
         .expect("second payment should stack");
         assert_eq!(p2.access_until, now + DEFAULT_ACCESS_DURATION_SECS * 2);
+    }
+
+    #[test]
+    fn claim_payment_atomically_rolls_back_on_nickname_conflict_and_fault_and_is_idempotent_for_same_wallet()
+     {
+        let conn = setup_conn();
+        let now = 1_700_000_000;
+
+        // Alice registers nickname "alice"
+        set_wallet_nickname(&conn, ALICE_WALLET_MIXED, "alice", now).unwrap();
+
+        // 1. Bob attempts to claim SAMPLE_TX_1 with taken nickname "alice" -> NicknameTaken, tx_hash NOT consumed
+        let nick_conflict = claim_payment_atomically(
+            &conn,
+            BOB_WALLET_MIXED,
+            Some("alice"),
+            SAMPLE_TX_1,
+            "1000000000000000",
+            now + 1,
+            DEFAULT_ACCESS_DURATION_SECS,
+        )
+        .expect_err("taken nickname must fail");
+        assert!(matches!(
+            nick_conflict,
+            ClaimPaymentDbError::NicknameTaken(_)
+        ));
+
+        // 2. Inject a failure on wallet_profiles write to verify claimed_payments is rolled back atomically
+        conn.execute(
+            format!(
+                "CREATE TRIGGER fail_wallet_profiles_write
+                 BEFORE INSERT ON {WALLET_PROFILES_TABLE}
+                 BEGIN
+                     SELECT RAISE(ABORT, 'injected profile write failure');
+                 END;"
+            )
+            .as_str(),
+            (),
+        )
+        .unwrap();
+
+        let injected_err = claim_payment_atomically(
+            &conn,
+            BOB_WALLET_MIXED,
+            Some("bob"),
+            SAMPLE_TX_1,
+            "1000000000000000",
+            now + 2,
+            DEFAULT_ACCESS_DURATION_SECS,
+        )
+        .expect_err("injected failure must abort transaction");
+        assert!(matches!(injected_err, ClaimPaymentDbError::Internal { .. }));
+
+        conn.execute("DROP TRIGGER fail_wallet_profiles_write;", ())
+            .unwrap();
+
+        // Verify SAMPLE_TX_1 was NOT consumed during either failure: Bob can now claim SAMPLE_TX_1 with "bob"
+        let bob_claimed = claim_payment_atomically(
+            &conn,
+            BOB_WALLET_MIXED,
+            Some("bob"),
+            SAMPLE_TX_1,
+            "1000000000000000",
+            now + 3,
+            DEFAULT_ACCESS_DURATION_SECS,
+        )
+        .expect("Bob should claim SAMPLE_TX_1 after rollback");
+        assert_eq!(bob_claimed.nickname.as_deref(), Some("bob"));
+        assert_eq!(
+            bob_claimed.access_until,
+            now + 3 + DEFAULT_ACCESS_DURATION_SECS
+        );
+        assert!(bob_claimed.has_active_access);
+
+        // 3. Same-wallet retry (e.g. lost HTTP response) returns the profile idempotently without extending access_until or changing nickname
+        let bob_retry = claim_payment_atomically(
+            &conn,
+            BOB_WALLET_MIXED,
+            Some("bob_ignored_on_replay"),
+            SAMPLE_TX_1,
+            "1000000000000000",
+            now + 50,
+            DEFAULT_ACCESS_DURATION_SECS,
+        )
+        .expect("same-wallet retry should return existing profile idempotently");
+        assert_eq!(bob_retry.nickname.as_deref(), Some("bob"));
+        assert_eq!(bob_retry.access_until, bob_claimed.access_until);
+
+        // 4. Different wallet attempting to replay SAMPLE_TX_1 is rejected with InvalidTransaction
+        let alice_replay = claim_payment_atomically(
+            &conn,
+            ALICE_WALLET_MIXED,
+            None,
+            SAMPLE_TX_1,
+            "1000000000000000",
+            now + 60,
+            DEFAULT_ACCESS_DURATION_SECS,
+        )
+        .expect_err("other wallet replay must fail");
+        assert!(matches!(
+            alice_replay,
+            ClaimPaymentDbError::InvalidTransaction(_)
+        ));
     }
 }

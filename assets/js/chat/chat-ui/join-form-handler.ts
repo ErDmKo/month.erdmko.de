@@ -15,7 +15,9 @@ import type { ObserverInstance } from '../../utils';
 import { CLIENT_FRAME_JOIN } from '@month/gen/chat';
 import type { ClientFramePayload } from '@month/gen/chat';
 import {
+    clearPendingPaymentTx,
     connectAndSignInTask,
+    loadPendingPaymentTx,
     payAndClaimTask,
     SESSION_STATUS_ACCESS_UNTIL,
     SESSION_STATUS_HAS_ACTIVE_ACCESS,
@@ -34,6 +36,7 @@ import {
     CHAT_UI_STATE_IS_ONLINE,
     CHAT_UI_STATE_JOIN_IN_FLIGHT,
     CHAT_UI_STATE_NICKNAME,
+    CHAT_UI_STATE_PENDING_TX_HASH,
     CHAT_UI_STATE_WALLET_ADDRESS,
 } from './state';
 import type { ChatUiState } from './state';
@@ -64,15 +67,21 @@ export const applySessionStatusToState = (
     status: SessionStatus,
     state: ChatUiState
 ): void => {
-    state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_SET](
-        status[SESSION_STATUS_WALLET]
-    );
-    state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS][SIGNAL_SET](
-        status[SESSION_STATUS_HAS_ACTIVE_ACCESS]
-    );
+    const wallet = status[SESSION_STATUS_WALLET];
+    const hasAccess = status[SESSION_STATUS_HAS_ACTIVE_ACCESS];
+    state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_SET](wallet);
+    state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS][SIGNAL_SET](hasAccess);
     state[CHAT_UI_STATE_ACCESS_UNTIL][SIGNAL_SET](
         status[SESSION_STATUS_ACCESS_UNTIL]
     );
+    if (hasAccess) {
+        clearPendingPaymentTx(ctx);
+        state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_SET]('');
+    } else if (wallet) {
+        state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_SET](
+            loadPendingPaymentTx(ctx, wallet)
+        );
+    }
     const serverNickname = status[SESSION_STATUS_NICKNAME];
     if (serverNickname) {
         state[CHAT_UI_STATE_NICKNAME][SIGNAL_SET](serverNickname);
@@ -191,7 +200,16 @@ export const handlePayAndUnlock = (
     state[CHAT_UI_STATE_ERROR][SIGNAL_SET]('');
 
     pipe(
-        payAndClaimTask(ctx, walletAddress, nickname),
+        payAndClaimTask(
+            ctx,
+            walletAddress,
+            nickname,
+            undefined,
+            undefined,
+            (pendingTx: string) => {
+                state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_SET](pendingTx);
+            }
+        ),
         taskFork(
             (status: SessionStatus) => {
                 state[CHAT_UI_STATE_AUTH_IN_FLIGHT][SIGNAL_SET](false);
@@ -199,6 +217,9 @@ export const handlePayAndUnlock = (
             },
             (err: unknown) => {
                 state[CHAT_UI_STATE_AUTH_IN_FLIGHT][SIGNAL_SET](false);
+                state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_SET](
+                    loadPendingPaymentTx(ctx, walletAddress)
+                );
                 state[CHAT_UI_STATE_ERROR][SIGNAL_SET](
                     formatAuthError(ctx, err)
                 );

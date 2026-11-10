@@ -18,6 +18,7 @@ export const CHAT_UI_STATE_WALLET_ADDRESS = 12 as const;
 export const CHAT_UI_STATE_HAS_ACTIVE_ACCESS = 13 as const;
 export const CHAT_UI_STATE_ACCESS_UNTIL = 14 as const;
 export const CHAT_UI_STATE_AUTH_IN_FLIGHT = 15 as const;
+export const CHAT_UI_STATE_PENDING_TX_HASH = 16 as const;
 
 export type ChatUiState = TupleOf<{
     [CHAT_UI_STATE_IS_JOINED]: Signal<boolean>;
@@ -36,13 +37,15 @@ export type ChatUiState = TupleOf<{
     [CHAT_UI_STATE_HAS_ACTIVE_ACCESS]: Signal<boolean>;
     [CHAT_UI_STATE_ACCESS_UNTIL]: Signal<number>;
     [CHAT_UI_STATE_AUTH_IN_FLIGHT]: Signal<boolean>;
+    [CHAT_UI_STATE_PENDING_TX_HASH]: Signal<string>;
 }>;
 
 export const createChatUiState = (
     nickname: string = '',
     walletAddress: string = '',
     hasActiveAccess: boolean = false,
-    accessUntil: number = 0
+    accessUntil: number = 0,
+    pendingTxHash: string = ''
 ): ChatUiState => [
     createStore(false),
     createStore(false),
@@ -60,4 +63,5 @@ export const createChatUiState = (
     createStore(hasActiveAccess),
     createStore(accessUntil),
     createStore(false),
+    createStore(pendingTxHash),
 ];

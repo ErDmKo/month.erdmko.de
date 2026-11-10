@@ -1,7 +1,18 @@
-load("@rules_rust//rust:defs.bzl", "rust_library_group")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library_group")
 load("@rules_rust_prost//:defs.bzl", "rust_prost_toolchain")
 
 package(default_visibility = ["//visibility:public"])
+
+rust_binary(
+    name = "descriptor_to_json",
+    srcs = ["descriptor_to_json.rs"],
+    edition = "2021",
+    deps = [
+        "@crate_index//:prost",
+        "@crate_index//:prost-types",
+        "@crate_index//:serde_json",
+    ],
+)
 
 rust_library_group(
     name = "prost_runtime",
