@@ -2,7 +2,6 @@ use actix_web::http::header;
 use actix_web::{Error, HttpRequest, HttpResponse, Result, get, web};
 use actix_web_actors::ws;
 use log::warn;
-use rand::random;
 use serde::{Deserialize, Serialize};
 use tera::Context;
 
@@ -167,20 +166,83 @@ pub async fn chat_ws_page_handler(
         .cloned()
         .ok_or_else(|| actix_web::error::ErrorInternalServerError("app context is missing"))?;
     let room_id = room_id.into_inner();
+    let Some(session_token) = crate::pages::auth::extract_session_token(&req) else {
+        warn!(
+            "event=chat_error room_id={} sender_id=null code=UNAUTHORIZED request_id=null error=missing_session_token",
+            &room_id
+        );
+        return Err(actix_web::error::ErrorUnauthorized(
+            "Valid session cookie is required.",
+        ));
+    };
+
+    let conn = app_ctx.pool.get().map_err(|err| {
+        warn!(
+            "event=chat_error room_id={} sender_id=null code=INTERNAL request_id=null error={:?}",
+            &room_id, err
+        );
+        actix_web::error::ErrorInternalServerError("Database connection pool unavailable.")
+    })?;
+
     let now_unix = chrono::Utc::now().timestamp();
-    let verified_wallet = crate::pages::auth::extract_session_token(&req).and_then(|token| {
-        let conn = app_ctx.pool.get().ok()?;
-        crate::auth::db::get_valid_session_wallet(&conn, &token, now_unix)
-            .ok()
-            .flatten()
-    });
-    let sender_id = verified_wallet.unwrap_or_else(|| format!("anon-{:x}", random::<u64>()));
+    let sender_id = match crate::auth::db::get_valid_session_wallet(&conn, &session_token, now_unix)
+    {
+        Ok(Some(wallet)) => wallet,
+        Ok(None) => {
+            warn!(
+                "event=chat_error room_id={} sender_id=null code=UNAUTHORIZED request_id=null error=invalid_or_expired_session",
+                &room_id
+            );
+            return Err(actix_web::error::ErrorUnauthorized(
+                "Session is invalid or expired.",
+            ));
+        }
+        Err(err) => {
+            warn!(
+                "event=chat_error room_id={} sender_id=null code={} request_id=null error={:?}",
+                &room_id,
+                err.code(),
+                err
+            );
+            return Err(actix_web::error::ErrorInternalServerError(
+                "Failed to verify session.",
+            ));
+        }
+    };
+
+    let profile = match crate::auth::db::get_wallet_profile(&conn, &sender_id, now_unix) {
+        Ok(profile) => profile,
+        Err(err) => {
+            warn!(
+                "event=chat_error room_id={} sender_id={} code={} request_id=null error={:?}",
+                &room_id,
+                &sender_id,
+                err.code(),
+                err
+            );
+            return Err(actix_web::error::ErrorInternalServerError(
+                "Failed to load wallet profile.",
+            ));
+        }
+    };
+    drop(conn);
+
+    if !profile.has_active_access {
+        warn!(
+            "event=chat_error room_id={} sender_id={} code=PAYMENT_REQUIRED request_id=null error=paid_access_required",
+            &room_id, &sender_id
+        );
+        return Err(actix_web::error::ErrorForbidden(
+            "Active paid access is required.",
+        ));
+    }
 
     ws::WsResponseBuilder::new(
         ChatWs {
             app_ctx,
             room_id,
             sender_id,
+            session_token,
             session: ChatSessionState::new(),
             is_registered: false,
             uploads: UploadSessionState::new(),

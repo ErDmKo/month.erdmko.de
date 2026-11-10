@@ -19,6 +19,7 @@ message ClientFrame {
     ClientVoiceLeave      voice_leave      = 9;
     ClientVoiceOffer      voice_offer      = 10;
     ClientVoiceIce        voice_ice        = 11;
+    ClientPing            ping             = 12;
   }
 }
 
@@ -182,6 +183,10 @@ message ClientVoiceIce {
   string candidate     = 2;
   string sdp_mid       = 3;
   uint32 sdp_mline_idx = 4;
+}
+
+message ClientPing {
+  string request_id = 1;
 }
 
 // ── Voice signaling (Server → Client) ────────────────────────────────────────

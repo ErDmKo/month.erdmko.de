@@ -3,7 +3,7 @@ use actix_web_actors::ws;
 use chrono::Utc;
 use log::{info, warn};
 
-use crate::auth::db::{get_wallet_profile, set_wallet_nickname};
+use crate::auth::db::set_wallet_nickname;
 use crate::auth::service::normalize_wallet_address;
 use crate::chat::service::{self as chat_service};
 use crate::pages::chat::chat_actor::{ChatWs, PushEvent};
@@ -50,32 +50,24 @@ impl ChatWs {
             }
         };
 
-        let profile = match get_wallet_profile(&conn, &self.sender_id, now_unix) {
+        let profile = match self.verify_session_and_access(&conn, now_unix) {
             Ok(p) => p,
-            Err(err) => {
+            Err((code, message)) => {
+                drop(conn);
                 Self::send_error(
                     &self.room_id,
                     &self.sender_id,
                     ctx,
                     request_id.as_deref(),
-                    err.code(),
-                    err.message(),
+                    code,
+                    message,
                 );
+                if code == "UNAUTHORIZED" || code == "PAYMENT_REQUIRED" {
+                    self.close_for_revoked_access(code, ctx);
+                }
                 return;
             }
         };
-
-        if !profile.has_active_access {
-            Self::send_error(
-                &self.room_id,
-                &self.sender_id,
-                ctx,
-                request_id.as_deref(),
-                "PAYMENT_REQUIRED",
-                "Active paid access is required to join the room.",
-            );
-            return;
-        }
 
         let candidate_nickname = if !nickname.trim().is_empty() {
             nickname.trim().to_string()
@@ -148,6 +140,7 @@ impl ChatWs {
                 &valid_nickname,
             )));
             addr.do_send(PushEvent(chat_service::history_payload(&history_items)));
+            ChatWs::register_room_member(&room_id, addr);
         });
     }
 
@@ -157,15 +150,7 @@ impl ChatWs {
         body: String,
         ctx: &mut ws::WebsocketContext<Self>,
     ) {
-        let Some(sender_name) = self.session.sender_name() else {
-            Self::send_error(
-                &self.room_id,
-                &self.sender_id,
-                ctx,
-                request_id.as_deref(),
-                "VALIDATION_ERROR",
-                "Join the room before sending messages.",
-            );
+        let Some(sender_name) = self.require_joined_member(request_id.as_deref(), ctx) else {
             return;
         };
         if self.session.is_rate_limited() {
@@ -224,6 +209,9 @@ impl ChatWs {
         message_id: i64,
         ctx: &mut ws::WebsocketContext<Self>,
     ) {
+        let Some(_) = self.require_joined_member(request_id.as_deref(), ctx) else {
+            return;
+        };
         let room_id = self.room_id.clone();
         let sender_id = self.sender_id.clone();
         let app_ctx = self.app_ctx.clone();

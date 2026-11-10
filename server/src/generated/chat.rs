@@ -4,7 +4,7 @@
 pub struct ClientFrame {
     #[prost(
         oneof = "client_frame::Payload",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12"
     )]
     pub payload: ::core::option::Option<client_frame::Payload>,
 }
@@ -35,6 +35,8 @@ pub mod client_frame {
         VoiceOffer(super::ClientVoiceOffer),
         #[prost(message, tag = "11")]
         VoiceIce(super::ClientVoiceIce),
+        #[prost(message, tag = "12")]
+        Ping(super::ClientPing),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -306,6 +308,12 @@ pub struct ClientVoiceIce {
     pub sdp_mid: ::prost::alloc::string::String,
     #[prost(uint32, tag = "4")]
     pub sdp_mline_idx: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClientPing {
+    #[prost(string, tag = "1")]
+    pub request_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

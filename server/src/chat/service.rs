@@ -26,56 +26,96 @@ pub const MAX_OPEN_CONNECTIONS: usize = 100;
 pub const RATE_LIMIT_MAX_MESSAGES: usize = 5;
 const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
 
+struct RegistryState<A: Actor> {
+    open_connections: Vec<Addr<A>>,
+    rooms: HashMap<String, Vec<Addr<A>>>,
+}
+
 pub struct RoomRegistry<A: Actor> {
-    rooms: Arc<RwLock<HashMap<String, Vec<Addr<A>>>>>,
+    state: Arc<RwLock<RegistryState<A>>>,
 }
 
 impl<A: Actor> RoomRegistry<A> {
     pub fn new() -> Self {
         Self {
-            rooms: Arc::new(RwLock::new(HashMap::new())),
+            state: Arc::new(RwLock::new(RegistryState {
+                open_connections: Vec::new(),
+                rooms: HashMap::new(),
+            })),
         }
     }
 
-    pub fn try_register_connection(
-        &self,
-        room_id: &str,
-        addr: Addr<A>,
-        max_connections: usize,
-    ) -> bool {
-        let mut rooms = self
-            .rooms
+    pub fn try_register_connection(&self, addr: Addr<A>, max_connections: usize) -> bool {
+        let mut state = self
+            .state
             .write()
             .expect("chat rooms lock should be available");
-        let total_connections: usize = rooms.values().map(Vec::len).sum();
-        if total_connections >= max_connections {
+        state.open_connections.retain(Addr::connected);
+        for members in state.rooms.values_mut() {
+            members.retain(Addr::connected);
+        }
+        state.rooms.retain(|_, members| !members.is_empty());
+
+        if state.open_connections.len() >= max_connections {
             return false;
         }
-        let room = rooms.entry(room_id.to_string()).or_default();
-        room.retain(Addr::connected);
-        room.push(addr);
+        if !state.open_connections.contains(&addr) {
+            state.open_connections.push(addr);
+        }
         true
     }
 
-    pub fn cleanup_room(&self, room_id: &str) {
-        let mut rooms = self
-            .rooms
+    pub fn register_room_member(&self, room_id: &str, addr: Addr<A>) {
+        if !addr.connected() {
+            return;
+        }
+        let mut state = self
+            .state
             .write()
             .expect("chat rooms lock should be available");
-        if let Some(addresses) = rooms.get_mut(room_id) {
+        let room = state.rooms.entry(room_id.to_string()).or_default();
+        room.retain(Addr::connected);
+        if !room.contains(&addr) {
+            room.push(addr);
+        }
+    }
+
+    pub fn remove_connection(&self, room_id: &str, addr: &Addr<A>) {
+        let mut state = self
+            .state
+            .write()
+            .expect("chat rooms lock should be available");
+        state
+            .open_connections
+            .retain(|a| a != addr && a.connected());
+        if let Some(addresses) = state.rooms.get_mut(room_id) {
+            addresses.retain(|a| a != addr && a.connected());
+            if addresses.is_empty() {
+                state.rooms.remove(room_id);
+            }
+        }
+    }
+
+    pub fn cleanup_room(&self, room_id: &str) {
+        let mut state = self
+            .state
+            .write()
+            .expect("chat rooms lock should be available");
+        state.open_connections.retain(Addr::connected);
+        if let Some(addresses) = state.rooms.get_mut(room_id) {
             addresses.retain(Addr::connected);
             if addresses.is_empty() {
-                rooms.remove(room_id);
+                state.rooms.remove(room_id);
             }
         }
     }
 
     pub fn connected_recipients(&self, room_id: &str) -> Vec<Addr<A>> {
-        let mut rooms = self
-            .rooms
+        let mut state = self
+            .state
             .write()
             .expect("chat rooms lock should be available");
-        let Some(addresses) = rooms.get_mut(room_id) else {
+        let Some(addresses) = state.rooms.get_mut(room_id) else {
             return Vec::new();
         };
         addresses.retain(Addr::connected);
@@ -83,12 +123,12 @@ impl<A: Actor> RoomRegistry<A> {
     }
 
     pub fn all_connected_recipients(&self) -> Vec<Addr<A>> {
-        let mut rooms = self
-            .rooms
+        let mut state = self
+            .state
             .write()
             .expect("chat rooms lock should be available");
         let mut all = Vec::new();
-        for addresses in rooms.values_mut() {
+        for addresses in state.rooms.values_mut() {
             addresses.retain(Addr::connected);
             all.extend(addresses.iter().cloned());
         }
@@ -147,6 +187,9 @@ pub enum ClientEvent {
         sdp_mid: String,
         sdp_mline_idx: u32,
     },
+    Ping {
+        request_id: Option<String>,
+    },
 }
 
 pub fn parse_client_event(buf: &[u8]) -> ChatResult<ClientEvent> {
@@ -201,6 +244,9 @@ pub fn parse_client_event(buf: &[u8]) -> ChatResult<ClientEvent> {
             candidate: msg.candidate,
             sdp_mid: msg.sdp_mid,
             sdp_mline_idx: msg.sdp_mline_idx,
+        }),
+        Some(client_frame::Payload::Ping(msg)) => Ok(ClientEvent::Ping {
+            request_id: opt_string(msg.request_id),
         }),
         None => Err(ChatError::bad_payload("Empty client frame.")),
     }
@@ -432,4 +478,45 @@ pub async fn delete_message(
     sender_id: &str,
 ) -> ChatResult<bool> {
     db::delete_message_by_id(app_ctx, room_id, message_id, sender_id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix::Context;
+
+    struct DummyActor;
+    impl Actor for DummyActor {
+        type Context = Context<Self>;
+    }
+
+    #[actix_web::test]
+    async fn room_registry_separates_open_connection_slots_from_room_members() {
+        let registry: RoomRegistry<DummyActor> = RoomRegistry::new();
+        let a1 = DummyActor.start();
+        let a2 = DummyActor.start();
+        let a3 = DummyActor.start();
+
+        // Register 2 open connections (max = 2) without joining any room
+        assert!(registry.try_register_connection(a1.clone(), 2));
+        assert!(registry.try_register_connection(a2.clone(), 2));
+        // 3rd connection is rejected by max_connections limit
+        assert!(!registry.try_register_connection(a3.clone(), 2));
+
+        // Neither a1 nor a2 is a broadcast recipient until register_room_member is called
+        assert!(registry.connected_recipients("general").is_empty());
+
+        // Promote a1 to room member of "general"
+        registry.register_room_member("general", a1.clone());
+        assert_eq!(registry.connected_recipients("general").len(), 1);
+        assert!(registry.connected_recipients("rust").is_empty());
+
+        // Removing a2 (unjoined) releases a connection slot so a3 can connect
+        registry.remove_connection("general", &a2);
+        assert!(registry.try_register_connection(a3.clone(), 2));
+
+        // Removing a1 removes it from both open_connections and "general" recipients
+        registry.remove_connection("general", &a1);
+        assert!(registry.connected_recipients("general").is_empty());
+    }
 }

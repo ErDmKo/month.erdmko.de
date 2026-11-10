@@ -39,6 +39,10 @@ impl ChatWs {
                 }
             };
 
+        if !self.verify_active_token(request_id_ref, ctx) {
+            return;
+        }
+
         if self.session.voice.is_some() {
             ctx.binary(voice_service::voice_error_payload(
                 request_id_ref,
@@ -134,6 +138,10 @@ impl ChatWs {
             ));
             return;
         }
+        if !self.verify_active_token(request_id.as_deref(), ctx) {
+            self.do_voice_leave();
+            return;
+        }
         let peer_id = self.sender_id.clone();
         let room_id = self.room_id.clone();
         let addr = ctx.address();
@@ -164,11 +172,18 @@ impl ChatWs {
         sdp_mline_idx: u32,
         ctx: &mut ws::WebsocketContext<Self>,
     ) {
-        let Some(voice) = self.session.voice.as_ref() else {
+        let Some(_) = self.session.voice.as_ref() else {
             ctx.binary(voice_service::voice_error_payload(
                 request_id.as_deref(),
                 "VOICE_NOT_JOINED",
             ));
+            return;
+        };
+        if !self.verify_active_token(request_id.as_deref(), ctx) {
+            self.do_voice_leave();
+            return;
+        }
+        let Some(voice) = self.session.voice.as_ref() else {
             return;
         };
         let Some(peer) = voice.peer.as_ref() else {

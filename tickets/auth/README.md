@@ -9,7 +9,11 @@ The follow-up tickets track the fixes; see the [deployment backlog](../deploymen
 
 | Ticket | Priority | Goal |
 | --- | --- | --- |
-| [AUTH-60](AUTH-60-authorized-room-broadcasts.md) | P0 | Authenticate room broadcast recipients |
+| [AUTH-60](AUTH-60-authorized-room-broadcasts.md) | P0 | Authenticate room broadcast recipients (umbrella) |
+| ↳ [AUTH-61](AUTH-61-ws-upgrade-token-admission.md) | P0 | WebSocket upgrade session token & paid-access admission |
+| ↳ [AUTH-62](AUTH-62-room-registry-join-membership.md) | P0 | Separate connection slots from post-join broadcast recipients |
+| ↳ [AUTH-63](AUTH-63-direct-action-token-guards.md) | P0 | Token & joined-room guards for direct WS actions and attachments |
+| ↳ [AUTH-64](AUTH-64-session-revocation-access-expiry.md) | P0 | Live session revocation, paid-access expiry & client redirect |
 | [AUTH-70](AUTH-70-pending-payment-recovery.md) | P0 | Resume payment confirmation without a second transfer |
 | [AUTH-80](AUTH-80-payment-network-consistency.md) | P1 | Enforce the supported payment network |
 | [AUTH-90](AUTH-90-atomic-payment-activation.md) | P1 | Commit payment and access activation atomically |
@@ -37,6 +41,14 @@ The follow-up tickets track the fixes; see the [deployment backlog](../deploymen
 - `AUTH-30-payment-nickname-contract.md`
 - `AUTH-40-ws-chat-enforcement.md`
 - `AUTH-50-browser-wallet-ui.md`
+- `AUTH-60-authorized-room-broadcasts.md`
+- `AUTH-61-ws-upgrade-token-admission.md`
+- `AUTH-62-room-registry-join-membership.md`
+- `AUTH-63-direct-action-token-guards.md`
+- `AUTH-64-session-revocation-access-expiry.md`
+- `AUTH-70-pending-payment-recovery.md`
+- `AUTH-80-payment-network-consistency.md`
+- `AUTH-90-atomic-payment-activation.md`
 
 ## Epics
 

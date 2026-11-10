@@ -19,7 +19,12 @@ impl ChatWs {
         ctx: &mut ws::WebsocketContext<Self>,
     ) {
         use crate::attachments::MAX_ATTACHMENT_SIZE_BYTES;
+        use crate::attachments::db::is_message_owned_by_sender_in_room;
         use crate::attachments::service::upload_ready_payload;
+
+        let Some(_) = self.require_joined_member(request_id.as_deref(), ctx) else {
+            return;
+        };
 
         if size == 0 || size > MAX_ATTACHMENT_SIZE_BYTES {
             warn!(
@@ -38,6 +43,66 @@ impl ChatWs {
             );
             return;
         }
+
+        let conn = match self.app_ctx.pool.get() {
+            Ok(c) => c,
+            Err(err) => {
+                warn!(
+                    "event=attachment_error code=INTERNAL sender_id={} request_id={} error={:?}",
+                    self.sender_id,
+                    request_id.as_deref().unwrap_or("null"),
+                    err,
+                );
+                Self::send_error(
+                    &self.room_id,
+                    &self.sender_id,
+                    ctx,
+                    request_id.as_deref(),
+                    "INTERNAL",
+                    "Failed to acquire DB connection.",
+                );
+                return;
+            }
+        };
+        match is_message_owned_by_sender_in_room(&conn, message_id, &self.room_id, &self.sender_id)
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!(
+                    "event=attachment_error code=VALIDATION_ERROR sender_id={} message_id={} room_id={} request_id={}",
+                    self.sender_id,
+                    message_id,
+                    self.room_id,
+                    request_id.as_deref().unwrap_or("null"),
+                );
+                Self::send_error(
+                    &self.room_id,
+                    &self.sender_id,
+                    ctx,
+                    request_id.as_deref(),
+                    "VALIDATION_ERROR",
+                    "Message not found or not owned by sender.",
+                );
+                return;
+            }
+            Err(err) => {
+                warn!(
+                    "event=attachment_error code=INTERNAL sender_id={} message_id={} error={:?}",
+                    self.sender_id, message_id, err,
+                );
+                Self::send_error(
+                    &self.room_id,
+                    &self.sender_id,
+                    ctx,
+                    request_id.as_deref(),
+                    "INTERNAL",
+                    "Failed to verify message ownership.",
+                );
+                return;
+            }
+        }
+        drop(conn);
+
         match self
             .uploads
             .start_upload(message_id, filename.clone(), size, mime_type.clone())
@@ -74,6 +139,9 @@ impl ChatWs {
         upload_id: u32,
         ctx: &mut ws::WebsocketContext<Self>,
     ) {
+        let Some(_) = self.require_joined_member(request_id.as_deref(), ctx) else {
+            return;
+        };
         match self.uploads.finish_upload(upload_id) {
             Ok(pending) => {
                 let room_id = self.room_id.clone();
@@ -139,6 +207,10 @@ impl ChatWs {
         use crate::attachments::service::{
             download_end_payload, download_start_payload, encode_download_chunk,
             load_attachment_for_download, split_into_chunks,
+        };
+
+        let Some(_) = self.require_joined_member(request_id.as_deref(), ctx) else {
+            return;
         };
 
         let room_id = self.room_id.clone();

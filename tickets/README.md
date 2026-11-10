@@ -8,7 +8,7 @@ Production was healthy on `0119811` at the time of the review.
 
 | Ticket | Priority | Work | Status |
 | --- | --- | --- | --- |
-| [AUTH-60](auth/AUTH-60-authorized-room-broadcasts.md) | P0 | Prevent unauthenticated WebSocket clients from receiving room broadcasts | Planned |
+| [AUTH-60](auth/AUTH-60-authorized-room-broadcasts.md) | P0 | Prevent unauthenticated WebSocket clients from receiving room broadcasts | Completed |
 | [AUTH-70](auth/AUTH-70-pending-payment-recovery.md) | P0 | Recover pending payments without requesting another transfer | Planned |
 | [AUTH-80](auth/AUTH-80-payment-network-consistency.md) | P1 | Align wallet network and payment configuration with the server | Planned |
 | [AUTH-90](auth/AUTH-90-atomic-payment-activation.md) | P1 | Atomically record payment, nickname, and access | Planned |

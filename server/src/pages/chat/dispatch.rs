@@ -86,6 +86,9 @@ impl ChatWs {
                 index,
                 data,
             } => {
+                let Some(_) = self.require_joined_member(None, ctx) else {
+                    return;
+                };
                 if let Err(code) = self.uploads.add_chunk(upload_id, index, data) {
                     warn!(
                         "event=attachment_error code={} sender_id={} upload_id={}",
@@ -110,6 +113,7 @@ impl ChatWs {
                 sdp_mid,
                 sdp_mline_idx,
             } => self.on_voice_ice(request_id, candidate, sdp_mid, sdp_mline_idx, ctx),
+            Ping { request_id } => self.on_ping(request_id, ctx),
         }
     }
 }

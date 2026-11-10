@@ -10,9 +10,9 @@ pub(super) use std::path::PathBuf;
 pub(super) use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::generated::chat::{
-    ClientDelete, ClientDownloadRequest, ClientFrame, ClientJoin, ClientMessage, ClientUploadEnd,
-    ClientUploadStart, ClientVoiceIce, ClientVoiceJoin, ClientVoiceLeave, ClientVoiceOffer,
-    ServerFrame, UploadChunk, client_frame, server_frame,
+    ClientDelete, ClientDownloadRequest, ClientFrame, ClientJoin, ClientMessage, ClientPing,
+    ClientUploadEnd, ClientUploadStart, ClientVoiceIce, ClientVoiceJoin, ClientVoiceLeave,
+    ClientVoiceOffer, ServerFrame, UploadChunk, client_frame, server_frame,
 };
 
 // ── DB / server setup ─────────────────────────────────────────────────────────
@@ -274,6 +274,15 @@ pub(super) fn encode_voice_ice(
             candidate: candidate.to_string(),
             sdp_mid: sdp_mid.to_string(),
             sdp_mline_idx,
+        })),
+    }
+    .encode_to_vec()
+}
+
+pub(super) fn encode_ping(request_id: &str) -> Vec<u8> {
+    ClientFrame {
+        payload: Some(client_frame::Payload::Ping(ClientPing {
+            request_id: request_id.to_string(),
         })),
     }
     .encode_to_vec()

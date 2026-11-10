@@ -110,6 +110,27 @@ pub fn get_attachments_for_message(
         .and_then(Iterator::collect::<Result<Vec<_>, _>>)
 }
 
+/// Return `true` if `message_id` exists in `room_slug` and was authored by `sender_id`.
+pub fn is_message_owned_by_sender_in_room(
+    conn: &rusqlite::Connection,
+    message_id: i64,
+    room_slug: &str,
+    sender_id: &str,
+) -> rusqlite::Result<bool> {
+    let count: i64 = conn.query_row(
+        format!(
+            "SELECT COUNT(*)
+             FROM {CHAT_MESSAGES_TABLE} m
+             JOIN {CHAT_ROOMS_TABLE} r ON r.id = m.room_id
+             WHERE m.id = ?1 AND r.slug = ?2 AND m.sender_id = ?3"
+        )
+        .as_str(),
+        rusqlite::params![message_id, room_slug, sender_id],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
 /// Return metadata + blob for a single attachment, verifying it belongs to the given room.
 pub fn get_attachment_data(
     conn: &rusqlite::Connection,

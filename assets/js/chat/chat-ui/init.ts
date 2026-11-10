@@ -11,12 +11,14 @@ import {
     trigger,
 } from '../../utils';
 import {
+    CLIENT_FRAME_PING,
     SERVER_FRAME_JOINED,
     SERVER_FRAME_ERROR,
     SERVER_FRAME_PAYLOAD_VARIANT,
     SERVER_FRAME_PAYLOAD_VALUE,
     SERVER_JOINED_SENDER_ID,
     SERVER_ERROR_REQUEST_ID,
+    SERVER_ERROR_CODE,
     SERVER_ERROR_MESSAGE,
 } from '@month/gen/chat';
 import {
@@ -41,6 +43,7 @@ import { GLOBAL_NICKNAME_KEY, navigateToUrl } from './onboarding';
 import type { ServerFramePayload, ClientFramePayload } from '@month/gen/chat';
 import { mountChatUi } from './template';
 import {
+    CHAT_UI_STATE_HAS_ACTIVE_ACCESS,
     CHAT_UI_STATE_IS_JOINED,
     CHAT_UI_STATE_JOIN_IN_FLIGHT,
     CHAT_UI_STATE_IS_ONLINE,
@@ -86,6 +89,8 @@ import {
     CHAT_UI_ERROR_MESSAGE,
 } from './events';
 import type { ChatUiEvent, ChatUiObs } from './events';
+
+export const WS_PING_INTERVAL_MS = 5000;
 
 // ── initChatUi ────────────────────────────────────────────────────────────────
 
@@ -142,8 +147,20 @@ export const initChatUi =
         const wsProtocol = ctx.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${ctx.location.host}/ws/chat/${encodeURIComponent(roomId)}`;
         let ws: WebSocket;
+        let pingTimer: number | undefined;
+
+        const clearPingTimer = (): void => {
+            if (
+                pingTimer !== undefined &&
+                typeof ctx.clearInterval === 'function'
+            ) {
+                ctx.clearInterval(pingTimer);
+                pingTimer = undefined;
+            }
+        };
 
         const connectWs = (): void => {
+            clearPingTimer();
             if (ws) {
                 ws.onopen = null;
                 ws.onclose = null;
@@ -178,11 +195,19 @@ export const initChatUi =
                 state[CHAT_UI_STATE_IS_ONLINE][SIGNAL_SET](true);
                 state[CHAT_UI_STATE_IS_JOINED][SIGNAL_SET](false);
                 state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](false);
+                if (typeof ctx.setInterval === 'function') {
+                    pingTimer = ctx.setInterval(() => {
+                        outgoing(
+                            bindArg([CLIENT_FRAME_PING, ['']] as const, trigger)
+                        );
+                    }, WS_PING_INTERVAL_MS);
+                }
                 chatUiObs(bindArg([CHAT_UI_JOINED, null] as const, trigger));
                 tryAutoJoin(ctx, outgoing, state);
             };
 
             ws.onclose = () => {
+                clearPingTimer();
                 setStatus('offline');
                 state[CHAT_UI_STATE_IS_ONLINE][SIGNAL_SET](false);
                 state[CHAT_UI_STATE_IS_JOINED][SIGNAL_SET](false);
@@ -221,16 +246,31 @@ export const initChatUi =
         // ── WS event reactions (chat-ui owns: joined, global error) ───────────
 
         on((event: ServerFramePayload) => {
-            if (
-                event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_ERROR &&
-                !event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_REQUEST_ID]
-            ) {
-                state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](false);
-                setError(
-                    event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_ERROR_MESSAGE] ||
-                        'Unknown error'
-                );
-                return;
+            if (event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_ERROR) {
+                const errVal = event[SERVER_FRAME_PAYLOAD_VALUE];
+                const errCode = errVal[SERVER_ERROR_CODE];
+                if (
+                    errCode === 'UNAUTHORIZED' ||
+                    errCode === 'PAYMENT_REQUIRED'
+                ) {
+                    clearPingTimer();
+                    state[CHAT_UI_STATE_IS_JOINED][SIGNAL_SET](false);
+                    state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](false);
+                    state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS][SIGNAL_SET](false);
+                    setError(
+                        errVal[SERVER_ERROR_MESSAGE] || 'Access required.'
+                    );
+                    navigateToUrl(
+                        ctx,
+                        `/chat?room=${encodeURIComponent(roomId)}`
+                    );
+                    return;
+                }
+                if (!errVal[SERVER_ERROR_REQUEST_ID]) {
+                    state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](false);
+                    setError(errVal[SERVER_ERROR_MESSAGE] || 'Unknown error');
+                    return;
+                }
             }
             if (event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_JOINED) {
                 state[CHAT_UI_STATE_IS_JOINED][SIGNAL_SET](true);

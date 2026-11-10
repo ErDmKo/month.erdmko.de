@@ -15,6 +15,7 @@ import type { DomScope } from '../../utils';
 import {
     CLIENT_FRAME_JOIN,
     CLIENT_FRAME_MESSAGE,
+    CLIENT_FRAME_PING,
     CLIENT_FRAME_PAYLOAD_VARIANT,
     CLIENT_FRAME_PAYLOAD_VALUE,
     CLIENT_JOIN_NICKNAME,
@@ -428,6 +429,84 @@ test('WebSocket lifecycle and server join errors drive the signal-bound UI', () 
     assert.equal(state[CHAT_UI_STATE_IS_JOINED][SIGNAL_GET](), false);
     assert.equal(root.find('textarea').form!.parentNode!.hidden, true);
     assert.equal(root.find('button', 'Send').disabled, true);
+});
+
+test('WebSocket sends CLIENT_FRAME_PING on interval and redirects to onboarding on UNAUTHORIZED or PAYMENT_REQUIRED', () => {
+    const { ctx } = fixture();
+    const root = new MockNode('root');
+    const incoming: ((event: ServerFramePayload) => void)[] = [];
+    const outgoing = observer<ClientFramePayload>();
+    const sent: ClientFramePayload[] = [];
+    outgoing(bindArg((cmd: ClientFramePayload) => sent.push(cmd), on));
+
+    let ws: any;
+    let intervalTick: (() => void) | undefined;
+    let clearedTimerId: number | undefined;
+    const locationObj = {
+        protocol: 'http:',
+        host: 'localhost',
+        href: 'http://localhost/chat/test-room',
+    };
+    const socketCtx = {
+        ...ctx,
+        Uint8Array,
+        TextEncoder,
+        location: locationObj,
+        setInterval: (fn: () => void) => {
+            intervalTick = fn;
+            return 77;
+        },
+        clearInterval: (id: number) => {
+            clearedTimerId = id;
+        },
+        WebSocket: class {
+            OPEN = 1;
+            readyState = 1;
+            onopen?: () => void;
+            onclose?: () => void;
+            onerror?: () => void;
+            constructor(public url: string) {
+                ws = this;
+            }
+            send() {}
+        },
+    } as unknown as Window;
+
+    let state: ChatUiState | undefined;
+    initChatUi(socketCtx, root as unknown as Element, [outgoing, incoming])(
+        (events) => {
+            events(
+                bindArg((event: ChatUiEvent) => {
+                    if (event[CHAT_UI_EVENT_TYPE] === CHAT_UI_INIT)
+                        state = event[CHAT_UI_INIT_STATE];
+                }, on)
+            );
+        },
+        (error) => {
+            throw error;
+        }
+    );
+
+    ws.onopen();
+    assert.ok(intervalTick);
+    intervalTick!();
+    assert.ok(
+        sent.some(
+            (frame) => frame[CLIENT_FRAME_PAYLOAD_VARIANT] === CLIENT_FRAME_PING
+        )
+    );
+
+    trigger(
+        [
+            SERVER_FRAME_ERROR,
+            ['', 'PAYMENT_REQUIRED', 'Active paid access is required.'],
+        ],
+        incoming
+    );
+    assert.equal(clearedTimerId, 77);
+    assert.equal(state![CHAT_UI_STATE_IS_JOINED][SIGNAL_GET](), false);
+    assert.equal(state![CHAT_UI_STATE_HAS_ACTIVE_ACCESS][SIGNAL_GET](), false);
+    assert.equal(locationObj.href, '/chat?room=test-room');
 });
 
 test('onboarding screen on /chat transitions across disconnected, connected unpaid, and connected paid states', () => {

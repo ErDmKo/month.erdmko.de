@@ -1,7 +1,7 @@
 ---
 title: "Require Authorized Membership for Room Broadcasts"
 ticket: "AUTH-60"
-status: "planned"
+status: "completed"
 draft: false
 weight: 60
 ---
@@ -13,6 +13,13 @@ weight: 60
 ## Depends on
 
 - [AUTH-40](AUTH-40-ws-chat-enforcement.md)
+
+## Sub-Tickets (Execution Breakdown)
+
+- [AUTH-61](AUTH-61-ws-upgrade-token-admission.md) — WebSocket Upgrade Session Token & Paid-Access Admission
+- [AUTH-62](AUTH-62-room-registry-join-membership.md) — Separate Connection Slots from Post-Join Broadcast Recipients
+- [AUTH-63](AUTH-63-direct-action-token-guards.md) — Token & Joined-Room Guards for Direct WS Actions and Attachments
+- [AUTH-64](AUTH-64-session-revocation-access-expiry.md) — Live Session Revocation, Paid-Access Expiry & Client Redirect
 
 ## Goal
 
@@ -56,10 +63,14 @@ unjoined clients from the broadcast recipients.
 
 ## Tests and Acceptance
 
-- [ ] The reproduction above cannot deliver any room data to the anonymous client.
-- [ ] Missing, invalid, expired, revoked, and unpaid sessions cannot receive room data.
-- [ ] Authenticated but unjoined clients cannot receive broadcasts.
-- [ ] Two authorized members exchange messages, attachments, and voice signaling normally.
-- [ ] Different rooms remain isolated and rejected/disconnected clients release connection slots.
-- [ ] Tests cover access revocation and expiry while a WebSocket remains open.
-- [ ] Client redirects to onboarding or shows an actionable error when access is lost.
+- [x] The reproduction above cannot deliver any room data to the anonymous client.
+- [x] Missing, invalid, expired, revoked, and unpaid sessions cannot receive room data.
+- [x] Authenticated but unjoined clients cannot receive broadcasts.
+- [x] Two authorized members exchange messages, attachments, and voice signaling normally.
+- [x] Different rooms remain isolated and rejected/disconnected clients release connection slots.
+- [x] Tests cover access revocation and expiry while a WebSocket remains open.
+- [x] Client redirects to onboarding or shows an actionable error when access is lost.
+
+## Result
+
+**Status: DONE** (via [AUTH-61](AUTH-61-ws-upgrade-token-admission.md), [AUTH-62](AUTH-62-room-registry-join-membership.md), [AUTH-63](AUTH-63-direct-action-token-guards.md), and [AUTH-64](AUTH-64-session-revocation-access-expiry.md)).

@@ -61,6 +61,11 @@
                             "message_type": "ClientVoiceIce",
                             "name": "voice_ice",
                             "number": 11
+                        },
+                        {
+                            "message_type": "ClientPing",
+                            "name": "ping",
+                            "number": 12
                         }
                     ]
                 }
@@ -596,6 +601,16 @@
                 }
             ],
             "name": "ClientVoiceIce"
+        },
+        {
+            "fields": [
+                {
+                    "name": "request_id",
+                    "number": 1,
+                    "type": "string"
+                }
+            ],
+            "name": "ClientPing"
         },
         {
             "fields": [
