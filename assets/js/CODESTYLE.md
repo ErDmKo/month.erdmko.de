@@ -170,7 +170,7 @@ countSig[SIGNAL_SET](countSig[SIGNAL_GET]() + 1);
 
 ## Async via Task Pipeline
 
-Asynchronous work is expressed as lazy **Tasks** composed with `taskOf`,
+Asynchronous work is expressed as lazy **Tasks** composed with `cont`, `taskOf`,
 `taskFromPromise`, `taskMap`, `taskChain`, `taskCatch`, `taskFork`, and `pipe`
 from `@month/utils`.
 Do not use `async` functions, `await`, or nested `Promise` `.then` chains.
@@ -181,13 +181,39 @@ free of implicit scheduling.
 
 | primitive                   | purpose                                                     |
 | --------------------------- | ----------------------------------------------------------- |
-| `taskOf(fn)`                | lift a plain function into a Task                           |
+| `cont(value)`               | lift an already-available value directly into a `Task<T>`   |
+| `taskOf(fn)`                | lift a plain function `(...args) => T` into a Task factory  |
 | `taskFromPromise(fn)`       | lift a Promise-returning function into a Task               |
 | `taskMap(fn)`               | sync transform of the resolved value; errors pass through   |
 | `taskChain(fn)`             | async step — `fn` itself returns a Task                     |
 | `taskCatch(fallbackFn)`     | recover from a rejected Task with a fallback value          |
 | `taskFork(resolve, reject)` | execute a Task, catches sync throws into reject             |
 | `pipe(value, ...fns)`       | pass a value through a left-to-right sequence of functions  |
+
+### `cont(value)` vs `taskOf(fn)`
+
+Because `cont(value)` is `(fn) => fn(value)` and a `Task<T>` is
+`(resolve, reject) => void`, `cont(value)` **is** a `Task<T>` that resolves
+immediately with `value` in a single closure scope.
+
+- Use **`cont(value)`** whenever you already have a value (e.g. a cached
+  `txHash` or matching `targetChainId`) and need a `Task<T>`. Never write
+  `taskOf(() => value)()`, which allocates three nested closures.
+- Use **`taskOf(fn)`** at module top-level only when lifting a multi-argument
+  or side-effecting synchronous function `fn(...args)` into a lazy
+  `(...args) => Task<T>` factory.
+
+```ts
+// ✗ wrong — allocates 3 closures () => value -> (...args) => -> (resolve) =>
+const acquireTask: Task<string> = existingTx
+    ? taskOf(() => existingTx)()
+    : sendPaymentTransactionTask(ctx, fromWallet);
+
+// ✓ correct — single continuation closure (fn) => fn(existingTx)
+const acquireTask: Task<string> = existingTx
+    ? cont(existingTx)
+    : sendPaymentTransactionTask(ctx, fromWallet);
+```
 
 ### No Nested `.then` Chains
 
