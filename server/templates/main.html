@@ -2,7 +2,7 @@
 {% block desc %}ErDmKo Home page{% endblock desc %}
 {% block content %}
 {% if is_snow %}
-  <script src="/static/js/snowflake-bundle.js"></script>
+  <script src="/static/js/snowflake-bundle.js?v={{ asset_version | default(value="1") }}"></script>
 {% endif %}
 <article class="{{ css.page }}">
     <header class="{{ css.page__header }} js-header">

@@ -4,6 +4,7 @@ use std::sync::{Arc, RwLock};
 use tera::{Context, Tera};
 
 use crate::app::AppCtx;
+use crate::version;
 
 pub fn site_url() -> String {
     let raw = std::env::var("DOMAIN")
@@ -26,6 +27,9 @@ pub async fn render(req: HttpRequest, template: &str, ctx: &Context) -> Result<H
         let engine = eng.read().unwrap();
         let mut ctx = ctx.clone();
         ctx.insert("css", &app.css);
+        if !ctx.contains_key("asset_version") {
+            ctx.insert("asset_version", version::short_commit(version::commit()));
+        }
         let base = site_url();
         if !ctx.contains_key("site_url") {
             ctx.insert("site_url", &base);

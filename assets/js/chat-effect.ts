@@ -1,5 +1,9 @@
 import { initChatEffect } from '@month/chat';
 
-window.addEventListener('load', () => {
+if (document.readyState === 'complete') {
     initChatEffect(window);
-});
+} else {
+    window.addEventListener('load', () => {
+        initChatEffect(window);
+    });
+}

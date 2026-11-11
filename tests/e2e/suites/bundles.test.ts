@@ -1,10 +1,17 @@
-/** Exercise the shipped ADVANCED bundles, not just unoptimized TS modules. */
-import puppeteer, { Browser, Page } from 'puppeteer';
-import { PAGE_TIMEOUT_MS } from '../helpers/constants';
+/** Exercise the shipped ADVANCED bundles strictly through Page Objects. */
+import puppeteer, { Browser } from 'puppeteer';
+import {
+    ChatOnboardingPage,
+    createIsolatedPageSession,
+    HomePage,
+    MonthGamePage,
+    TennisGamePage,
+    TetrisGamePage,
+} from '../pages';
+import type { IsolatedPageSession } from '../pages';
 
 let browser: Browser;
-let page: Page;
-let errors: string[];
+let session: IsolatedPageSession;
 
 const baseUrl = () => `http://127.0.0.1:${process.env.E2E_SERVER_PORT}`;
 
@@ -25,188 +32,90 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-    page = await browser.newPage();
-    errors = [];
-    page.on('pageerror', (error) => errors.push(error.message));
+    session = await createIsolatedPageSession(browser);
 });
 
 afterEach(async () => {
-    await page.close();
+    await session.close();
 });
-
-async function open(path: string) {
-    const response = await page.goto(`${baseUrl()}${path}`, {
-        waitUntil: 'load',
-        timeout: PAGE_TIMEOUT_MS,
-    });
-    expect(response?.status()).toBe(200);
-}
-
-async function clickButton(text: string) {
-    await page.$$eval(
-        'button',
-        (buttons, label) => {
-            const button = buttons.find((el) => el.textContent === label);
-            if (!button) throw new Error(`Button not found: ${label}`);
-            button.click();
-        },
-        text
-    );
-}
-
-async function joinChat(roomId: string) {
-    await open(`/chat/${roomId}`);
-    await page.waitForSelector('.js-chat input[type="text"]');
-    await page.type('.js-chat input[type="text"]', 'closure-test');
-    await page.waitForFunction(() => {
-        const button = Array.from(document.querySelectorAll('button')).find(
-            (el) => el.textContent === 'Join room'
-        );
-        return button && !button.disabled;
-    });
-    await clickButton('Join room');
-    await page.waitForSelector('.js-chat textarea', { visible: true });
-}
 
 describe('optimized browser bundles', () => {
     test('month mounts, starts its reactive game, and disposes it on exit', async () => {
-        await open('/month');
-        await page.waitForSelector('.js-month button');
-        await clickButton('Запустить тренажер');
-        await page.waitForSelector('.month-game');
-        expect(
-            await page.$$eval('.month-game button', (els) => els.length)
-        ).toBeGreaterThanOrEqual(12);
-        await clickButton('Выйти из тренажера');
-        expect(await page.$('.month-game')).toBeNull();
-        await clickButton('Запустить тренажер');
-        await page.waitForSelector('.month-game');
-        expect(errors).toEqual([]);
+        const month = new MonthGamePage(session.page, baseUrl());
+        await month.open();
+        await month.startTrainer();
+        expect(await month.optionButtonCount()).toBeGreaterThanOrEqual(12);
+        await month.exitTrainer();
+        expect(await month.isGameMounted()).toBe(false);
+        await month.startTrainer();
+        expect(session.errors).toEqual([]);
     });
 
     test('tennis updates signal-bound scores and its keyed history', async () => {
-        await open('/tennis');
-        await page.waitForSelector('.js-tennis button');
-        await clickButton('+1 first');
-        await page.waitForFunction(() =>
-            document.querySelector('.js-tennis')?.textContent?.includes('1:0')
-        );
-        await clickButton('+1 second');
-        await page.waitForFunction(() =>
-            document.querySelector('.js-tennis')?.textContent?.includes('1:1')
-        );
-        expect(
-            await page.$$eval('.js-tennis .log span > div', (els) => els.length)
-        ).toBe(2);
-        await clickButton('Back');
-        expect(
-            await page.$$eval('.js-tennis .log span > div', (els) => els.length)
-        ).toBe(1);
-        expect(errors).toEqual([]);
+        const tennis = new TennisGamePage(session.page, baseUrl());
+        await tennis.open();
+        await tennis.scoreFirst();
+        await tennis.waitForScore('1:0');
+        await tennis.scoreSecond();
+        await tennis.waitForScore('1:1');
+        expect(await tennis.historyEntryCount()).toBe(2);
+        await tennis.undoLastPoint();
+        expect(await tennis.historyEntryCount()).toBe(1);
+        expect(session.errors).toEqual([]);
     });
 
     test('tetris retains string-keyed keyboard and phone controls', async () => {
-        await open('/tetris');
-        await page.waitForSelector('.js-tetris canvas');
-        await page.keyboard.press('Space');
-        await page.waitForFunction(() =>
-            document
-                .querySelector('.js-tetris')
-                ?.textContent?.includes('Score: 0')
-        );
-        await page.keyboard.press('a');
-        await clickButton('Rotate Right (E)');
-        await clickButton('Down (S)');
-        expect(errors).toEqual([]);
+        const tetris = new TetrisGamePage(session.page, baseUrl());
+        await tetris.open();
+        await tetris.startGameWithSpace();
+        await tetris.moveLeftWithKey();
+        await tetris.rotateRightWithButton();
+        await tetris.softDropWithButton();
+        expect(session.errors).toEqual([]);
     });
 
     test('tennis preserves speech grammar words and recognized command lookup', async () => {
-        await page.evaluateOnNewDocument(() => {
-            const ctx = window as any;
-            ctx.webkitSpeechGrammarList = class {
-                addFromString(value: string) {
-                    ctx.__closureGrammar = value;
-                }
-            };
-            ctx.webkitSpeechRecognition = class {
-                constructor() {
-                    ctx.__closureRecognition = this;
-                }
-                start() {}
-                stop() {}
-            };
-        });
-        await open('/tennis');
-        await page.waitForSelector('.js-tennis button');
-        const grammar = await page.evaluate(
-            () => (window as any).__closureGrammar as string
-        );
+        const tennis = new TennisGamePage(session.page, baseUrl());
+        await tennis.installMockSpeechRecognition();
+        await tennis.open();
+        const grammar = await tennis.capturedSpeechGrammar();
         expect(grammar).toContain('first');
         expect(grammar).toContain('second');
-        await page.evaluate(() => {
-            (window as any).__closureRecognition.onresult({
-                resultIndex: 0,
-                results: [[{ transcript: 'first second' }]],
-            });
-        });
-        await page.waitForFunction(() =>
-            document.querySelector('.js-tennis')?.textContent?.includes('1:1')
-        );
-        expect(errors).toEqual([]);
+        await tennis.emitSpeechTranscript('first second');
+        await tennis.waitForScore('1:1');
+        expect(session.errors).toEqual([]);
     });
 
     test('snowflake keeps native canvas and explicit Window APIs intact', async () => {
-        await open('/');
-        if (!(await page.$('.js-header canvas'))) {
-            // Snow is seasonal; explicitly exercise its production bundle.
-            await page.addScriptTag({
-                url: `${baseUrl()}/static/js/snowflake-bundle.js`,
-            });
-            await page.evaluate(() => window.dispatchEvent(new Event('load')));
-        }
-        await page.waitForSelector('.js-header canvas');
-        const dimensions = await page.$eval('.js-header canvas', (el) => {
-            const canvas = el as HTMLCanvasElement;
-            return [canvas.width, canvas.height];
-        });
+        const home = new HomePage(session.page, baseUrl());
+        await home.openEnsuringSnowflakeBundle();
+        const dimensions = await home.snowflakeCanvasDimensions();
         expect(dimensions.every((value) => value > 0)).toBe(true);
-        expect(errors).toEqual([]);
+        expect(session.errors).toEqual([]);
     });
 
     test('chat preserves dataset room IDs and binary message exchange', async () => {
         const roomId = `closure-${Date.now()}`;
-        await joinChat(roomId);
-        expect(
-            await page.evaluate(
-                (id) => localStorage.getItem(`chat-nickname-${id}`),
-                roomId
-            )
-        ).toBe('closure-test');
-        await page.type('.js-chat textarea', 'advanced message');
-        await page.keyboard.press('Enter');
-        await page.waitForFunction(() =>
-            document
-                .querySelector('.js-chat ul[aria-live]')
-                ?.textContent?.includes('advanced message')
-        );
-        expect(errors).toEqual([]);
+        const nick = `closure_${Date.now()}`;
+        const onboarding = new ChatOnboardingPage(session.page, baseUrl());
+        const { roomPage } = await onboarding.onboardAndEnterRoom(roomId, {
+            nickname: nick,
+        });
+
+        expect(await roomPage.storedRoomNickname(roomId)).toBe(nick);
+        await roomPage.sendMessage('advanced message');
+        await roomPage.waitForMessage('advanced message');
+        expect(session.errors).toEqual([]);
     });
 
     test('chat voice preserves native media and WebRTC option properties', async () => {
-        await joinChat(`closure-voice-${Date.now()}`);
-        await clickButton('Join voice');
-        await page.waitForFunction(() =>
-            Array.from(document.querySelectorAll('button')).some(
-                (el) => el.textContent === 'Mute' && !el.hidden
-            )
+        const onboarding = new ChatOnboardingPage(session.page, baseUrl());
+        const { roomPage } = await onboarding.onboardAndEnterRoom(
+            `closure-voice-${Date.now()}`
         );
-        await clickButton('Mute');
-        await page.waitForFunction(() =>
-            Array.from(document.querySelectorAll('button')).some(
-                (el) => el.textContent === 'Unmute'
-            )
-        );
-        await clickButton('Leave');
-        expect(errors).toEqual([]);
+        await roomPage.joinVoice();
+        await roomPage.muteVoice();
+        await roomPage.leaveVoice();
+        expect(session.errors).toEqual([]);
     });
 });

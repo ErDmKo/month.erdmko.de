@@ -266,6 +266,23 @@ bazel build //server:server
 cd tests/e2e && npm test -- --runInBand
 ```
 
+### Browser E2E architecture (Page Object Model)
+
+All Puppeteer E2E suites in `tests/e2e/suites/` must interact with browser pages
+strictly through **Page Objects** in `tests/e2e/pages/` (`ChatOnboardingPage`,
+`ChatRoomPage`, `MonthGamePage`, `TennisGamePage`, `TetrisGamePage`,
+`HomePage`) and isolated browser contexts (`createIsolatedPageSession`).
+
+- Never call raw Puppeteer DOM/navigation methods (`page.goto`, `page.$`,
+  `page.waitForSelector`, `page.waitForFunction`, `page.click`, `page.type`,
+  `page.evaluate`, `document.querySelector*`, etc.) directly inside
+  `tests/e2e/suites/*.test.ts`.
+- Keep all selectors (including generated CSS module names from
+  `assets/js/gen/styles`) encapsulated inside `tests/e2e/pages/*.page.ts`.
+- `tests/e2e/suites/page-object-enforcement.test.ts` automatically verifies this
+  rule on every `npm test` run. See [`tests/e2e/README.md`](tests/e2e/README.md)
+  for details.
+
 ### Run Bazel tests
 
 Run all tests:

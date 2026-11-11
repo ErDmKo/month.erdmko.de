@@ -221,8 +221,9 @@ pub fn is_allowed_siwe_domain(domain: &str) -> bool {
     }
     matches!(
         normalized.as_str(),
-        "erdmko.dev" | "erdmko.dev:443" | "localhost" | "localhost:8080"
+        "erdmko.dev" | "erdmko.dev:443" | "localhost" | "127.0.0.1"
     ) || normalized.starts_with("127.0.0.1:")
+        || normalized.starts_with("localhost:")
 }
 
 /// Validate parsed SIWE fields (domain, version, chain ID, URI, nonce format, and timestamps).
