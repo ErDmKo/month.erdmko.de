@@ -1,7 +1,7 @@
 ---
 title: "Align Chat Product Copy With Paid Wallet Access"
 ticket: "DEPLOY-10"
-status: "planned"
+status: "completed"
 draft: false
 weight: 10
 ---
@@ -47,8 +47,8 @@ pages redirect to onboarding. Those protected URLs still appear in the sitemap.
 
 ## Acceptance
 
-- [ ] A new visitor can understand the required wallet, network, payment, and access duration before paying.
-- [ ] Rendered HTML and JSON-LD have no unsupported free, anonymous, or E2EE promises.
-- [ ] Sitemap URLs resolve anonymously to intended indexable content, rather than authenticated-room redirects.
-- [ ] The FAQ matches actual access behavior and does not promise search-engine indexing or privacy from `noindex`.
-- [ ] Metadata and structured data are inspected directly; Lighthouse scores alone are not proof of claim accuracy.
+- [x] A new visitor can understand the required wallet, network, payment, and access duration before paying.
+- [x] Rendered HTML and JSON-LD have no unsupported free, anonymous, or E2EE promises.
+- [x] Sitemap URLs resolve anonymously to intended indexable content, rather than authenticated-room redirects.
+- [x] The FAQ matches actual access behavior and does not promise search-engine indexing or privacy from `noindex`.
+- [x] Metadata and structured data are inspected directly; Lighthouse scores alone are not proof of claim accuracy.

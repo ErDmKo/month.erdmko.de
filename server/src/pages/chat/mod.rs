@@ -26,7 +26,7 @@ pub const PUBLIC_CHAT_ROOMS: &[FeaturedRoom] = &[
     FeaturedRoom {
         slug: "general",
         title: "General Lobby",
-        description: "Open community room for general discussion, quick messages, and voice tests.",
+        description: "Shared lobby for general discussion, quick messages, and voice calls.",
     },
     FeaturedRoom {
         slug: "rust",
@@ -94,6 +94,7 @@ fn has_active_paid_session(req: &HttpRequest) -> bool {
 pub async fn chat_landing_page_handler(
     req: HttpRequest,
     query: web::Query<ChatLandingQuery>,
+    payment_cfg: Option<web::Data<crate::auth::payment::PaymentConfig>>,
 ) -> Result<HttpResponse> {
     let target_room = query
         .room
@@ -105,10 +106,22 @@ pub async fn chat_landing_page_handler(
             .insert_header((header::LOCATION, format!("/chat/{target_room}")))
             .finish());
     }
+    let config = crate::pages::auth::resolve_payment_config(payment_cfg);
     let mut ctx = Context::new();
     ctx.insert("featured_rooms", PUBLIC_CHAT_ROOMS);
     ctx.insert("target_room", &target_room);
     ctx.insert("bundle_name", "chat");
+    ctx.insert("payment_chain_id", &config.chain_id);
+    ctx.insert("payment_chain_name", &config.chain_name());
+    ctx.insert("payment_amount_eth", &config.min_payment_eth_amount());
+    ctx.insert("payment_amount_display", &config.min_payment_eth_display());
+    ctx.insert("payment_min_wei_hex", &config.min_payment_wei_hex());
+    ctx.insert("payment_access_duration_secs", &config.access_duration_secs);
+    ctx.insert(
+        "payment_access_duration_display",
+        &config.access_duration_display(),
+    );
+    ctx.insert("payment_recipient", &config.recipient_address);
     utils::render(req, "chat_landing.html", &ctx).await
 }
 

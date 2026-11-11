@@ -12,7 +12,7 @@ Production was healthy on `0119811` at the time of the review.
 | [AUTH-70](auth/AUTH-70-pending-payment-recovery.md) | P0 | Recover pending payments without requesting another transfer | Completed |
 | [AUTH-80](auth/AUTH-80-payment-network-consistency.md) | P1 | Align wallet network and payment configuration with the server | Completed |
 | [AUTH-90](auth/AUTH-90-atomic-payment-activation.md) | P1 | Atomically record payment, nickname, and access | Completed |
-| [DEPLOY-10](deployment/DEPLOY-10-accurate-chat-product-copy.md) | P1 | Correct pricing, authentication, encryption, and indexing claims | Planned |
+| [DEPLOY-10](deployment/DEPLOY-10-accurate-chat-product-copy.md) | P1 | Correct pricing, authentication, encryption, and indexing claims | Completed |
 | [DEPLOY-20](deployment/DEPLOY-20-wallet-flow-release-verification.md) | P1 | Verify the browser wallet flow and Linux release image | Planned |
 
 See the [deployment backlog](deployment/README.md) for dependencies and release acceptance.

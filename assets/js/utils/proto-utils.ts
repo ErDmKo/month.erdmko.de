@@ -26,12 +26,12 @@ export const VARINT_BYTES_READ = 1 as const;
 
 export const encodeVarint = (ctx: Window, value: number): Uint8Array => {
     const bytes: number[] = [];
-    let v = value >>> 0;
+    let v = value > 0 ? Math.floor(value) : 0;
     do {
-        const byte = v & 0x7f;
-        v >>>= 7;
-        bytes.push(v !== 0 ? byte | 0x80 : byte);
-    } while (v !== 0);
+        const byte = v % 128;
+        v = (v - byte) / 128;
+        bytes.push(v > 0 ? byte | 0x80 : byte);
+    } while (v > 0);
     return new ctx.Uint8Array(bytes);
 };
 
@@ -40,15 +40,15 @@ export const decodeVarint = (
     pos: number
 ): readonly [value: number, bytesRead: number] | null => {
     let result = 0;
-    let shift = 0;
+    let mult = 1;
     let bytesRead = 0;
     while (pos + bytesRead < buf.length) {
         const byte = buf[pos + bytesRead];
         bytesRead++;
-        result |= (byte & 0x7f) << shift;
-        shift += 7;
-        if ((byte & 0x80) === 0) return [result >>> 0, bytesRead];
-        if (shift >= 32) return null;
+        result += (byte & 0x7f) * mult;
+        if ((byte & 0x80) === 0) return [result, bytesRead];
+        mult *= 128;
+        if (bytesRead >= 10) return null;
     }
     return null;
 };
@@ -94,14 +94,17 @@ export const encodeBoolField = (
     ];
 };
 
+let utf8Encoder: TextEncoder | undefined;
+let utf8Decoder: TextDecoder | undefined;
+
 // string field (wire type 2)
 export const encodeStringField = (
     ctx: Window,
     fieldNumber: number,
     value: string
 ): Uint8Array[] => {
-    const bytes = new ctx.TextEncoder().encode(value);
-    if (bytes.length === 0) return [];
+    if (!value) return [];
+    const bytes = (utf8Encoder ??= new ctx.TextEncoder()).encode(value);
     return [
         encodeVarint(ctx, makeTag(fieldNumber, WIRE_LEN)),
         encodeVarint(ctx, bytes.length),
@@ -178,20 +181,13 @@ export const skipField = (
 export const READER_BUF = 0 as const;
 export const READER_POS = 1 as const;
 export const READER_WIRE = 2 as const;
-export const READER_DECODER = 3 as const;
 
-export type Reader = [
-    buf: Uint8Array,
-    pos: number,
-    wire: number,
-    decoder: TextDecoder,
-];
+export type Reader = [buf: Uint8Array, pos: number, wire: number];
 
-export const readerCreate = (ctx: Window, buf: Uint8Array): Reader => [
+export const readerCreate = (_ctx: Window, buf: Uint8Array): Reader => [
     buf,
     0,
     0,
-    new ctx.TextDecoder(),
 ];
 
 export const readerAtEnd = (r: Reader): boolean =>
@@ -215,25 +211,24 @@ export const readerVarint = (r: Reader): number => {
     return varint[VARINT_VALUE];
 };
 
-// Returns '' on error.
-export const readerString = (r: Reader): string => {
+const readerSlice = (r: Reader): Uint8Array | null => {
     const len = decodeVarint(r[READER_BUF], r[READER_POS]);
-    if (!len) return '';
+    if (!len) return null;
     const start = r[READER_POS] + len[VARINT_BYTES_READ];
     const end = start + len[VARINT_VALUE];
     r[READER_POS] = end;
-    return r[READER_DECODER].decode(r[READER_BUF].slice(start, end));
+    return r[READER_BUF].subarray(start, end);
+};
+
+// Returns '' on error.
+export const readerString = (ctx: Window, r: Reader): string => {
+    const slice = readerSlice(r);
+    return slice ? (utf8Decoder ??= new ctx.TextDecoder()).decode(slice) : '';
 };
 
 // Returns empty Uint8Array on error.
-export const readerBytes = (r: Reader): Uint8Array => {
-    const len = decodeVarint(r[READER_BUF], r[READER_POS]);
-    if (!len) return r[READER_BUF].slice(0, 0);
-    const start = r[READER_POS] + len[VARINT_BYTES_READ];
-    const end = start + len[VARINT_VALUE];
-    r[READER_POS] = end;
-    return r[READER_BUF].slice(start, end);
-};
+export const readerBytes = (r: Reader): Uint8Array =>
+    readerSlice(r) ?? r[READER_BUF].subarray(0, 0);
 
 // Reads a length-delimited slice and passes it to decode. Returns null on error.
 export const readerMessage = <T>(
@@ -241,12 +236,8 @@ export const readerMessage = <T>(
     r: Reader,
     decode: (ctx: Window, buf: Uint8Array) => T | null
 ): T | null => {
-    const len = decodeVarint(r[READER_BUF], r[READER_POS]);
-    if (!len) return null;
-    const start = r[READER_POS] + len[VARINT_BYTES_READ];
-    const end = start + len[VARINT_VALUE];
-    r[READER_POS] = end;
-    return decode(ctx, r[READER_BUF].slice(start, end));
+    const slice = readerSlice(r);
+    return slice ? decode(ctx, slice) : null;
 };
 
 // Skips the current field using the wire type stored by readerTag. Returns false on error.
@@ -257,7 +248,66 @@ export const readerSkip = (r: Reader): boolean => {
     return true;
 };
 
-// ── High-level oneof frame decoder ───────────────────────────────────────────
+// ── High-level table-driven message & oneof decoders ─────────────────────────
+
+export const PROTO_VARINT = 0 as const;
+export const PROTO_BOOL = 1 as const;
+export const PROTO_STRING = 2 as const;
+export const PROTO_BYTES = 3 as const;
+
+export type ProtoSeqSpec =
+    | typeof PROTO_VARINT
+    | typeof PROTO_BOOL
+    | typeof PROTO_STRING
+    | typeof PROTO_BYTES
+    | ((ctx: Window, buf: Uint8Array) => unknown)
+    | readonly [(ctx: Window, buf: Uint8Array) => unknown];
+
+export const encodeOneofFrame = (
+    ctx: Window,
+    payload: readonly [number, readonly unknown[]],
+    encoders: ReadonlyArray<
+        ((ctx: Window, ...args: any[]) => Uint8Array) | undefined
+    >
+): Uint8Array => {
+    const variant = payload[0];
+    const enc = encoders[variant];
+    return enc
+        ? encodeMessageField(ctx, variant, payload[1], enc)
+        : new ctx.Uint8Array(0);
+};
+
+// Decode a message whose field numbers are sequential 1..N (field k -> tuple index k - 1).
+export const decodeSeqMessage = <T>(
+    ctx: Window,
+    buf: Uint8Array,
+    fields: unknown[],
+    specs: ReadonlyArray<ProtoSeqSpec>
+): T | null => {
+    const r = readerCreate(ctx, buf);
+    while (!readerAtEnd(r)) {
+        const field = readerTag(r);
+        if (!field) return null;
+        const idx = field - 1;
+        const spec = specs[idx];
+        if (spec === undefined) {
+            if (!readerSkip(r)) return null;
+        } else if (typeof spec === 'function') {
+            fields[idx] = readerMessage(ctx, r, spec);
+        } else if (typeof spec === 'object') {
+            (fields[idx] as unknown[]).push(readerMessage(ctx, r, spec[0]));
+        } else if (spec === PROTO_VARINT) {
+            fields[idx] = readerVarint(r);
+        } else if (spec === PROTO_BOOL) {
+            fields[idx] = readerVarint(r) !== 0;
+        } else if (spec === PROTO_STRING) {
+            fields[idx] = readerString(ctx, r);
+        } else {
+            fields[idx] = readerBytes(r);
+        }
+    }
+    return fields as unknown as T;
+};
 
 // Decode a oneof wrapper message (all fields are len-delimited nested messages).
 // decoders: sparse array indexed by field number; each entry is [variant, decodeFn].

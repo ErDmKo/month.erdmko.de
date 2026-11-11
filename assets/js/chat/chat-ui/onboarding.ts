@@ -39,11 +39,13 @@ import {
 } from '@month/gen/styles';
 import {
     fetchSessionTask,
+    formatAccessDuration,
     formatChainName,
     formatWeiAsEth,
     getActivePaymentConfig,
     parseChainId,
     PAYMENT_CONFIG_CHAIN_ID,
+    PAYMENT_CONFIG_DURATION_SECS,
     PAYMENT_CONFIG_MIN_WEI_HEX,
     SESSION_STATUS_HAS_ACTIVE_ACCESS,
     SESSION_STATUS_NICKNAME,
@@ -212,14 +214,22 @@ export const handleOnboardingSubmit = (
     );
 };
 
+export const formatPaymentTermsSummary = (ctx: Window): string => {
+    const cfg = getActivePaymentConfig(ctx);
+    return `${formatWeiAsEth(cfg[PAYMENT_CONFIG_MIN_WEI_HEX])} on ${formatChainName(cfg[PAYMENT_CONFIG_CHAIN_ID])} for ${formatAccessDuration(cfg[PAYMENT_CONFIG_DURATION_SECS])}`;
+};
+
 export const onboardingTemplate = (
     ctx: Window,
     chatUiObs: ChatUiObs,
-    onboardingState: OnboardingState
+    onboardingState: OnboardingState,
+    paymentTermsSig?: Signal<string>
 ) => {
     const state = onboardingState[ONBOARDING_CHAT_STATE];
     const roomSig = onboardingState[ONBOARDING_ROOM_SLUG];
     const targetRoom = onboardingState[ONBOARDING_TARGET_ROOM];
+    const termsSig =
+        paymentTermsSig ?? createStore(formatPaymentTermsSummary(ctx));
 
     const walletConnected = mapSignal(
         (wallet: string) => wallet.length > 0,
@@ -255,32 +265,38 @@ export const onboardingTemplate = (
         return `https://${host}/tx/${pendingTx}`;
     }, state[CHAT_UI_STATE_PENDING_TX_HASH]);
     const authBannerText = mapSignal(
-        ([[connected, hasAccess], pendingTx]: [[boolean, boolean], string]) => {
+        ([[[connected, hasAccess], pendingTx], terms]: [
+            [[boolean, boolean], string],
+            string,
+        ]) => {
             if (hasAccess) {
                 return targetRoom
                     ? `Authorized — ready to enter #${targetRoom}.`
-                    : 'Authorized — enter any room name below or pick a public room.';
+                    : 'Authorized — enter any room name below or pick a featured room.';
             }
             if (!connected) {
+                const currentTerms = formatPaymentTermsSummary(ctx) || terms;
                 return targetRoom
-                    ? `Authorization required to join #${targetRoom} — connect your Ethereum wallet below to continue.`
-                    : 'Authorization required — connect your Ethereum wallet (SIWE) and unlock access to join chat rooms.';
+                    ? `Authorization required to join #${targetRoom} — connect your Ethereum wallet for free SIWE sign-in, then unlock access (${currentTerms}).`
+                    : `Authorization required — connect your Ethereum wallet for free SIWE sign-in, then unlock access (${currentTerms}).`;
             }
             if (pendingTx) {
                 return `Pending payment (${pendingTx.slice(0, 10)}...) — waiting for onchain confirmation or click Pay & Unlock Chat to retry without sending a second transfer.`;
             }
-            const cfg = getActivePaymentConfig(ctx);
-            const priceSummary = `${formatWeiAsEth(cfg[PAYMENT_CONFIG_MIN_WEI_HEX])} on ${formatChainName(cfg[PAYMENT_CONFIG_CHAIN_ID])}`;
+            const currentTerms = formatPaymentTermsSummary(ctx) || terms;
             return targetRoom
-                ? `Paid access required to join #${targetRoom} (${priceSummary}) — choose your nickname and unlock chat access below to continue.`
-                : `Paid access required (${priceSummary}) — choose your nickname and unlock chat access below to join chat rooms.`;
+                ? `Paid access required to join #${targetRoom} (${currentTerms}) — choose your nickname and unlock chat access below to continue.`
+                : `Paid access required (${currentTerms}) — choose your nickname and unlock chat access below to join chat rooms.`;
         },
         combineSignals(
             combineSignals(
-                walletConnected,
-                state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS]
+                combineSignals(
+                    walletConnected,
+                    state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS]
+                ),
+                state[CHAT_UI_STATE_PENDING_TX_HASH]
             ),
-            state[CHAT_UI_STATE_PENDING_TX_HASH]
+            termsSig
         )
     );
     const bannerText = mapSignal(
@@ -569,6 +585,7 @@ export const initChatOnboarding = (
             : ''
     );
     const roomSig = createStore(targetRoom || 'general');
+    const paymentTermsSig = createStore(formatPaymentTermsSummary(ctx));
     const onboardingState: OnboardingState = [state, roomSig, targetRoom];
     const chatUiObs = observer<ChatUiEvent>();
 
@@ -576,7 +593,7 @@ export const initChatOnboarding = (
     domCreator(
         ctx,
         htmlRoot,
-        onboardingTemplate(ctx, chatUiObs, onboardingState)
+        onboardingTemplate(ctx, chatUiObs, onboardingState, paymentTermsSig)
     );
 
     const ethEvents = validate(ctx, windowEthereumEventsStruct);
@@ -620,6 +637,7 @@ export const initChatOnboarding = (
     pipe(
         fetchSessionTask(ctx),
         taskFork((status: SessionStatus | null) => {
+            paymentTermsSig[SIGNAL_SET](formatPaymentTermsSummary(ctx));
             if (status) {
                 applySessionStatusToState(
                     ctx,

@@ -20,6 +20,7 @@ import {
     CLIENT_FRAME_PAYLOAD_VALUE,
     CLIENT_JOIN_NICKNAME,
     CLIENT_MESSAGE_BODY,
+    encodeAuthSession,
     SERVER_FRAME_JOINED,
     SERVER_FRAME_ERROR,
 } from '@month/gen/chat';
@@ -539,15 +540,19 @@ test('onboarding screen on /chat transitions across disconnected, connected unpa
     const openBtn = root.find('button', 'Open room');
     const form = root.find('form');
 
-    // 1. Disconnected: Connect Wallet is shown, form is hidden, auth notice explains requirement
+    // 1. Disconnected: Connect Wallet is shown, form is hidden, auth notice explains free SIWE + network/price/duration
     assert.equal(connectBtn.parentNode!.hidden, false);
     assert.equal(form.hidden, true);
     assert.equal(openBtn.disabled, true);
     assert.ok(
         root.textContent.includes('Authorization required to join #general')
     );
+    assert.ok(root.textContent.includes('free SIWE sign-in'));
+    assert.ok(
+        root.textContent.includes('0.001 ETH on Ethereum Mainnet for 30 days')
+    );
 
-    // 2. Connected but Unpaid: Wallet address + Pay & Unlock Chat shown, Open room hidden
+    // 2. Connected but Unpaid: Wallet address + Pay & Unlock Chat shown, Open room hidden, price + network + duration shown
     state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_SET](
         '0x7e5f4552091a69125d5dfcb7b8c2659029395bdf'
     );
@@ -558,7 +563,9 @@ test('onboarding screen on /chat transitions across disconnected, connected unpa
     assert.equal(openBtn.hidden, true);
     assert.equal(openBtn.disabled, true);
     assert.ok(
-        root.textContent.includes('Paid access required to join #general')
+        root.textContent.includes(
+            'Paid access required to join #general (0.001 ETH on Ethereum Mainnet for 30 days)'
+        )
     );
     assert.ok(
         root.textContent.includes('0x7e5f4552091a69125d5dfcb7b8c2659029395bdf')
@@ -604,12 +611,25 @@ test('onboarding screen on /chat transitions across disconnected, connected unpa
     assert.ok(root.textContent.includes('active until 2026-11-25'));
 });
 
-test('initChatOnboarding reacts to chainChanged and accountsChanged wallet events', () => {
+test('initChatOnboarding reacts to chainChanged, accountsChanged, and unauthenticated /auth/session protobuf config', async () => {
     const { ctx: baseCtx } = fixture('alice', '', false, 0);
     const listeners = new Map<string, (...args: unknown[]) => void>();
+    const protoHelperCtx = {
+        Uint8Array,
+        TextEncoder,
+        TextDecoder,
+    } as unknown as Window;
+    const unauthBytes = encodeAuthSession(protoHelperCtx, '', '', 0, false, [
+        1,
+        '0xeff121f128e0e64c0e64ae8eb6eb042a0e5aa81c',
+        '0x71afd498d0000', // 0.002 ETH
+        604800, // 7 days
+    ]);
     const ctx = {
         ...baseCtx,
-        JSON,
+        Uint8Array,
+        TextEncoder,
+        TextDecoder,
         ['ethereum']: {
             ['request']: async () => '0x1',
             ['on']: (event: string, listener: (...args: unknown[]) => void) => {
@@ -620,7 +640,11 @@ test('initChatOnboarding reacts to chainChanged and accountsChanged wallet event
             ({
                 ok: true,
                 status: 200,
-                text: async () => JSON.stringify({ authenticated: false }),
+                arrayBuffer: async () =>
+                    unauthBytes.buffer.slice(
+                        unauthBytes.byteOffset,
+                        unauthBytes.byteOffset + unauthBytes.byteLength
+                    ),
             }) as Response,
     } as unknown as Window;
 
@@ -628,6 +652,12 @@ test('initChatOnboarding reacts to chainChanged and accountsChanged wallet event
     (root as any).dataset = { ['targetRoom']: 'general' };
     const onboardingState = initChatOnboarding(ctx, root as unknown as Element);
     const state = onboardingState[ONBOARDING_CHAT_STATE];
+
+    await new Promise((r) => setTimeout(r, 15));
+    assert.ok(
+        root.textContent.includes('0.002 ETH on Ethereum Mainnet for 7 days'),
+        'unauthenticated /auth/session protobuf response updates displayed terms before connecting'
+    );
 
     applySessionStatusToState(
         ctx,

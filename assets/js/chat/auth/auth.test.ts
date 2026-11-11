@@ -23,9 +23,18 @@ import {
     CLIENT_FRAME_PAYLOAD_VARIANT,
     CLIENT_JOIN_NICKNAME,
     decodeClaimPaymentRequest,
+    decodeNonceRequest,
+    decodeVerifySiweRequest,
+    encodeAuthSession,
     encodeClaimPaymentResponse,
+    encodeNonceResponse,
+    encodePaymentClaimNotice,
+    NONCE_REQUEST_WALLET_ADDRESS,
+    VERIFY_SIWE_REQUEST_MESSAGE,
+    VERIFY_SIWE_REQUEST_SIGNATURE,
 } from '@month/gen/chat';
 import type {
+    AuthPaymentConfig,
     ClaimPaymentResponsePayload,
     ClientFramePayload,
 } from '@month/gen/chat';
@@ -41,17 +50,19 @@ import {
     CHAT_UI_STATE_HAS_ACTIVE_ACCESS,
     CHAT_UI_STATE_IS_ONLINE,
     CHAT_UI_STATE_NICKNAME,
-    CHAT_UI_STATE_PENDING_TX_HASH,
-    CHAT_UI_STATE_WALLET_ADDRESS,
     createChatUiState,
+    CHAT_UI_STATE_WALLET_ADDRESS,
 } from '../chat-ui/state';
 import {
     buildSiweMessage,
     claimPaymentTask,
     connectAndSignInTask,
+    DEFAULT_ACCESS_DURATION_SECS,
+    DEFAULT_CHAIN_ID,
     DEFAULT_PAYMENT_VALUE_HEX,
     fetchNonceTask,
     fetchSessionTask,
+    formatAccessDuration,
     loadPendingPaymentTx,
     NONCE_CHALLENGE_EXPIRES_AT,
     NONCE_CHALLENGE_NONCE,
@@ -84,25 +95,61 @@ const protoCtx = {
     TextDecoder,
 } as unknown as Window;
 
-const makeProtoResponse = (payload: ClaimPaymentResponsePayload): Response => {
-    const encoded = encodeClaimPaymentResponse(protoCtx, payload);
-    return {
-        ok: true,
-        status: 200,
+const DEFAULT_PROTO_PAYMENT_CFG: AuthPaymentConfig = [
+    DEFAULT_CHAIN_ID,
+    RECIPIENT_WALLET_ADDRESS.toLowerCase(),
+    DEFAULT_PAYMENT_VALUE_HEX,
+    DEFAULT_ACCESS_DURATION_SECS,
+];
+
+const bytesToResponse = (encoded: Uint8Array, status = 200): Response =>
+    ({
+        ok: status >= 200 && status < 300,
+        status,
         arrayBuffer: async () =>
             encoded.buffer.slice(
                 encoded.byteOffset,
                 encoded.byteOffset + encoded.byteLength
             ),
-    } as Response;
-};
+    }) as Response;
+
+const makeProtoResponse = (payload: ClaimPaymentResponsePayload): Response =>
+    bytesToResponse(encodeClaimPaymentResponse(protoCtx, payload));
+
+const makeSessionProtoResponse = (
+    walletAddress: string,
+    nickname: string,
+    accessUntil: number,
+    hasActiveAccess: boolean,
+    cfg: AuthPaymentConfig = DEFAULT_PROTO_PAYMENT_CFG
+): Response =>
+    bytesToResponse(
+        encodeAuthSession(
+            protoCtx,
+            walletAddress,
+            nickname,
+            accessUntil,
+            hasActiveAccess,
+            cfg
+        )
+    );
+
+const makeNonceProtoResponse = (
+    nonce: string,
+    walletAddress: string,
+    expiresAt: number,
+    cfg: AuthPaymentConfig = DEFAULT_PROTO_PAYMENT_CFG
+): Response =>
+    bytesToResponse(
+        encodeNonceResponse(protoCtx, nonce, walletAddress, expiresAt, cfg)
+    );
 
 const runTask = <T>(task: Task<T>): Promise<T> =>
     new Promise((resolve, reject) => {
         pipe(task, taskFork(resolve, reject));
     });
 
-test('wallet address and tx hash normalization validate hex format', () => {
+test('wallet address, tx hash, and access duration helpers validate and format accurately', () => {
     assert.equal(
         normalizeWalletAddress(`  ${SAMPLE_WALLET_MIXED} `),
         SAMPLE_WALLET_LOWER
@@ -117,6 +164,12 @@ test('wallet address and tx hash normalization validate hex format', () => {
         () => normalizeTxHash('0x1234'),
         /Invalid Ethereum transaction/
     );
+
+    assert.equal(formatAccessDuration(DEFAULT_ACCESS_DURATION_SECS), '30 days');
+    assert.equal(formatAccessDuration(86400), '1 day');
+    assert.equal(formatAccessDuration(7200), '2 hours');
+    assert.equal(formatAccessDuration(60), '1 minute');
+    assert.equal(formatAccessDuration(45), '45 seconds');
 });
 
 test('buildSiweMessage formats a valid EIP-4361 message string', () => {
@@ -204,12 +257,13 @@ test('requestAccountsTask, signSiweMessageTask, and sendPaymentTransactionTask c
     });
 });
 
-test('connectAndSignInTask and payAndClaimTask execute full connect -> sign -> payment -> claim pipeline', async () => {
+test('connectAndSignInTask and payAndClaimTask execute full binary protobuf connect -> sign -> payment -> claim pipeline', async () => {
     const ethCalls: EthereumRequestArgs[] = [];
     const fetchCalls: { url: string; method: string; body?: any }[] = [];
+    // Verify >32-bit Unix timestamp varint round-trips cleanly (year 2110 = 4_420_000_000)
+    const largeAccessUntil = 4_420_000_000;
 
     const ctx = {
-        JSON,
         Uint8Array,
         TextEncoder,
         TextDecoder,
@@ -260,58 +314,64 @@ test('connectAndSignInTask and payAndClaimTask execute full connect -> sign -> p
                     [
                         SAMPLE_WALLET_LOWER,
                         decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
-                        1_795_592_000,
+                        largeAccessUntil,
                         true,
+                        DEFAULT_PROTO_PAYMENT_CFG,
                     ],
                 ]);
             }
 
-            const body = init?.body ? JSON.parse(String(init.body)) : undefined;
-            fetchCalls.push({
-                url,
-                method: init?.method || 'GET',
-                body,
-            });
-
             if (url === '/auth/nonce') {
-                return {
-                    ok: true,
-                    status: 200,
-                    text: async () =>
-                        JSON.stringify({
-                            nonce: SAMPLE_NONCE,
-                            walletAddress: SAMPLE_WALLET_LOWER,
-                            expiresAt: 1_793_000_300,
-                        }),
-                } as Response;
+                const decodedReq = decodeNonceRequest(
+                    protoCtx,
+                    init?.body as Uint8Array
+                )!;
+                fetchCalls.push({
+                    url,
+                    method: init?.method || 'POST',
+                    body: {
+                        walletAddress: decodedReq[NONCE_REQUEST_WALLET_ADDRESS],
+                    },
+                });
+                return makeNonceProtoResponse(
+                    SAMPLE_NONCE,
+                    SAMPLE_WALLET_LOWER,
+                    1_793_000_300
+                );
             }
 
             if (url === '/auth/verify') {
-                return {
-                    ok: true,
-                    status: 200,
-                    text: async () =>
-                        JSON.stringify({
-                            walletAddress: SAMPLE_WALLET_LOWER,
-                            nickname: null,
-                            accessUntil: 0,
-                            hasActiveAccess: false,
-                        }),
-                } as Response;
+                const decodedReq = decodeVerifySiweRequest(
+                    protoCtx,
+                    init?.body as Uint8Array
+                )!;
+                fetchCalls.push({
+                    url,
+                    method: init?.method || 'POST',
+                    body: {
+                        message: decodedReq[VERIFY_SIWE_REQUEST_MESSAGE],
+                        signature: decodedReq[VERIFY_SIWE_REQUEST_SIGNATURE],
+                    },
+                });
+                return makeSessionProtoResponse(
+                    SAMPLE_WALLET_LOWER,
+                    '',
+                    0,
+                    false
+                );
             }
 
             if (url === '/auth/session') {
-                return {
-                    ok: true,
-                    status: 200,
-                    text: async () =>
-                        JSON.stringify({
-                            walletAddress: SAMPLE_WALLET_LOWER,
-                            nickname: 'alice_eth',
-                            accessUntil: 1_795_592_000,
-                            hasActiveAccess: true,
-                        }),
-                } as Response;
+                fetchCalls.push({
+                    url,
+                    method: init?.method || 'GET',
+                });
+                return makeSessionProtoResponse(
+                    SAMPLE_WALLET_LOWER,
+                    'alice_eth',
+                    largeAccessUntil,
+                    true
+                );
             }
 
             throw new Error(`Unexpected URL: ${url}`);
@@ -337,7 +397,7 @@ test('connectAndSignInTask and payAndClaimTask execute full connect -> sign -> p
     );
     assert.equal(paidStatus[SESSION_STATUS_WALLET], SAMPLE_WALLET_LOWER);
     assert.equal(paidStatus[SESSION_STATUS_NICKNAME], 'alice_eth');
-    assert.equal(paidStatus[SESSION_STATUS_ACCESS_UNTIL], 1_795_592_000);
+    assert.equal(paidStatus[SESSION_STATUS_ACCESS_UNTIL], largeAccessUntil);
     assert.equal(paidStatus[SESSION_STATUS_HAS_ACTIVE_ACCESS], true);
 
     assert.equal(ethCalls[3]?.['method'], 'eth_chainId');
@@ -352,10 +412,11 @@ test('connectAndSignInTask and payAndClaimTask execute full connect -> sign -> p
     const session = await runTask(fetchSessionTask(ctx));
     assert.ok(session);
     assert.equal(session[SESSION_STATUS_NICKNAME], 'alice_eth');
+    assert.equal(session[SESSION_STATUS_ACCESS_UNTIL], largeAccessUntil);
     assert.equal(session[SESSION_STATUS_HAS_ACTIVE_ACCESS], true);
 });
 
-test('tasks surface provider and HTTP error messages cleanly', async () => {
+test('tasks surface provider and protobuf HTTP error messages cleanly', async () => {
     const noWalletCtx = {} as unknown as Window;
     await assert.rejects(
         () => runTask(requestAccountsTask(noWalletCtx)),
@@ -363,7 +424,6 @@ test('tasks surface provider and HTTP error messages cleanly', async () => {
     );
 
     const errorFetchCtx = {
-        JSON,
         Uint8Array,
         TextEncoder,
         TextDecoder,
@@ -379,21 +439,34 @@ test('tasks surface provider and HTTP error messages cleanly', async () => {
         /Nickname is already registered to another wallet/
     );
 
+    const httpErrorCtx = {
+        Uint8Array,
+        TextEncoder,
+        TextDecoder,
+        fetch: async () =>
+            bytesToResponse(
+                encodePaymentClaimNotice(protoCtx, 'SIWE nonce expired.'),
+                401
+            ),
+    } as unknown as Window;
+
+    await assert.rejects(
+        () => runTask(verifySiweTask(httpErrorCtx, 'msg', SAMPLE_SIG)),
+        /SIWE nonce expired\./
+    );
+
     const nonceChallenge = await runTask(
         fetchNonceTask(
             {
-                JSON,
+                Uint8Array,
+                TextEncoder,
+                TextDecoder,
                 fetch: async () =>
-                    ({
-                        ok: true,
-                        status: 200,
-                        text: async () =>
-                            JSON.stringify({
-                                nonce: SAMPLE_NONCE,
-                                walletAddress: SAMPLE_WALLET_LOWER,
-                                expiresAt: 12345,
-                            }),
-                    }) as Response,
+                    makeNonceProtoResponse(
+                        SAMPLE_NONCE,
+                        SAMPLE_WALLET_LOWER,
+                        12345
+                    ),
             } as unknown as Window,
             SAMPLE_WALLET_LOWER
         )
@@ -405,19 +478,16 @@ test('tasks surface provider and HTTP error messages cleanly', async () => {
     const verified = await runTask(
         verifySiweTask(
             {
-                JSON,
+                Uint8Array,
+                TextEncoder,
+                TextDecoder,
                 fetch: async () =>
-                    ({
-                        ok: true,
-                        status: 200,
-                        text: async () =>
-                            JSON.stringify({
-                                walletAddress: SAMPLE_WALLET_LOWER,
-                                nickname: 'bob',
-                                accessUntil: 999,
-                                hasActiveAccess: true,
-                            }),
-                    }) as Response,
+                    makeSessionProtoResponse(
+                        SAMPLE_WALLET_LOWER,
+                        'bob',
+                        999,
+                        true
+                    ),
             } as unknown as Window,
             'msg',
             SAMPLE_SIG
@@ -495,33 +565,24 @@ test('UI handlers drive connect -> sign -> payment -> claim -> join end-to-end',
                         decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
                         1_795_592_000,
                         true,
+                        DEFAULT_PROTO_PAYMENT_CFG,
                     ],
                 ]);
             }
             if (url === '/auth/nonce') {
-                return {
-                    ok: true,
-                    status: 200,
-                    text: async () =>
-                        JSON.stringify({
-                            nonce: SAMPLE_NONCE,
-                            walletAddress: SAMPLE_WALLET_LOWER,
-                            expiresAt: 1_793_000_300,
-                        }),
-                } as Response;
+                return makeNonceProtoResponse(
+                    SAMPLE_NONCE,
+                    SAMPLE_WALLET_LOWER,
+                    1_793_000_300
+                );
             }
             if (url === '/auth/verify') {
-                return {
-                    ok: true,
-                    status: 200,
-                    text: async () =>
-                        JSON.stringify({
-                            walletAddress: SAMPLE_WALLET_LOWER,
-                            nickname: null,
-                            accessUntil: 0,
-                            hasActiveAccess: false,
-                        }),
-                } as Response;
+                return makeSessionProtoResponse(
+                    SAMPLE_WALLET_LOWER,
+                    '',
+                    0,
+                    false
+                );
             }
             throw new Error(`Unexpected URL: ${url}`);
         },
@@ -577,7 +638,6 @@ test('payAndClaimTask persists txHash before claiming, polls Pending, reuses txH
     const claimedNicknames: string[] = [];
 
     const ctx = {
-        JSON,
         Uint8Array,
         TextEncoder,
         TextDecoder,
@@ -600,7 +660,6 @@ test('payAndClaimTask persists txHash before claiming, polls Pending, reuses txH
         },
         fetch: async (url: string, init?: RequestInit) => {
             if (url === '/auth/claim-payment') {
-                // Verify txHash was persisted in localStorage BEFORE /auth/claim-payment was called
                 assert.equal(
                     loadPendingPaymentTx(ctx, SAMPLE_WALLET_LOWER),
                     SAMPLE_TX_HASH
@@ -649,7 +708,13 @@ test('payAndClaimTask persists txHash before claiming, polls Pending, reuses txH
         [CLAIM_PAYMENT_RESPONSE_PENDING, ['Almost mined']],
         [
             CLAIM_PAYMENT_RESPONSE_ACTIVATED,
-            [SAMPLE_WALLET_LOWER, 'alice_free', 1_795_592_000, true],
+            [
+                SAMPLE_WALLET_LOWER,
+                'alice_free',
+                1_795_592_000,
+                true,
+                DEFAULT_PROTO_PAYMENT_CFG,
+            ],
         ],
     ];
     const activated = await runTask(
@@ -712,7 +777,6 @@ test('payAndClaimTask recovers via fetchSessionTask when /auth/claim-payment HTT
 
     let sendTxCount = 0;
     const ctx = {
-        JSON,
         Uint8Array,
         TextEncoder,
         TextDecoder,
@@ -732,17 +796,12 @@ test('payAndClaimTask recovers via fetchSessionTask when /auth/claim-payment HTT
                 throw new Error('Network connection lost');
             }
             if (url === '/auth/session') {
-                return {
-                    ok: true,
-                    status: 200,
-                    text: async () =>
-                        JSON.stringify({
-                            walletAddress: SAMPLE_WALLET_LOWER,
-                            nickname: 'alice_recovered',
-                            accessUntil: 1_795_592_000,
-                            hasActiveAccess: true,
-                        }),
-                } as Response;
+                return makeSessionProtoResponse(
+                    SAMPLE_WALLET_LOWER,
+                    'alice_recovered',
+                    1_795_592_000,
+                    true
+                );
             }
             throw new Error(`Unexpected URL: ${url}`);
         },
@@ -834,13 +893,18 @@ test('non-default server payment config drives SIWE chainId, chain switch, trans
     const customRecipient = '0x2222222222222222222222222222222222222222';
     const customWeiHex = '0x71afd498d0000'; // 0.002 ETH
     const sepoliaChainId = 11_155_111; // 0xaa36a7
+    const customProtoCfg: AuthPaymentConfig = [
+        sepoliaChainId,
+        customRecipient,
+        customWeiHex,
+        604_800,
+    ];
     let walletChainHex = '0x1';
     const ethCalls: EthereumRequestArgs[] = [];
     let signedMessage = '';
     const storage = new Map<string, string>();
 
     const ctx = {
-        JSON,
         Uint8Array,
         TextEncoder,
         TextDecoder,
@@ -884,37 +948,21 @@ test('non-default server payment config drives SIWE chainId, chain switch, trans
         },
         fetch: async (url: string, init?: RequestInit) => {
             if (url === '/auth/nonce') {
-                return {
-                    ok: true,
-                    status: 200,
-                    text: async () =>
-                        JSON.stringify({
-                            nonce: SAMPLE_NONCE,
-                            walletAddress: SAMPLE_WALLET_LOWER,
-                            expiresAt: 1_793_000_300,
-                            chainId: sepoliaChainId,
-                            recipientAddress: customRecipient,
-                            minPaymentWei: customWeiHex,
-                            accessDurationSecs: 604_800,
-                        }),
-                } as Response;
+                return makeNonceProtoResponse(
+                    SAMPLE_NONCE,
+                    SAMPLE_WALLET_LOWER,
+                    1_793_000_300,
+                    customProtoCfg
+                );
             }
             if (url === '/auth/verify') {
-                return {
-                    ok: true,
-                    status: 200,
-                    text: async () =>
-                        JSON.stringify({
-                            walletAddress: SAMPLE_WALLET_LOWER,
-                            nickname: null,
-                            accessUntil: 0,
-                            hasActiveAccess: false,
-                            chainId: sepoliaChainId,
-                            recipientAddress: customRecipient,
-                            minPaymentWei: customWeiHex,
-                            accessDurationSecs: 604_800,
-                        }),
-                } as Response;
+                return makeSessionProtoResponse(
+                    SAMPLE_WALLET_LOWER,
+                    '',
+                    0,
+                    false,
+                    customProtoCfg
+                );
             }
             if (url === '/auth/claim-payment') {
                 const decodedReq = decodeClaimPaymentRequest(
@@ -928,6 +976,7 @@ test('non-default server payment config drives SIWE chainId, chain switch, trans
                         decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
                         1_795_592_000,
                         true,
+                        customProtoCfg,
                     ],
                 ]);
             }

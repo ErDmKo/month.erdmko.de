@@ -153,6 +153,28 @@ const genMessage = (msg: MessageDescriptor): string => {
     lines.push(`}>;`);
     lines.push('');
 
+    const isSequential = fields.every((f, i) => f.number === i + 1);
+    const scalarOrMsgSpec = (
+        f: FieldDescriptor,
+        prefix: 'encode' | 'decode'
+    ): string => {
+        if (f.type === 'message') {
+            return f.repeated
+                ? `[${prefix}${f.message_type!}]`
+                : `${prefix}${f.message_type!}`;
+        }
+        switch (f.type) {
+            case 'bool':
+                return 'PROTO_BOOL';
+            case 'string':
+                return 'PROTO_STRING';
+            case 'bytes':
+                return 'PROTO_BYTES';
+            default:
+                return 'PROTO_VARINT';
+        }
+    };
+
     // ── encode ────────────────────────────────────────────────────────────────
     const encodeParams = fields
         .map((f) => {
@@ -169,12 +191,10 @@ const genMessage = (msg: MessageDescriptor): string => {
     fields.forEach((f) => {
         const camel = toCamel(f.name);
         if (f.type === 'message' && f.repeated) {
-            // repeated message: encode each item as a length-delimited field
             lines.push(
                 `        ...encodeRepeatedMessage(ctx, ${f.number}, ${camel}, encode${f.message_type!}),`
             );
         } else if (f.type === 'message') {
-            // single message: encodeMessageField returns Uint8Array directly
             lines.push(
                 `        encodeMessageField(ctx, ${f.number}, ${camel}, encode${f.message_type!}),`
             );
@@ -187,13 +207,6 @@ const genMessage = (msg: MessageDescriptor): string => {
     lines.push('');
 
     // ── decode ────────────────────────────────────────────────────────────────
-    lines.push(`export const decode${name} = (`);
-    lines.push(`    ctx: Window,`);
-    lines.push(`    buf: Uint8Array,`);
-    lines.push(`): ${name} | null => {`);
-    lines.push(`    const reader = readerCreate(ctx, buf);`);
-
-    // Pre-initialize fields array with proto3 defaults, indexed by tuple position (i)
     const defaultFor = (f: FieldDescriptor): string => {
         if (f.repeated) return '[]';
         switch (f.type) {
@@ -213,6 +226,26 @@ const genMessage = (msg: MessageDescriptor): string => {
         }
     };
     const defaults = fields.map((f) => defaultFor(f)).join(', ');
+
+    if (isSequential) {
+        const specs = fields
+            .map((f) => scalarOrMsgSpec(f, 'decode'))
+            .join(', ');
+        lines.push(`export const decode${name} = (`);
+        lines.push(`    ctx: Window,`);
+        lines.push(`    buf: Uint8Array,`);
+        lines.push(`): ${name} | null =>`);
+        lines.push(
+            `    decodeSeqMessage<${name}>(ctx, buf, [${defaults}], [${specs}]);`
+        );
+        return lines.join('\n');
+    }
+
+    lines.push(`export const decode${name} = (`);
+    lines.push(`    ctx: Window,`);
+    lines.push(`    buf: Uint8Array,`);
+    lines.push(`): ${name} | null => {`);
+    lines.push(`    const reader = readerCreate(ctx, buf);`);
     lines.push(`    const fields: unknown[] = [${defaults}];`);
     lines.push(`    while (!readerAtEnd(reader)) {`);
     lines.push(`        switch (readerTag(reader)) {`);
@@ -243,7 +276,7 @@ const genMessage = (msg: MessageDescriptor): string => {
             );
         } else if (f.type === 'string') {
             lines.push(
-                `            case ${f.number}: fields[${constName}] = readerString(reader); break;`
+                `            case ${f.number}: fields[${constName}] = readerString(ctx, reader); break;`
             );
         } else if (f.type === 'bytes') {
             lines.push(
@@ -300,21 +333,21 @@ const genOneofWrapper = (msg: MessageDescriptor): string => {
     });
     lines.push('');
 
+    const maxField = Math.max(...oneof.variants.map((v) => v.number));
+
     // ── encode ────────────────────────────────────────────────────────────────
     lines.push(`export const encode${name} = (`);
     lines.push(`    ctx: Window,`);
     lines.push(`    payload: ${name}Payload,`);
-    lines.push(`): Uint8Array => {`);
-    lines.push(`    switch (payload[${variantConst}]) {`);
-    oneof.variants.forEach((v) => {
-        const constName = `${snake}_${v.name.toUpperCase()}`;
+    lines.push(`): Uint8Array =>`);
+    lines.push(`    encodeOneofFrame(ctx, payload, [`);
+    for (let i = 0; i <= maxField; i++) {
+        const v = oneof.variants.find((v) => v.number === i);
         lines.push(
-            `        case ${constName}: return encodeMessageField(ctx, ${v.number}, payload[${valueConst}], encode${v.message_type});`
+            v ? `        encode${v.message_type},` : `        undefined,`
         );
-    });
-    lines.push(`        default: return new ctx.Uint8Array(0);`);
-    lines.push(`    }`);
-    lines.push(`};`);
+    }
+    lines.push(`    ]);`);
     lines.push('');
 
     // ── decode ────────────────────────────────────────────────────────────────
@@ -323,7 +356,6 @@ const genOneofWrapper = (msg: MessageDescriptor): string => {
     lines.push(`    buf: Uint8Array,`);
     lines.push(`): ${name}Payload | null =>`);
     lines.push(`    decodeOneofFrame(ctx, buf, [`);
-    const maxField = Math.max(...oneof.variants.map((v) => v.number));
     for (let i = 0; i <= maxField; i++) {
         const v = oneof.variants.find((v) => v.number === i);
         if (!v) {
@@ -344,34 +376,6 @@ const genFile = (
     descriptor: PackageDescriptor,
     protoUtilsPath: string
 ): string => {
-    const header = [
-        `// @generated from ${descriptor.package}.proto — do not edit by hand`,
-        `// Re-generate: cargo build (server/build.rs) then bazel run //assets/js/tools:gen-proto`,
-        ``,
-        `import {`,
-        `    encodeUint32Field,`,
-        `    encodeBoolField,`,
-        `    encodeStringField,`,
-        `    encodeBytesField,`,
-        `    encodeMessageField,`,
-        `    encodeRepeatedMessage,`,
-        `    concatBytes,`,
-        `    readerCreate,`,
-        `    readerAtEnd,`,
-        `    readerTag,`,
-        `    readerVarint,`,
-        `    readerString,`,
-        `    readerBytes,`,
-        `    readerMessage,`,
-        `    readerSkip,`,
-        `    decodeOneofFrame,`,
-        `} from '${protoUtilsPath}';`,
-        `import type { ReadonlyTupleOf } from '../utils/tuple';`,
-        ``,
-        `declare global { interface Window { Uint8Array: typeof Uint8Array; } }`,
-        ``,
-    ].join('\n');
-
     const parts: string[] = [];
     for (const msg of descriptor.messages) {
         if (msg.oneofs && msg.oneofs.length > 0) {
@@ -380,8 +384,46 @@ const genFile = (
             parts.push(genMessage(msg));
         }
     }
+    const body = parts.join('\n');
+    const candidateImports = [
+        'encodeUint32Field',
+        'encodeBoolField',
+        'encodeStringField',
+        'encodeBytesField',
+        'encodeMessageField',
+        'encodeRepeatedMessage',
+        'concatBytes',
+        'readerCreate',
+        'readerAtEnd',
+        'readerTag',
+        'readerVarint',
+        'readerString',
+        'readerBytes',
+        'readerMessage',
+        'readerSkip',
+        'PROTO_VARINT',
+        'PROTO_BOOL',
+        'PROTO_STRING',
+        'PROTO_BYTES',
+        'encodeOneofFrame',
+        'decodeSeqMessage',
+        'decodeOneofFrame',
+    ].filter((sym) => new RegExp(`\\b${sym}\\b`).test(body));
 
-    return header + parts.join('\n') + '\n';
+    const header = [
+        `// @generated from ${descriptor.package}.proto — do not edit by hand`,
+        `// Re-generate: cargo build (server/build.rs) then bazel run //assets/js/tools:gen-proto`,
+        ``,
+        `import {`,
+        ...candidateImports.map((sym) => `    ${sym},`),
+        `} from '${protoUtilsPath}';`,
+        `import type { ReadonlyTupleOf } from '../utils/tuple';`,
+        ``,
+        `declare global { interface Window { Uint8Array: typeof Uint8Array; } }`,
+        ``,
+    ].join('\n');
+
+    return header + body + '\n';
 };
 
 // ── Entry point ───────────────────────────────────────────────────────────────

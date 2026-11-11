@@ -141,6 +141,7 @@ async fn main() -> std::io::Result<()> {
                 pool: pool.clone(),
                 css: css.clone(),
             }))
+            .app_data(web::Data::new(payment_cfg.clone()))
             .wrap(middleware::NormalizePath::trim())
             .wrap(middleware::Compress::default())
             .wrap(middleware::Logger::default())

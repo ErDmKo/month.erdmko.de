@@ -1,11 +1,11 @@
 {% extends "inner.html" %}
 {% block title %}Chat room #{{ room_id }} — Live Voice &amp; Web Chat{% endblock title %}
-{% block desc %}Join the #{{ room_id }} chat room for real-time messaging, WebRTC voice calls, and instant file sharing in your browser.{% endblock desc %}
-{% block robots %}{% if is_public_room %}index, follow, max-image-preview:large{% else %}noindex, follow{% endif %}{% endblock robots %}
-{% block og_title %}Join #{{ room_id }} — Live Voice &amp; Web Chat{% endblock og_title %}
-{% block twitter_title %}Join #{{ room_id }} — Live Voice &amp; Web Chat{% endblock twitter_title %}
-{% block og_desc %}Real-time browser chat room #{{ room_id }} with WebRTC voice calls and file sharing.{% endblock og_desc %}
-{% block twitter_desc %}Real-time browser chat room #{{ room_id }} with WebRTC voice calls and file sharing.{% endblock twitter_desc %}
+{% block desc %}Authenticated browser chat room #{{ room_id }} with real-time messaging, WebRTC Opus voice calls, and file sharing.{% endblock desc %}
+{% block robots %}noindex, nofollow{% endblock robots %}
+{% block og_title %}Chat room #{{ room_id }} — Live Voice &amp; Web Chat{% endblock og_title %}
+{% block twitter_title %}Chat room #{{ room_id }} — Live Voice &amp; Web Chat{% endblock twitter_title %}
+{% block og_desc %}Authenticated browser chat room #{{ room_id }} with WebRTC Opus voice calls and file sharing.{% endblock og_desc %}
+{% block twitter_desc %}Authenticated browser chat room #{{ room_id }} with WebRTC Opus voice calls and file sharing.{% endblock twitter_desc %}
 {% block analytics_preconnect %}{% endblock analytics_preconnect %}
 {% block analytics %}{% endblock analytics %}
 {% block head %}

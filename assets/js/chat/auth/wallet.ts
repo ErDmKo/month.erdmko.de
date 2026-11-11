@@ -93,6 +93,23 @@ export const formatWeiAsEth = (valueHex: string): string => {
     }
 };
 
+export const formatAccessDuration = (durationSecs: number): string => {
+    const secs = durationSecs > 0 ? Math.floor(durationSecs) : 0;
+    if (secs > 0 && secs % 86400 === 0) {
+        const days = secs / 86400;
+        return days === 1 ? '1 day' : `${days} days`;
+    }
+    if (secs > 0 && secs % 3600 === 0) {
+        const hours = secs / 3600;
+        return hours === 1 ? '1 hour' : `${hours} hours`;
+    }
+    if (secs > 0 && secs % 60 === 0) {
+        const mins = secs / 60;
+        return mins === 1 ? '1 minute' : `${mins} minutes`;
+    }
+    return secs === 1 ? '1 second' : `${secs} seconds`;
+};
+
 export const normalizeWalletAddress = (raw: string): string => {
     const trimmed = raw.trim();
     if (!WALLET_ADDRESS_RE.test(trimmed)) {

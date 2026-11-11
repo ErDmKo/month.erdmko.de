@@ -216,18 +216,46 @@ message ServerVoiceError {
   string code       = 2;
 }
 
-// ── Auth payment claim (HTTP binary protobuf) ────────────────────────────────
+// ── Auth & payment (HTTP binary protobuf) ────────────────────────────────────
+
+message AuthPaymentConfig {
+  uint64 chain_id             = 1;
+  string recipient_address    = 2;
+  string min_payment_wei      = 3;
+  int64  access_duration_secs = 4;
+}
+
+message NonceRequest {
+  string wallet_address = 1;
+}
+
+message NonceResponse {
+  string            nonce          = 1;
+  string            wallet_address = 2;
+  int64             expires_at     = 3;
+  AuthPaymentConfig payment_config = 4;
+}
+
+message VerifySiweRequest {
+  string message   = 1;
+  string signature = 2;
+}
+
+message SetNicknameRequest {
+  string nickname = 1;
+}
+
+message AuthSession {
+  string            wallet_address    = 1;
+  string            nickname          = 2;
+  int64             access_until      = 3;
+  bool              has_active_access = 4;
+  AuthPaymentConfig payment_config    = 5;
+}
 
 message ClaimPaymentRequest {
   string tx_hash  = 1;
   string nickname = 2;
-}
-
-message PaymentClaimActivated {
-  string wallet_address    = 1;
-  string nickname          = 2;
-  int64  access_until      = 3;
-  bool   has_active_access = 4;
 }
 
 message PaymentClaimNotice {
@@ -236,11 +264,11 @@ message PaymentClaimNotice {
 
 message ClaimPaymentResponse {
   oneof payload {
-    PaymentClaimActivated activated           = 1;
-    PaymentClaimNotice    pending             = 2;
-    PaymentClaimNotice    nickname_taken      = 3;
-    PaymentClaimNotice    reverted            = 4;
-    PaymentClaimNotice    invalid_transaction = 5;
-    PaymentClaimNotice    unauthorized        = 6;
+    AuthSession        activated           = 1;
+    PaymentClaimNotice pending             = 2;
+    PaymentClaimNotice nickname_taken      = 3;
+    PaymentClaimNotice reverted            = 4;
+    PaymentClaimNotice invalid_transaction = 5;
+    PaymentClaimNotice unauthorized        = 6;
   }
 }

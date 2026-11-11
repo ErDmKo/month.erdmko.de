@@ -38,6 +38,10 @@ rust_test(
     name = "chat_db_test",
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
+    data = [
+        "//assets/css:css_build",
+        "//server/templates",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     rustc_env_files = ["version.env"],
     stamp = 1,

@@ -91,6 +91,73 @@ impl PaymentConfig {
     pub fn min_payment_wei_hex(&self) -> String {
         format!("0x{:x}", self.min_payment_wei)
     }
+
+    pub fn chain_name(&self) -> String {
+        match self.chain_id {
+            1 => "Ethereum Mainnet".to_string(),
+            11_155_111 => "Sepolia Testnet".to_string(),
+            31_337 => "Local Devnet (Chain 31337)".to_string(),
+            other => format!("Chain {other}"),
+        }
+    }
+
+    pub fn min_payment_eth_amount(&self) -> String {
+        const WEI_PER_ETH: u128 = 1_000_000_000_000_000_000;
+        let whole = self.min_payment_wei / WEI_PER_ETH;
+        let rem = self.min_payment_wei % WEI_PER_ETH;
+        if rem == 0 {
+            return whole.to_string();
+        }
+        let frac = format!("{rem:018}");
+        let trimmed = frac.trim_end_matches('0');
+        format!("{whole}.{trimmed}")
+    }
+
+    pub fn min_payment_eth_display(&self) -> String {
+        format!("{} ETH", self.min_payment_eth_amount())
+    }
+
+    pub fn access_duration_display(&self) -> String {
+        let secs = self.access_duration_secs.max(0);
+        if secs > 0 && secs % 86_400 == 0 {
+            let days = secs / 86_400;
+            return if days == 1 {
+                "1 day".to_string()
+            } else {
+                format!("{days} days")
+            };
+        }
+        if secs > 0 && secs % 3_600 == 0 {
+            let hours = secs / 3_600;
+            return if hours == 1 {
+                "1 hour".to_string()
+            } else {
+                format!("{hours} hours")
+            };
+        }
+        if secs > 0 && secs % 60 == 0 {
+            let mins = secs / 60;
+            return if mins == 1 {
+                "1 minute".to_string()
+            } else {
+                format!("{mins} minutes")
+            };
+        }
+        if secs == 1 {
+            "1 second".to_string()
+        } else {
+            format!("{secs} seconds")
+        }
+    }
+
+    pub fn to_proto(&self) -> crate::generated::chat::AuthPaymentConfig {
+        crate::generated::chat::AuthPaymentConfig {
+            chain_id: self.chain_id,
+            recipient_address: self.recipient_address.clone(),
+            min_payment_wei: self.min_payment_wei_hex(),
+            access_duration_secs: self.access_duration_secs,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -598,5 +665,29 @@ mod tests {
 
         let missing = validate_rpc_chain_id(None, 1).expect_err("missing eth_chainId must fail");
         assert!(matches!(missing, PaymentVerificationError::Internal { .. }));
+    }
+
+    #[test]
+    fn formats_payment_config_display_strings_accurately() {
+        let mut cfg = sample_config();
+        assert_eq!(cfg.chain_name(), "Ethereum Mainnet");
+        assert_eq!(cfg.min_payment_eth_amount(), "0.001");
+        assert_eq!(cfg.min_payment_eth_display(), "0.001 ETH");
+        assert_eq!(cfg.access_duration_display(), "30 days");
+
+        cfg.chain_id = 11_155_111;
+        cfg.min_payment_wei = 1_000_000_000_000_000_000;
+        cfg.access_duration_secs = 86_400;
+        assert_eq!(cfg.chain_name(), "Sepolia Testnet");
+        assert_eq!(cfg.min_payment_eth_amount(), "1");
+        assert_eq!(cfg.min_payment_eth_display(), "1 ETH");
+        assert_eq!(cfg.access_duration_display(), "1 day");
+
+        cfg.chain_id = 8453;
+        cfg.min_payment_wei = 25_000_000_000_000_000;
+        cfg.access_duration_secs = 7_200;
+        assert_eq!(cfg.chain_name(), "Chain 8453");
+        assert_eq!(cfg.min_payment_eth_display(), "0.025 ETH");
+        assert_eq!(cfg.access_duration_display(), "2 hours");
     }
 }

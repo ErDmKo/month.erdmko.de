@@ -151,18 +151,7 @@ pub async fn main_page_handler(req: HttpRequest) -> impl Responder {
 pub async fn sitemap_xml_handler() -> HttpResponse {
     let base = utils::site_url();
     let static_paths = [
-        "/",
-        "/chat",
-        "/chat/general",
-        "/chat/rust",
-        "/chat/web3",
-        "/chat/voice",
-        "/base64",
-        "/random",
-        "/month",
-        "/slugify",
-        "/tetris",
-        "/tennis",
+        "/", "/chat", "/base64", "/random", "/month", "/slugify", "/tetris", "/tennis",
     ];
     let mut xml = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\

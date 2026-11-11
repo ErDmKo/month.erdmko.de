@@ -262,25 +262,24 @@ const readResponseTextTask =
         res.text().then((rawText: string) => resolve([res, rawText]), reject);
     };
 
-const fetchTask = (
+const fetchProtoTask = (
     ctx: Window,
     url: string,
     init: RequestInit
-): Task<Record<string, unknown>> =>
+): Task<Uint8Array> =>
     pipe(
         rawFetchTask(ctx, url, init),
-        taskChain(readResponseTextTask),
-        taskMap(bindArg(ctx, parseOkResponse))
+        taskChain(bindArg(ctx, readProtoResponseTask))
     );
 
 export const fetchSessionTask = (ctx: Window): Task<SessionStatus | null> =>
     pipe(
-        fetchTask(ctx, '/auth/session', {
+        fetchProtoTask(ctx, '/auth/session', {
             ['method']: 'GET',
             ['credentials']: 'same-origin',
         }),
-        taskMap(parseSessionStatus),
-        taskCatch(() => null)
+        taskMap(bindArg(ctx, parseOptionalSessionProto)),
+        taskCatch(returnNull)
     );
 ```
 

@@ -15,6 +15,7 @@ import {
     DEFAULT_CHAIN_ID,
     DEFAULT_PAYMENT_VALUE_HEX,
     ensureWalletChainTask,
+    formatAccessDuration,
     formatChainIdHex,
     formatChainName,
     formatWeiAsEth,
@@ -27,8 +28,8 @@ import {
     signSiweMessageTask,
 } from './wallet';
 import {
-    activatedToSessionStatus,
-    applyPaymentConfigFromJson,
+    applyPaymentConfig,
+    authSessionToStatus,
     claimPaymentOutcomeMessage,
     claimPaymentProtoTask,
     claimPaymentTask,
@@ -56,8 +57,8 @@ export const DEFAULT_CLAIM_POLL_ATTEMPTS = 5;
 export const DEFAULT_CLAIM_POLL_INTERVAL_MS = 2000;
 
 export {
-    activatedToSessionStatus,
-    applyPaymentConfigFromJson,
+    applyPaymentConfig,
+    authSessionToStatus,
     buildSiweMessage,
     claimPaymentOutcomeMessage,
     claimPaymentProtoTask,
@@ -68,6 +69,7 @@ export {
     ensureWalletChainTask,
     fetchNonceTask,
     fetchSessionTask,
+    formatAccessDuration,
     formatChainIdHex,
     formatChainName,
     formatWeiAsEth,
@@ -215,13 +217,19 @@ export const pollClaimPaymentTask =
                     const variant =
                         outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VARIANT];
                     if (variant === CLAIM_PAYMENT_RESPONSE_ACTIVATED) {
+                        const status = authSessionToStatus(
+                            ctx,
+                            outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VALUE]
+                        );
+                        if (!status) {
+                            reject(
+                                new Error('Invalid session status response.')
+                            );
+                            return;
+                        }
                         clearPendingPaymentTx(ctx);
                         onPendingTx?.('');
-                        resolve(
-                            activatedToSessionStatus(
-                                outcome[CLAIM_PAYMENT_RESPONSE_PAYLOAD_VALUE]
-                            )
-                        );
+                        resolve(status);
                         return;
                     }
                     if (variant === CLAIM_PAYMENT_RESPONSE_PENDING) {
