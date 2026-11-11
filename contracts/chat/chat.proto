@@ -234,6 +234,7 @@ message NonceResponse {
   string            wallet_address = 2;
   int64             expires_at     = 3;
   AuthPaymentConfig payment_config = 4;
+  string            siwe_message   = 5;
 }
 
 message VerifySiweRequest {

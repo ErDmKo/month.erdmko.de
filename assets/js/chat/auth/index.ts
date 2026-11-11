@@ -10,7 +10,6 @@ import {
 } from '@month/gen/chat';
 import type { ClaimPaymentResponsePayload } from '@month/gen/chat';
 import {
-    buildSiweMessage,
     DEFAULT_ACCESS_DURATION_SECS,
     DEFAULT_CHAIN_ID,
     DEFAULT_PAYMENT_VALUE_HEX,
@@ -38,6 +37,7 @@ import {
     getActivePaymentConfig,
     NONCE_CHALLENGE_EXPIRES_AT,
     NONCE_CHALLENGE_NONCE,
+    NONCE_CHALLENGE_SIWE_MESSAGE,
     NONCE_CHALLENGE_WALLET,
     PAYMENT_CONFIG_CHAIN_ID,
     PAYMENT_CONFIG_DURATION_SECS,
@@ -59,7 +59,6 @@ export const DEFAULT_CLAIM_POLL_INTERVAL_MS = 2000;
 export {
     applyPaymentConfig,
     authSessionToStatus,
-    buildSiweMessage,
     claimPaymentOutcomeMessage,
     claimPaymentProtoTask,
     claimPaymentTask,
@@ -76,6 +75,7 @@ export {
     getActivePaymentConfig,
     NONCE_CHALLENGE_EXPIRES_AT,
     NONCE_CHALLENGE_NONCE,
+    NONCE_CHALLENGE_SIWE_MESSAGE,
     NONCE_CHALLENGE_WALLET,
     normalizeTxHash,
     normalizeWalletAddress,
@@ -159,16 +159,10 @@ export const clearPendingPaymentTx = (ctx: Window): void => {
 
 const signAndVerifyChallengeTask = (
     ctx: Window,
-    challenge: NonceChallenge,
-    verifiedChainId: number
+    challenge: NonceChallenge
 ): Task<SessionStatus> => {
     const wallet = challenge[NONCE_CHALLENGE_WALLET];
-    const message = buildSiweMessage(
-        ctx,
-        wallet,
-        challenge[NONCE_CHALLENGE_NONCE],
-        verifiedChainId
-    );
+    const message = challenge[NONCE_CHALLENGE_SIWE_MESSAGE];
     return pipe(
         signSiweMessageTask(ctx, wallet, message),
         taskChain(bindArgs([ctx, message], verifySiweTask))

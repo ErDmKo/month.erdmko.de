@@ -54,7 +54,6 @@ import {
     CHAT_UI_STATE_WALLET_ADDRESS,
 } from '../chat-ui/state';
 import {
-    buildSiweMessage,
     claimPaymentTask,
     connectAndSignInTask,
     DEFAULT_ACCESS_DURATION_SECS,
@@ -66,6 +65,7 @@ import {
     loadPendingPaymentTx,
     NONCE_CHALLENGE_EXPIRES_AT,
     NONCE_CHALLENGE_NONCE,
+    NONCE_CHALLENGE_SIWE_MESSAGE,
     NONCE_CHALLENGE_WALLET,
     normalizeTxHash,
     normalizeWalletAddress,
@@ -138,11 +138,17 @@ const makeNonceProtoResponse = (
     nonce: string,
     walletAddress: string,
     expiresAt: number,
-    cfg: AuthPaymentConfig = DEFAULT_PROTO_PAYMENT_CFG
-): Response =>
-    bytesToResponse(
-        encodeNonceResponse(protoCtx, nonce, walletAddress, expiresAt, cfg)
+    cfg: AuthPaymentConfig = DEFAULT_PROTO_PAYMENT_CFG,
+    siweMessage?: string
+): Response => {
+    const chainId = cfg[0] || DEFAULT_CHAIN_ID;
+    const msg =
+        siweMessage ??
+        `erdmko.dev wants you to sign in with your Ethereum account:\n${walletAddress}\n\nSign in to month.erdmko.de chat.\n\nURI: https://erdmko.dev/chat/general\nVersion: 1\nChain ID: ${chainId}\nNonce: ${nonce}\nIssued At: 2026-10-28T12:00:00.000Z`;
+    return bytesToResponse(
+        encodeNonceResponse(protoCtx, nonce, walletAddress, expiresAt, cfg, msg)
     );
+};
 
 const runTask = <T>(task: Task<T>): Promise<T> =>
     new Promise((resolve, reject) => {
@@ -170,33 +176,6 @@ test('wallet address, tx hash, and access duration helpers validate and format a
     assert.equal(formatAccessDuration(7200), '2 hours');
     assert.equal(formatAccessDuration(60), '1 minute');
     assert.equal(formatAccessDuration(45), '45 seconds');
-});
-
-test('buildSiweMessage formats a valid EIP-4361 message string', () => {
-    const ctx = {
-        location: {
-            host: 'erdmko.dev',
-            href: 'https://erdmko.dev/chat/general',
-            protocol: 'https:',
-        },
-        Date: class {
-            toISOString() {
-                return '2026-10-28T12:00:00.000Z';
-            }
-        },
-    } as unknown as Window;
-
-    const msg = buildSiweMessage(ctx, SAMPLE_WALLET_MIXED, SAMPLE_NONCE, 1);
-    assert.ok(
-        msg.startsWith(
-            `erdmko.dev wants you to sign in with your Ethereum account:\n${SAMPLE_WALLET_LOWER}\n\n`
-        )
-    );
-    assert.ok(msg.includes('URI: https://erdmko.dev/chat/general\n'));
-    assert.ok(msg.includes('Version: 1\n'));
-    assert.ok(msg.includes('Chain ID: 1\n'));
-    assert.ok(msg.includes(`Nonce: ${SAMPLE_NONCE}\n`));
-    assert.ok(msg.includes('Issued At: 2026-10-28T12:00:00.000Z'));
 });
 
 test('requestAccountsTask, signSiweMessageTask, and sendPaymentTransactionTask call window.ethereum', async () => {
@@ -474,6 +453,11 @@ test('tasks surface provider and protobuf HTTP error messages cleanly', async ()
     assert.equal(nonceChallenge[NONCE_CHALLENGE_NONCE], SAMPLE_NONCE);
     assert.equal(nonceChallenge[NONCE_CHALLENGE_WALLET], SAMPLE_WALLET_LOWER);
     assert.equal(nonceChallenge[NONCE_CHALLENGE_EXPIRES_AT], 12345);
+    assert.ok(
+        nonceChallenge[NONCE_CHALLENGE_SIWE_MESSAGE].includes(
+            `Nonce: ${SAMPLE_NONCE}`
+        )
+    );
 
     const verified = await runTask(
         verifySiweTask(

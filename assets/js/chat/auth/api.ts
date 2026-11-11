@@ -33,6 +33,7 @@ import {
     NONCE_RESPONSE_EXPIRES_AT,
     NONCE_RESPONSE_NONCE,
     NONCE_RESPONSE_PAYMENT_CONFIG,
+    NONCE_RESPONSE_SIWE_MESSAGE,
     NONCE_RESPONSE_WALLET_ADDRESS,
     PAYMENT_CLAIM_NOTICE_MESSAGE,
 } from '@month/gen/chat';
@@ -81,11 +82,13 @@ export const getActivePaymentConfig = (ctx?: Window): PaymentConfig =>
 export const NONCE_CHALLENGE_NONCE = 0 as const;
 export const NONCE_CHALLENGE_WALLET = 1 as const;
 export const NONCE_CHALLENGE_EXPIRES_AT = 2 as const;
+export const NONCE_CHALLENGE_SIWE_MESSAGE = 3 as const;
 
 export type NonceChallenge = ReadonlyTupleOf<{
     [NONCE_CHALLENGE_NONCE]: string;
     [NONCE_CHALLENGE_WALLET]: string;
     [NONCE_CHALLENGE_EXPIRES_AT]: number;
+    [NONCE_CHALLENGE_SIWE_MESSAGE]: string;
 }>;
 
 export const SESSION_STATUS_WALLET = 0 as const;
@@ -200,11 +203,14 @@ const parseNonceProto = (ctx: Window, bytes: Uint8Array): NonceChallenge => {
     const nonce = decoded ? decoded[NONCE_RESPONSE_NONCE].trim() : '';
     const wallet = decoded ? decoded[NONCE_RESPONSE_WALLET_ADDRESS].trim() : '';
     const expiresAt = decoded ? decoded[NONCE_RESPONSE_EXPIRES_AT] : 0;
-    if (!decoded || !nonce || !wallet || !expiresAt) {
+    const siweMessage = decoded
+        ? decoded[NONCE_RESPONSE_SIWE_MESSAGE].trim()
+        : '';
+    if (!decoded || !nonce || !wallet || !expiresAt || !siweMessage) {
         throw new Error('Invalid nonce challenge response.');
     }
     applyPaymentConfig(ctx, decoded[NONCE_RESPONSE_PAYMENT_CONFIG]);
-    return [nonce, wallet, expiresAt];
+    return [nonce, wallet, expiresAt, siweMessage];
 };
 
 const parseRequiredSessionProto = (

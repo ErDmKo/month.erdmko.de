@@ -345,6 +345,28 @@ pub fn keccak256(data: &[u8]) -> [u8; 32] {
     Keccak256::digest(data).into()
 }
 
+/// Format an Ethereum wallet address using EIP-55 mixed-case checksum encoding.
+pub fn to_checksum_address(raw: &str) -> AuthResult<String> {
+    let normalized = normalize_wallet_address(raw)?;
+    let lower_hex = &normalized[2..];
+    let hash = keccak256(lower_hex.as_bytes());
+    let mut out = String::with_capacity(42);
+    out.push_str("0x");
+    for (i, ch) in lower_hex.bytes().enumerate() {
+        let nibble = if i % 2 == 0 {
+            (hash[i / 2] >> 4) & 0x0f
+        } else {
+            hash[i / 2] & 0x0f
+        };
+        if nibble >= 8 {
+            out.push((ch as char).to_ascii_uppercase());
+        } else {
+            out.push(ch as char);
+        }
+    }
+    Ok(out)
+}
+
 /// Compute the EIP-191 `personal_sign` digest:
 /// `keccak256("\x19Ethereum Signed Message:\n" + message.len() + message)`
 pub fn eip191_message_digest(message: &str) -> [u8; 32] {
@@ -557,6 +579,14 @@ mod tests {
     fn derives_known_ethereum_address_and_recovers_personal_sign() {
         let derived = wallet_address_from_private_key(&PRIV_KEY_1);
         assert_eq!(derived, KNOWN_ADDR_KEY_1);
+        assert_eq!(
+            to_checksum_address(&derived).unwrap(),
+            "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf"
+        );
+        assert_eq!(
+            to_checksum_address("0x0e4b45c2fc0c84b8d1a248cc3a4d42f3ddce31bf").unwrap(),
+            "0x0E4b45c2Fc0C84B8d1a248cc3A4d42F3ddce31BF"
+        );
 
         let msg = format_siwe_message(&sample_siwe_message(&derived, "abcdef0123456789"));
         let sig = sign_personal_message(&PRIV_KEY_1, &msg);

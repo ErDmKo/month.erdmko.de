@@ -14,6 +14,7 @@ Production was healthy on `0119811` at the time of the review.
 | [AUTH-90](auth/AUTH-90-atomic-payment-activation.md) | P1 | Atomically record payment, nickname, and access | Completed |
 | [DEPLOY-10](deployment/DEPLOY-10-accurate-chat-product-copy.md) | P1 | Correct pricing, authentication, encryption, and indexing claims | Completed |
 | [DEPLOY-20](deployment/DEPLOY-20-wallet-flow-release-verification.md) | P1 | Verify the browser wallet flow and Linux release image | Completed |
+| [DEPLOY-30](deployment/DEPLOY-30-client-error-logging.md) | P2 | Forward frontend runtime and wallet errors to server logs | Planned |
 
 See the [deployment backlog](deployment/README.md) for dependencies and release acceptance.
 

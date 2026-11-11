@@ -21,6 +21,7 @@ Source: deployment-readiness review on 2026-11-06, candidate `89bf688`.
 4. [AUTH-70](../auth/AUTH-70-pending-payment-recovery.md): pending-payment recovery using that contract — **Completed**
 5. [DEPLOY-10](DEPLOY-10-accurate-chat-product-copy.md): accurate product copy and metadata — **Completed**
 6. [DEPLOY-20](DEPLOY-20-wallet-flow-release-verification.md): complete browser and release-image verification — **Completed**
+7. [DEPLOY-30](DEPLOY-30-client-error-logging.md): forward frontend runtime and wallet errors to server logs — **Planned**
 
 [PERF-10](../performance/PERF-10-static-asset-compression.md) tracks the separate static compression improvement.
 It is not a prerequisite for the paid-auth release.

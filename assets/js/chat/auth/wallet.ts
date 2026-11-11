@@ -126,30 +126,6 @@ export const normalizeTxHash = (raw: string): string => {
     return trimmed.toLowerCase();
 };
 
-export const buildSiweMessage = (
-    ctx: Window,
-    walletAddress: string,
-    nonce: string,
-    chainId: number = DEFAULT_CHAIN_ID
-): string => {
-    const normalizedWallet = normalizeWalletAddress(walletAddress);
-    const domain = ctx.location?.host || 'erdmko.dev';
-    const uri =
-        ctx.location?.href ||
-        `${ctx.location?.protocol || 'https:'}//${domain}/`;
-    const issuedAt = new ctx.Date().toISOString();
-    return (
-        `${domain} wants you to sign in with your Ethereum account:\n` +
-        `${normalizedWallet}\n\n` +
-        `Sign in to month.erdmko.de chat.\n\n` +
-        `URI: ${uri}\n` +
-        `Version: 1\n` +
-        `Chain ID: ${chainId}\n` +
-        `Nonce: ${nonce}\n` +
-        `Issued At: ${issuedAt}`
-    );
-};
-
 const ethereumRequestTask =
     (ctx: Window, method: string, params?: readonly unknown[]): Task<unknown> =>
     (resolve, reject) => {

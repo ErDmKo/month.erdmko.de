@@ -14,7 +14,10 @@ use crate::auth::payment::{
     PaymentConfig, PaymentVerificationError, PaymentVerifier, RpcPaymentVerifier,
 };
 use crate::auth::service::{normalize_tx_hash, validate_ascii_nickname};
-use crate::auth::siwe::verify_siwe_and_consume_nonce;
+use crate::auth::siwe::{
+    DEFAULT_SIWE_DOMAIN, SIWE_VERSION, SiweMessage, format_siwe_message, is_allowed_siwe_domain,
+    to_checksum_address, verify_siwe_and_consume_nonce,
+};
 use crate::auth::{NONCE_TTL_SECS, SESSION_COOKIE_NAME, SESSION_TTL_SECS};
 use crate::generated::chat::{
     AuthSession, ClaimPaymentRequest, ClaimPaymentResponse, NonceRequest, NonceResponse,
@@ -92,8 +95,77 @@ fn format_session_set_cookie(token: &str, max_age_secs: i64) -> String {
     )
 }
 
+fn extract_url_authority(raw_url: &str) -> Option<&str> {
+    let trimmed = raw_url.trim();
+    let without_scheme = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))?;
+    let authority = without_scheme.split('/').next()?.trim();
+    if authority.is_empty() {
+        None
+    } else {
+        Some(authority)
+    }
+}
+
+fn resolve_siwe_domain_and_uri(req: &HttpRequest) -> (String, String) {
+    if let Some(referer) = req
+        .headers()
+        .get(header::REFERER)
+        .and_then(|v| v.to_str().ok())
+    {
+        let trimmed = referer.trim();
+        if let Some(authority) = extract_url_authority(trimmed) {
+            if is_allowed_siwe_domain(authority) {
+                return (authority.to_string(), trimmed.to_string());
+            }
+        }
+    }
+
+    if let Some(origin) = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+    {
+        let trimmed = origin.trim().trim_end_matches('/');
+        if let Some(authority) = extract_url_authority(trimmed) {
+            if is_allowed_siwe_domain(authority) {
+                return (authority.to_string(), format!("{trimmed}/chat"));
+            }
+        }
+    }
+
+    if let Some(host) = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+    {
+        let authority = host.trim();
+        if is_allowed_siwe_domain(authority) {
+            let is_local = authority.starts_with("localhost") || authority.starts_with("127.0.0.1");
+            let scheme = req
+                .headers()
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .filter(|s| *s == "http" || *s == "https")
+                .unwrap_or(if is_local { "http" } else { "https" });
+            return (
+                authority.to_string(),
+                format!("{scheme}://{authority}/chat"),
+            );
+        }
+    }
+
+    (
+        DEFAULT_SIWE_DOMAIN.to_string(),
+        format!("https://{DEFAULT_SIWE_DOMAIN}/chat"),
+    )
+}
+
 #[post("/auth/nonce")]
 pub async fn post_auth_nonce_handler(
+    req: HttpRequest,
     app_ctx: web::Data<AppCtx>,
     payment_cfg: Option<web::Data<PaymentConfig>>,
     body: web::Bytes,
@@ -105,6 +177,7 @@ pub async fn post_auth_nonce_handler(
         }
     };
     let config = resolve_payment_config(payment_cfg);
+    let (domain, uri) = resolve_siwe_domain_and_uri(&req);
     let pool = app_ctx.pool.clone();
     let wallet_address = req_body.wallet_address;
     let now_unix = Utc::now().timestamp();
@@ -118,12 +191,33 @@ pub async fn post_auth_nonce_handler(
     .await;
 
     match result {
-        Ok(Ok(issued)) => proto_ok(NonceResponse {
-            nonce: issued.nonce,
-            wallet_address: issued.wallet_address,
-            expires_at: issued.expires_at,
-            payment_config: Some(config.to_proto()),
-        }),
+        Ok(Ok(issued)) => {
+            let checksum_wallet =
+                to_checksum_address(&issued.wallet_address).unwrap_or(issued.wallet_address);
+            let issued_at = chrono::DateTime::from_timestamp(issued.created_at, 0)
+                .unwrap_or_else(Utc::now)
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            let siwe_message = format_siwe_message(&SiweMessage {
+                domain,
+                address: checksum_wallet.clone(),
+                statement: Some("Sign in to month.erdmko.de chat.".to_string()),
+                uri,
+                version: SIWE_VERSION.to_string(),
+                chain_id: config.chain_id,
+                nonce: issued.nonce.clone(),
+                issued_at,
+                expiration_time: None,
+                not_before: None,
+                request_id: None,
+            });
+            proto_ok(NonceResponse {
+                nonce: issued.nonce,
+                wallet_address: checksum_wallet,
+                expires_at: issued.expires_at,
+                payment_config: Some(config.to_proto()),
+                siwe_message,
+            })
+        }
         Ok(Err(err)) => auth_error_to_response(err),
         Err(err) => auth_error_to_response(AuthError::internal(
             "Failed to execute nonce request.",
@@ -465,7 +559,6 @@ mod tests {
     use crate::auth::siwe::test_helpers::{sign_personal_message, wallet_address_from_private_key};
     use crate::auth::siwe::{SiweMessage, format_siwe_message};
     use actix_web::{App, http::StatusCode, test};
-    use chrono::Duration;
     use r2d2_sqlite::SqliteConnectionManager;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -530,24 +623,15 @@ mod tests {
             PROTO_CONTENT_TYPE
         );
         let issued = NonceResponse::decode(test::read_body(nonce_resp).await.as_ref()).unwrap();
-        assert_eq!(issued.wallet_address, wallet);
+        let expected_checksum = to_checksum_address(&wallet).unwrap();
+        assert_eq!(issued.wallet_address, expected_checksum);
         assert_eq!(issued.nonce.len(), 32);
+        assert!(issued.siwe_message.starts_with(&format!(
+            "erdmko.dev wants you to sign in with your Ethereum account:\n{expected_checksum}\n\n"
+        )));
 
-        // 2. Build EIP-4361 message and sign with PRIV_KEY_1
-        let now = Utc::now();
-        let siwe_msg = format_siwe_message(&SiweMessage {
-            domain: "erdmko.dev".to_string(),
-            address: wallet.clone(),
-            statement: Some("Sign in to month.erdmko.de".to_string()),
-            uri: "https://erdmko.dev/chat/general".to_string(),
-            version: "1".to_string(),
-            chain_id: 1,
-            nonce: issued.nonce.clone(),
-            issued_at: now.to_rfc3339(),
-            expiration_time: Some((now + Duration::minutes(5)).to_rfc3339()),
-            not_before: None,
-            request_id: None,
-        });
+        // 2. Sign server-generated EIP-4361 message with PRIV_KEY_1
+        let siwe_msg = issued.siwe_message.clone();
         let signature = sign_personal_message(&PRIV_KEY_1, &siwe_msg);
 
         // 3. POST /auth/verify sets HttpOnly cookie and returns protobuf AuthSession
@@ -1016,20 +1100,9 @@ mod tests {
             PaymentClaimNotice::decode(test::read_body(wrong_verify_resp).await.as_ref()).unwrap();
         assert!(wrong_err.message.contains("Chain ID"));
 
-        // 4. /auth/verify accepts SIWE message signed for configured chain ID (11155111)
-        let right_chain_msg = format_siwe_message(&SiweMessage {
-            domain: "erdmko.dev".to_string(),
-            address: wallet.clone(),
-            statement: Some("Sign in to month.erdmko.de".to_string()),
-            uri: "https://erdmko.dev/chat/general".to_string(),
-            version: "1".to_string(),
-            chain_id: 11_155_111,
-            nonce: issued.nonce,
-            issued_at: now.to_rfc3339(),
-            expiration_time: None,
-            not_before: None,
-            request_id: None,
-        });
+        // 4. /auth/verify accepts the server-generated SIWE message signed for configured chain ID (11155111)
+        assert!(issued.siwe_message.contains("Chain ID: 11155111\n"));
+        let right_chain_msg = issued.siwe_message;
         let right_sig = sign_personal_message(&PRIV_KEY_1, &right_chain_msg);
         let right_verify_resp = test::call_service(
             &app,
