@@ -72,7 +72,7 @@ async fn voice_join_and_leave_broadcasts_state() {
 }
 
 #[actix_web::test]
-async fn voice_disconnect_triggers_leave_and_serves_healthz() {
+async fn voice_disconnect_triggers_leave_and_serves_version() {
     ensure_voice_init();
     let ctx = setup_ctx();
     let room_id = format!("voice-disc-{}", random::<u64>());
@@ -88,8 +88,8 @@ async fn voice_disconnect_triggers_leave_and_serves_healthz() {
         App::new()
             .app_data(sctx.clone())
             .route(
-                "/healthz",
-                actix_web::web::get().to(actix_web::HttpResponse::Ok),
+                "/version",
+                actix_web::web::get().to(crate::version::version_handler),
             )
             .service(chat_ws_page_handler)
     })
@@ -132,14 +132,14 @@ async fn voice_disconnect_triggers_leave_and_serves_healthz() {
         assert!(state.participants.is_empty());
     }
 
-    // Healthcheck must respond immediately
+    // Liveness/version endpoint must respond immediately
     let client = awc::Client::default();
     let res = client
-        .get(format!("http://{}/healthz", addr))
+        .get(format!("http://{}/version", addr))
         .timeout(Duration::from_millis(500))
         .send()
         .await
-        .expect("healthz request should not timeout during/after voice leave");
+        .expect("version request should not timeout during/after voice leave");
     assert_eq!(res.status(), actix_web::http::StatusCode::OK);
 
     handle.stop(true).await;
@@ -211,8 +211,8 @@ async fn multi_tab_voice_join_leave_and_chat_messaging() {
         App::new()
             .app_data(sctx.clone())
             .route(
-                "/healthz",
-                actix_web::web::get().to(actix_web::HttpResponse::Ok),
+                "/version",
+                actix_web::web::get().to(crate::version::version_handler),
             )
             .service(chat_ws_page_handler)
     })

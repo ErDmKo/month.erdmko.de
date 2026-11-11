@@ -315,15 +315,14 @@ pub fn is_valid_binary_payload_size(payload_len: usize) -> bool {
 
 pub fn is_allowed_origin(origin: &str) -> bool {
     let normalized = origin.trim().trim_end_matches('/').to_ascii_lowercase();
-    let host = normalized
+    let Some(host) = normalized
         .strip_prefix("http://")
         .or_else(|| normalized.strip_prefix("https://"))
-        .unwrap_or(normalized.as_str())
-        .split('/')
-        .next()
-        .unwrap_or("");
-    matches!(host, "erdmko.dev" | "erdmko.dev:443" | "localhost:8080")
-        || host.starts_with("127.0.0.1:")
+        .and_then(|rest| rest.split('/').next())
+    else {
+        return false;
+    };
+    crate::auth::siwe::is_allowed_siwe_domain(host)
 }
 
 // ── Server → Client payload builders ─────────────────────────────────────────
@@ -518,5 +517,16 @@ mod tests {
         // Removing a1 removes it from both open_connections and "general" recipients
         registry.remove_connection("general", &a1);
         assert!(registry.connected_recipients("general").is_empty());
+    }
+
+    #[test]
+    fn allowed_origin_matches_siwe_domain_and_rejects_untrusted_origins() {
+        assert!(is_allowed_origin("https://erdmko.dev"));
+        assert!(is_allowed_origin("https://erdmko.dev:443"));
+        assert!(is_allowed_origin("https://localhost:8443"));
+        assert!(is_allowed_origin("http://127.0.0.1:54321"));
+        assert!(!is_allowed_origin("https://evil.example"));
+        assert!(!is_allowed_origin("erdmko.dev"));
+        assert!(!is_allowed_origin("ws://erdmko.dev"));
     }
 }

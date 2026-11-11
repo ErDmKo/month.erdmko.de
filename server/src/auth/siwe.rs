@@ -205,17 +205,31 @@ fn strip_field(line: Option<&str>, prefix: &str) -> AuthResult<String> {
     Ok(trimmed.to_string())
 }
 
+fn strip_scheme_and_path(raw: &str) -> &str {
+    let trimmed = raw.trim().trim_end_matches('/');
+    let without_scheme = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+        .unwrap_or(trimmed);
+    without_scheme.split('/').next().unwrap_or("")
+}
+
 /// Check whether a SIWE domain matches the configured server domain or localhost in dev.
 pub fn is_allowed_siwe_domain(domain: &str) -> bool {
     let normalized = domain.trim().to_ascii_lowercase();
     if let Ok(env_domain) = std::env::var("DOMAIN") {
-        let env_norm = env_domain.trim().to_ascii_lowercase();
-        if !env_norm.is_empty() && normalized == env_norm {
+        let env_norm = strip_scheme_and_path(&env_domain).to_ascii_lowercase();
+        if !env_norm.is_empty()
+            && (normalized == env_norm || normalized == format!("{env_norm}:443"))
+        {
             return true;
         }
     }
     if let Some(compile_domain) = option_env!("DOMAIN") {
-        if normalized == compile_domain.to_ascii_lowercase() {
+        let compile_norm = strip_scheme_and_path(compile_domain).to_ascii_lowercase();
+        if !compile_norm.is_empty()
+            && (normalized == compile_norm || normalized == format!("{compile_norm}:443"))
+        {
             return true;
         }
     }

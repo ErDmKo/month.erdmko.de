@@ -1,7 +1,7 @@
 use actix_files;
 use actix_web::dev::ServiceRequest;
 use actix_web::http::header;
-use actix_web::{App, HttpResponse, HttpServer, middleware, web};
+use actix_web::{App, HttpServer, middleware, web};
 use actix_web_grants::GrantsMiddleware;
 use db::check_token;
 use env_logger;
@@ -43,10 +43,6 @@ async fn get_static_from_root(
     }
 }
 const ROLE_ADMIN: &str = "ROLE_ADMIN";
-
-async fn health_handler() -> HttpResponse {
-    HttpResponse::Ok().finish()
-}
 
 async fn extract(req: &ServiceRequest) -> Result<HashSet<String>, actix_web::Error> {
     let headers = req.headers();
@@ -147,7 +143,6 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .wrap(auth)
             .app_data(templates.clone())
-            .route("/healthz", web::get().to(health_handler))
             .route("/version", web::get().to(version::version_handler))
             .service(pages::main_page_handler)
             .service(pages::random_page_handler)

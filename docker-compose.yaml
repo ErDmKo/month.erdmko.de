@@ -19,7 +19,7 @@ services:
     volumes:
       - edk:/app/server/db
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/version"]
       interval: 30s
       timeout: 5s
       start_period: 30s

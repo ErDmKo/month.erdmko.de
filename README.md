@@ -71,20 +71,11 @@ Paid chat onboarding (`SIWE` + direct ETH transfer) is configured through
 - `MIN_PAYMENT_WEI` (default `1000000000000000` — `0.001 ETH`)
 - `ACCESS_DURATION_SECS` (default `2592000` — 30 days)
 
-### Health check
+### Health & version check
 
-`GET /healthz` returns `200 OK` while the application HTTP process is accepting
-requests. Use it for external availability monitoring:
-
-```bash
-curl --fail --silent --show-error https://erdmko.dev/healthz
-```
-
-This endpoint does not verify active voice sessions or media connectivity.
-
-### Version check
-
-`GET /version` returns the git metadata baked into the running image:
+`GET /version` returns `200 OK` along with the git metadata baked into the
+running image while the application HTTP process is accepting requests (used
+both for Docker Compose health checks and deployment verification):
 
 ```bash
 curl --fail --silent --show-error https://erdmko.dev/version

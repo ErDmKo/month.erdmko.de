@@ -75,8 +75,10 @@ export class ChatOnboardingPage extends BasePage {
                 (resolve) => {
                     let opened = false;
                     let messages = 0;
+                    const proto =
+                        location.protocol === 'https:' ? 'wss:' : 'ws:';
                     const ws = new WebSocket(
-                        `ws://${location.host}/ws/chat/${targetRoom}`
+                        `${proto}//${location.host}/ws/chat/${targetRoom}`
                     );
                     ws.onopen = () => {
                         opened = true;

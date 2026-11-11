@@ -11,6 +11,7 @@ import * as path from 'path';
 import puppeteer, { Browser } from 'puppeteer';
 import { setMockRpcConfig, startMockEthRpcServer } from '../helpers/mock-rpc';
 import { startServer } from '../helpers/server';
+import { startTlsReverseProxy } from '../helpers/tls-proxy';
 import { installMockWallet } from '../helpers/wallet';
 import {
     ChatOnboardingPage,
@@ -27,7 +28,11 @@ let browser: Browser;
 beforeAll(async () => {
     browser = await puppeteer.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--ignore-certificate-errors',
+        ],
     });
 });
 
@@ -314,6 +319,47 @@ describe('paid wallet onboarding & security E2E', () => {
             await srv.stop();
             await dedicatedRpc.stop();
             fs.rmSync(persistentDir, { recursive: true, force: true });
+        }
+    });
+
+    test('HTTPS reverse proxy preserves Secure HttpOnly session cookie and upgrades wss:// chat WebSocket', async () => {
+        const proxy = await startTlsReverseProxy(
+            Number(process.env.E2E_SERVER_PORT)
+        );
+        const session = await createIsolatedPageSession(browser);
+        const roomId = `tls-wss-${Date.now()}`;
+
+        try {
+            const onboarding = new ChatOnboardingPage(session.page, proxy.url);
+
+            // Anonymous wss:// upgrade through TLS proxy is rejected cleanly
+            await onboarding.openLanding();
+            const anonWss =
+                await onboarding.attemptAnonymousWebSocket('general');
+            expect(anonWss).toEqual({ opened: false, messages: 0 });
+
+            // Full SIWE + ETH payment + Secure cookie + wss:// auto-join over https://
+            const { roomPage, wallet } =
+                await onboarding.onboardAndEnterRoom(roomId);
+            expect(roomPage.currentUrl()).toBe(`${proxy.url}/chat/${roomId}`);
+            expect(wallet.sentTxs.length).toBe(1);
+
+            const cookies = await roomPage.cookies();
+            const sessionCookie = cookies.find(
+                (c) => c.name === 'month_session'
+            );
+            expect(sessionCookie).toBeDefined();
+            expect(sessionCookie?.secure).toBe(true);
+            expect(sessionCookie?.httpOnly).toBe(true);
+            expect(sessionCookie?.sameSite).toBe('Lax');
+
+            // Binary protobuf messaging over wss://
+            await roomPage.sendMessage('encrypted transport over wss');
+            await roomPage.waitForMessage('encrypted transport over wss');
+            expect(session.errors).toEqual([]);
+        } finally {
+            await session.close();
+            await proxy.stop();
         }
     });
 });

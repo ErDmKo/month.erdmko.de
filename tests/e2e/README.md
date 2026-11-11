@@ -12,7 +12,8 @@ tests/e2e/
 │   ├── global-setup.ts     # Builds //server:server and starts shared server + mock RPC
 │   ├── global-teardown.ts  # Stops shared server + mock RPC and cleans temp DBs
 │   ├── mock-rpc.ts         # Local JSON-RPC 2.0 server (eth_chainId, tx & receipt lookup)
-│   ├── server.ts           # Isolated BASE_PATH + /healthz readiness helper
+│   ├── server.ts           # Isolated BASE_PATH + /version readiness helper
+│   ├── tls-proxy.ts        # Local HTTPS + wss:// TLS-terminating reverse proxy fixture
 │   └── wallet.ts           # EIP-1193 window.ethereum provider fixture
 ├── pages/                  # Page Object Model (REQUIRED for all DOM/navigation interactions)
 │   ├── base.page.ts        # BasePage + createIsolatedPageSession (incognito BrowserContext)

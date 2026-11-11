@@ -36,18 +36,33 @@ function freePort(): Promise<number> {
     });
 }
 
-function checkHealthz(port: number): Promise<boolean> {
+function checkVersionReady(port: number): Promise<boolean> {
     return new Promise((resolve) => {
         const req = http.get(
             {
                 hostname: '127.0.0.1',
                 port,
-                path: '/healthz',
+                path: '/version',
                 timeout: 500,
             },
             (res) => {
-                res.resume();
-                resolve(res.statusCode === 200);
+                let raw = '';
+                res.setEncoding('utf8');
+                res.on('data', (chunk) => {
+                    raw += chunk;
+                });
+                res.on('end', () => {
+                    if (res.statusCode !== 200) {
+                        resolve(false);
+                        return;
+                    }
+                    try {
+                        const parsed = JSON.parse(raw) as { commit?: string };
+                        resolve(typeof parsed.commit === 'string');
+                    } catch {
+                        resolve(false);
+                    }
+                });
             }
         );
         req.on('error', () => resolve(false));
@@ -58,8 +73,8 @@ function checkHealthz(port: number): Promise<boolean> {
     });
 }
 
-/** Poll GET /healthz until 200 OK, early child exit, or timeout. */
-async function waitForHealthz(
+/** Poll GET /version until 200 OK JSON, early child exit, or timeout. */
+async function waitForVersionReady(
     port: number,
     proc: ChildProcess,
     getLogs: () => string,
@@ -72,13 +87,13 @@ async function waitForHealthz(
                 `Server on port ${port} exited early with code ${proc.exitCode}.\nLogs:\n${getLogs()}`
             );
         }
-        if (await checkHealthz(port)) {
+        if (await checkVersionReady(port)) {
             return;
         }
         await new Promise((r) => setTimeout(r, 150));
     }
     throw new Error(
-        `Server on port ${port} did not pass /healthz within ${timeoutMs}ms.\nLogs:\n${getLogs()}`
+        `Server on port ${port} did not pass /version within ${timeoutMs}ms.\nLogs:\n${getLogs()}`
     );
 }
 
@@ -196,7 +211,7 @@ export async function startServer(
     };
 
     try {
-        await waitForHealthz(port, proc, () => recentLogs.join(''));
+        await waitForVersionReady(port, proc, () => recentLogs.join(''));
     } catch (err) {
         await cleanupProcessAndFiles();
         throw err;
