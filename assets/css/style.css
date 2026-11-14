@@ -1,11 +1,14 @@
 :root {
     --base-color: #007db5;
+    color-scheme: only light;
 }
 
 body,
 html {
     margin: 0;
     font-family: 'Roboto', sans-serif;
+    background-color: #ffffff;
+    color: #09090b;
 }
 a {
     color: var(--base-color);
@@ -51,6 +54,8 @@ h3 {
     border: 1px solid #ccc;
     border-radius: 4px;
     box-sizing: border-box;
+    background-color: #ffffff;
+    color: #09090b;
 }
 .result {
     border-radius: 10px;
@@ -68,6 +73,8 @@ h3 {
     max-width: 1024px;
     box-sizing: border-box;
     margin: 20px 0px;
+    background-color: #ffffff;
+    color: #09090b;
 }
 .page,
 .inner-page {

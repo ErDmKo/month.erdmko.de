@@ -176,4 +176,26 @@ export class HomePage extends BasePage {
             return [canvas.width, canvas.height] as [number, number];
         });
     }
+
+    async surfaceColorsUnderDarkPreference(): Promise<{
+        htmlBackground: string;
+        bodyBackground: string;
+        bodyColor: string;
+        metaColorScheme: string | null;
+    }> {
+        await this.page.emulateMediaFeatures([
+            { name: 'prefers-color-scheme', value: 'dark' },
+        ]);
+        return this.page.evaluate(() => {
+            const htmlStyle = window.getComputedStyle(document.documentElement);
+            const bodyStyle = window.getComputedStyle(document.body);
+            const meta = document.querySelector('meta[name="color-scheme"]');
+            return {
+                htmlBackground: htmlStyle.backgroundColor,
+                bodyBackground: bodyStyle.backgroundColor,
+                bodyColor: bodyStyle.color,
+                metaColorScheme: meta ? meta.getAttribute('content') : null,
+            };
+        });
+    }
 }

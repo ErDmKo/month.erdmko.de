@@ -91,6 +91,13 @@ describe('optimized browser bundles', () => {
         await home.openEnsuringSnowflakeBundle();
         const dimensions = await home.snowflakeCanvasDimensions();
         expect(dimensions.every((value) => value > 0)).toBe(true);
+        const colors = await home.surfaceColorsUnderDarkPreference();
+        expect(colors).toEqual({
+            htmlBackground: 'rgb(255, 255, 255)',
+            bodyBackground: 'rgb(255, 255, 255)',
+            bodyColor: 'rgb(9, 9, 11)',
+            metaColorScheme: 'only light',
+        });
         expect(session.errors).toEqual([]);
     });
 
