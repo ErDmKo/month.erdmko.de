@@ -35,11 +35,9 @@ import {
     TELEMETRY_OP_VOICE_GUM,
     TELEMETRY_OP_VOICE_ICE,
     TELEMETRY_OP_VOICE_OFFER,
-    TELEMETRY_OP_VOICE_SIGNALING,
     TELEMETRY_SEVERITY_ERROR,
     TELEMETRY_SEVERITY_WARN,
 } from '@month/gen/telemetry';
-import { emitChatTelemetry } from '../telemetry';
 import type { ChatSocket } from '../protocol/incoming';
 import {
     CHAT_SOCKET_OUTGOING,
@@ -56,6 +54,7 @@ import {
     CHAT_UI_JOINED,
     CHAT_UI_JOINED_SENDER_ID,
     CHAT_UI_ERROR,
+    CHAT_UI_TELEMETRY,
     CHAT_UI_VOICE_JOIN,
     CHAT_UI_VOICE_MUTE,
     CHAT_UI_VOICE_LEAVE,
@@ -121,6 +120,25 @@ export const initVoice =
             chatUiObs(bindArg([CHAT_UI_ERROR, message] as const, trigger));
         };
 
+        const reportVoiceFailure = (
+            sev: number,
+            op: number,
+            err: unknown,
+            message: string,
+            code = ''
+        ) => {
+            chatUiObs(
+                bindArg(
+                    [
+                        CHAT_UI_TELEMETRY,
+                        [sev, TELEMETRY_KIND_WEBRTC, op, err, code],
+                    ] as const,
+                    trigger
+                )
+            );
+            showError(message);
+        };
+
         // ── Leave / cleanup ───────────────────────────────────────────────────
 
         const leaveVoice = (sendLeave: boolean) => {
@@ -183,16 +201,14 @@ export const initVoice =
                 if (state === 'connected' || state === 'completed') {
                     setStatus(uiState, 'Connected');
                 } else if (state === 'failed') {
-                    emitChatTelemetry(
-                        ctx,
+                    setStatus(uiState, 'Connection failed');
+                    reportVoiceFailure(
                         TELEMETRY_SEVERITY_WARN,
-                        TELEMETRY_KIND_WEBRTC,
                         TELEMETRY_OP_VOICE_ICE,
                         'Voice connection failed.',
+                        'Voice connection failed. Please try rejoining.',
                         'ICE_FAILED'
                     );
-                    setStatus(uiState, 'Connection failed');
-                    showError('Voice connection failed. Please try rejoining.');
                     leaveVoice(true);
                 } else if (state === 'disconnected') {
                     setStatus(uiState, 'Reconnecting...');
@@ -257,25 +273,21 @@ export const initVoice =
                     // any peer connection exists) from later offer/negotiation
                     // failures, matching the ticket's two distinct error paths.
                     if (!peer) {
-                        emitChatTelemetry(
-                            ctx,
-                            TELEMETRY_SEVERITY_WARN,
-                            TELEMETRY_KIND_WEBRTC,
-                            TELEMETRY_OP_VOICE_GUM,
-                            e
-                        );
                         if (uiState) setStatus(uiState, '');
-                        showError(`Microphone access denied: ${String(e)}`);
+                        reportVoiceFailure(
+                            TELEMETRY_SEVERITY_WARN,
+                            TELEMETRY_OP_VOICE_GUM,
+                            e,
+                            `Microphone access denied: ${String(e)}`
+                        );
                         return;
                     }
-                    emitChatTelemetry(
-                        ctx,
+                    reportVoiceFailure(
                         TELEMETRY_SEVERITY_ERROR,
-                        TELEMETRY_KIND_WEBRTC,
                         TELEMETRY_OP_VOICE_OFFER,
-                        e
+                        e,
+                        `Failed to create voice offer: ${String(e)}`
                     );
-                    showError(`Failed to create voice offer: ${String(e)}`);
                     leaveVoice(true);
                 })
             );
@@ -313,14 +325,12 @@ export const initVoice =
                 pipe(
                     applyVoiceAnswerTask(voicePeerConnection(peer), sdp),
                     taskFork(noop, (e) => {
-                        emitChatTelemetry(
-                            ctx,
+                        reportVoiceFailure(
                             TELEMETRY_SEVERITY_ERROR,
-                            TELEMETRY_KIND_WEBRTC,
                             TELEMETRY_OP_VOICE_ANSWER,
-                            e
+                            e,
+                            `Failed to apply voice answer: ${String(e)}`
                         );
-                        showError(`Failed to apply voice answer: ${String(e)}`);
                         leaveVoice(true);
                     })
                 );
@@ -341,14 +351,10 @@ export const initVoice =
                         value[SERVER_VOICE_ICE_SDP_MLINE_IDX]
                     ),
                     taskFork(noop, (e) => {
-                        emitChatTelemetry(
-                            ctx,
+                        reportVoiceFailure(
                             TELEMETRY_SEVERITY_WARN,
-                            TELEMETRY_KIND_WEBRTC,
                             TELEMETRY_OP_VOICE_ICE,
-                            e
-                        );
-                        showError(
+                            e,
                             `Failed to add voice ICE candidate: ${String(e)}`
                         );
                     })
@@ -358,14 +364,6 @@ export const initVoice =
 
             if (variant === SERVER_FRAME_VOICE_ERROR) {
                 const value = event[SERVER_FRAME_PAYLOAD_VALUE];
-                emitChatTelemetry(
-                    ctx,
-                    TELEMETRY_SEVERITY_WARN,
-                    TELEMETRY_KIND_WEBRTC,
-                    TELEMETRY_OP_VOICE_SIGNALING,
-                    value[SERVER_VOICE_ERROR_CODE],
-                    value[SERVER_VOICE_ERROR_CODE]
-                );
                 showError(`Voice error: ${value[SERVER_VOICE_ERROR_CODE]}`);
                 void value[SERVER_VOICE_ERROR_REQUEST_ID];
                 // Any voice error while attempting/holding a call is treated as

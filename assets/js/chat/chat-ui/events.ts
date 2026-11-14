@@ -1,4 +1,5 @@
 import type { ObserverInstance, ReadonlyTupleOf } from '../../utils';
+import type { TelemetryInput } from '@month/telemetry';
 import type { ChatUiRefs } from './template';
 import type { ChatUiState } from './state';
 
@@ -12,6 +13,7 @@ export const CHAT_UI_VOICE_JOIN = 4 as const;
 export const CHAT_UI_VOICE_MUTE = 5 as const;
 export const CHAT_UI_VOICE_LEAVE = 6 as const;
 export const CHAT_UI_AUTH_VERIFIED = 7 as const;
+export const CHAT_UI_TELEMETRY = 8 as const;
 
 // ── Field indices ─────────────────────────────────────────────────────────────
 
@@ -32,6 +34,9 @@ export const CHAT_UI_FILE_SELECTED_FILE = 1 as const;
 
 // CHAT_UI_AUTH_VERIFIED: [type, walletAddress]
 export const CHAT_UI_AUTH_VERIFIED_WALLET = 1 as const;
+
+// CHAT_UI_TELEMETRY: [type, telemetryInput]
+export const CHAT_UI_TELEMETRY_INPUT = 1 as const;
 
 // ── ChatUiEvent tuple type ────────────────────────────────────────────────────
 
@@ -62,6 +67,10 @@ export type ChatUiEvent =
     | ReadonlyTupleOf<{
           [CHAT_UI_EVENT_TYPE]: typeof CHAT_UI_AUTH_VERIFIED;
           [CHAT_UI_AUTH_VERIFIED_WALLET]: string;
+      }>
+    | ReadonlyTupleOf<{
+          [CHAT_UI_EVENT_TYPE]: typeof CHAT_UI_TELEMETRY;
+          [CHAT_UI_TELEMETRY_INPUT]: TelemetryInput;
       }>;
 
 export type ChatUiObs = ObserverInstance<ChatUiEvent>;

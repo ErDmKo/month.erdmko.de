@@ -93,7 +93,7 @@ describe('client error telemetry E2E (/ws/telemetry -> server stdout)', () => {
         }
     });
 
-    test('offline uncaught runtime error queues while disconnected and flushes over /ws/telemetry once online', async () => {
+    test('offline uncaught runtime error persists in localStorage across reload, flushes once online, and clears on ACK', async () => {
         const session = await createIsolatedPageSession(browser);
         try {
             const onboarding = new ChatOnboardingPage(
@@ -106,18 +106,33 @@ describe('client error telemetry E2E (/ws/telemetry -> server stdout)', () => {
             await onboarding.setNetworkOffline(true);
             await onboarding.triggerUncaughtRuntimeError(marker);
 
-            // Give the page 300ms while offline — server stdout must NOT contain marker yet
-            await new Promise((r) => setTimeout(r, 300));
+            // Persisted in localStorage while offline, and NOT yet sent to server
+            await new Promise((r) => setTimeout(r, 250));
+            const persistedHex =
+                await onboarding.localStorageItem('chat-telemetry');
+            expect(persistedHex).toBeTruthy();
             expect(telemetryServer.getStdout()).not.toContain(marker);
 
-            // Restore network connectivity -> queued frame flushes over /ws/telemetry
-            await onboarding.setNetworkOffline(false);
-            const stdout = await waitForStdoutMatch((s) => s.includes(marker));
+            // Simulate closing tab, coming back online, and opening a fresh /chat page in the same BrowserContext
+            const freshPage = await session.context.newPage();
+            await session.page.close();
+            const reloadedOnboarding = new ChatOnboardingPage(
+                freshPage,
+                serverBaseUrl()
+            );
+            await reloadedOnboarding.openLanding();
 
+            const stdout = await waitForStdoutMatch((s) => s.includes(marker));
             expect(stdout).toContain('ERROR telemetry] event=browser.error');
             expect(stdout).toContain('kind=uncaught_error');
             // Query string `?room=secret-room` is never leaked in telemetry path
             expect(stdout).not.toContain('secret-room');
+
+            // Once server sends TelemetryAck, `chat-telemetry` is purged from localStorage
+            await new Promise((r) => setTimeout(r, 150));
+            expect(
+                await reloadedOnboarding.localStorageItem('chat-telemetry')
+            ).toBeFalsy();
         } finally {
             await session.close();
         }

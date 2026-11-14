@@ -26,10 +26,11 @@ import {
     TELEMETRY_SEVERITY_WARN,
 } from '@month/gen/telemetry';
 import {
-    emitChatTelemetry,
-    extractTelemetryError,
-    setActiveTelemetryChainId,
-} from '../telemetry';
+    EXTRACTED_CODE,
+    EXTRACTED_MESSAGE,
+    extractErrorInfo,
+} from '@month/telemetry';
+import { emitWindowTelemetry } from '../telemetry';
 
 export const DEFAULT_CHAIN_ID = 1;
 export const RECIPIENT_WALLET_ADDRESS =
@@ -141,16 +142,34 @@ export const normalizeTxHash = (raw: string): string => {
     return trimmed.toLowerCase();
 };
 
+const walletChainByWindow = new WeakMap<Window, number>();
+
+export const setWalletChainId = (ctx: Window, chainId: number): void => {
+    if (chainId > 0) {
+        walletChainByWindow.set(ctx, Math.floor(chainId));
+    }
+};
+
+export const getWalletChainId = (ctx: Window): number =>
+    walletChainByWindow.get(ctx) ?? 0;
+
 const reportWalletError = (
     ctx: Window,
     op: number,
     err: unknown,
     explicitCode = ''
 ): void => {
-    const code = explicitCode || extractTelemetryError(err)[0];
+    const extracted = extractErrorInfo(ctx, err);
+    const code = explicitCode || extracted[EXTRACTED_CODE];
     const sev =
         code === '4001' ? TELEMETRY_SEVERITY_WARN : TELEMETRY_SEVERITY_ERROR;
-    emitChatTelemetry(ctx, sev, TELEMETRY_KIND_WALLET_RPC, op, err, code);
+    emitWindowTelemetry(ctx, [
+        sev,
+        TELEMETRY_KIND_WALLET_RPC,
+        op,
+        extracted[EXTRACTED_MESSAGE],
+        code,
+    ]);
 };
 
 const ethereumRequestTask =
@@ -191,7 +210,7 @@ const readChainIdTask = (ctx: Window): Task<number> =>
         ethereumRequestTask(ctx, TELEMETRY_OP_ETH_CHAIN_ID, 'eth_chainId'),
         taskMap((raw: unknown) => {
             const parsed = parseChainId(raw);
-            setActiveTelemetryChainId(ctx, parsed);
+            setWalletChainId(ctx, parsed);
             return parsed;
         })
     );

@@ -57,7 +57,7 @@ import {
     TELEMETRY_SEVERITY_ERROR,
     TELEMETRY_SEVERITY_WARN,
 } from '@month/gen/telemetry';
-import { emitChatTelemetry, setActiveTelemetryChainId } from '../telemetry';
+import { emitWindowTelemetry } from '../telemetry';
 
 declare global {
     interface Window {
@@ -137,9 +137,16 @@ export const applyPaymentConfig = (
             prev[PAYMENT_CONFIG_DURATION_SECS],
     ];
     configByWindow.set(ctx, next);
-    setActiveTelemetryChainId(ctx, next[PAYMENT_CONFIG_CHAIN_ID]);
     return next;
 };
+
+const RES_OBJ = 0 as const;
+const RES_BUF = 1 as const;
+
+type ResponseBuffer = ReadonlyTupleOf<{
+    [RES_OBJ]: Response;
+    [RES_BUF]: ArrayBuffer;
+}>;
 
 const rawFetchTask =
     (ctx: Window, url: string, init: RequestInit): Task<Response> =>
@@ -152,40 +159,31 @@ const rawFetchTask =
         winFetch[WIN_FETCH](url, init).then(resolve, reject);
     };
 
-const readProtoResponseTask =
-    (ctx: Window, res: Response): Task<Uint8Array> =>
+const readResponseBufferTask =
+    (res: Response): Task<ResponseBuffer> =>
     (resolve, reject) => {
-        res.arrayBuffer().then((buf: ArrayBuffer) => {
-            const bytes = new ctx.Uint8Array(buf);
-            if (!res.ok) {
-                const notice = decodePaymentClaimNotice(ctx, bytes);
-                const msg = notice
-                    ? notice[PAYMENT_CLAIM_NOTICE_MESSAGE].trim()
-                    : '';
-                const err = new Error(
-                    msg || `Request failed with status ${res.status}`
-                ) as Error & { ['code']?: number };
-                err['code'] = res.status;
-                reject(err);
-                return;
-            }
-            resolve(bytes);
-        }, reject);
+        res.arrayBuffer().then(
+            (buf: ArrayBuffer) => resolve([res, buf] as const),
+            reject
+        );
     };
 
-const observeAuthFailure =
-    <T>(ctx: Window, op: number) =>
-    (task: Task<T>): Task<T> =>
-    (resolve, reject) =>
-        task(resolve, (err: unknown) => {
-            const status = (err as { ['code']?: number } | null)?.['code'] ?? 0;
-            const sev =
-                status >= 400 && status < 500
-                    ? TELEMETRY_SEVERITY_WARN
-                    : TELEMETRY_SEVERITY_ERROR;
-            emitChatTelemetry(ctx, sev, TELEMETRY_KIND_AUTH_HTTP, op, err);
-            reject(err);
-        });
+const httpStatusByError = new WeakMap<Error, number>();
+
+const unwrapProtoBytes = (ctx: Window, pair: ResponseBuffer): Uint8Array => {
+    const res = pair[RES_OBJ];
+    const bytes = new ctx.Uint8Array(pair[RES_BUF]);
+    if (!res.ok) {
+        const notice = decodePaymentClaimNotice(ctx, bytes);
+        const msg = notice ? notice[PAYMENT_CLAIM_NOTICE_MESSAGE].trim() : '';
+        const err = new Error(
+            msg || `Request failed with status ${res.status}`
+        );
+        httpStatusByError.set(err, res.status);
+        throw err;
+    }
+    return bytes;
+};
 
 const fetchProtoTask = (
     ctx: Window,
@@ -194,20 +192,41 @@ const fetchProtoTask = (
 ): Task<Uint8Array> =>
     pipe(
         rawFetchTask(ctx, url, init),
-        taskChain(bindArg(ctx, readProtoResponseTask))
+        taskChain(readResponseBufferTask),
+        taskMap(bindArg(ctx, unwrapProtoBytes))
     );
 
-const postProtoTask = (
-    ctx: Window,
-    url: string,
-    bodyBytes: Uint8Array
-): Task<Uint8Array> =>
-    fetchProtoTask(ctx, url, {
-        ['method']: 'POST',
-        ['headers']: { ['Content-Type']: PROTO_CONTENT_TYPE },
-        ['credentials']: 'same-origin',
-        ['body']: bodyBytes as unknown as BodyInit,
-    });
+const postAuthProtoTask =
+    <T>(
+        ctx: Window,
+        op: number,
+        url: string,
+        bodyBytes: Uint8Array,
+        parseFn: (ctx: Window, bytes: Uint8Array) => T
+    ): Task<T> =>
+    (resolve, reject) =>
+        pipe(
+            fetchProtoTask(ctx, url, {
+                ['method']: 'POST',
+                ['headers']: { ['Content-Type']: PROTO_CONTENT_TYPE },
+                ['credentials']: 'same-origin',
+                ['body']: bodyBytes as unknown as BodyInit,
+            }),
+            taskMap((bytes: Uint8Array) => parseFn(ctx, bytes))
+        )(resolve, (err: unknown) => {
+            const status =
+                err instanceof Error ? (httpStatusByError.get(err) ?? 0) : 0;
+            emitWindowTelemetry(ctx, [
+                status >= 400 && status < 500
+                    ? TELEMETRY_SEVERITY_WARN
+                    : TELEMETRY_SEVERITY_ERROR,
+                TELEMETRY_KIND_AUTH_HTTP,
+                op,
+                err,
+                status ? String(status) : '',
+            ]);
+            reject(err);
+        });
 
 export const authSessionToStatus = (
     ctx: Window,
@@ -264,14 +283,12 @@ export const fetchNonceTask = (
     ctx: Window,
     walletAddress: string
 ): Task<NonceChallenge> =>
-    pipe(
-        postProtoTask(
-            ctx,
-            '/auth/nonce',
-            encodeNonceRequest(ctx, walletAddress)
-        ),
-        taskMap(bindArg(ctx, parseNonceProto)),
-        observeAuthFailure(ctx, TELEMETRY_OP_AUTH_NONCE)
+    postAuthProtoTask(
+        ctx,
+        TELEMETRY_OP_AUTH_NONCE,
+        '/auth/nonce',
+        encodeNonceRequest(ctx, walletAddress),
+        parseNonceProto
     );
 
 export const verifySiweTask = (
@@ -279,14 +296,12 @@ export const verifySiweTask = (
     message: string,
     signature: string
 ): Task<SessionStatus> =>
-    pipe(
-        postProtoTask(
-            ctx,
-            '/auth/verify',
-            encodeVerifySiweRequest(ctx, message, signature)
-        ),
-        taskMap(bindArg(ctx, parseRequiredSessionProto)),
-        observeAuthFailure(ctx, TELEMETRY_OP_AUTH_VERIFY)
+    postAuthProtoTask(
+        ctx,
+        TELEMETRY_OP_AUTH_VERIFY,
+        '/auth/verify',
+        encodeVerifySiweRequest(ctx, message, signature),
+        parseRequiredSessionProto
     );
 
 export const claimPaymentOutcomeMessage = (
@@ -321,14 +336,12 @@ export const claimPaymentProtoTask = (
     txHash: string,
     nickname: string
 ): Task<ClaimPaymentResponsePayload> =>
-    pipe(
-        postProtoTask(
-            ctx,
-            '/auth/claim-payment',
-            encodeClaimPaymentRequest(ctx, txHash.trim(), nickname.trim())
-        ),
-        taskMap(bindArg(ctx, parseClaimPaymentProto)),
-        observeAuthFailure(ctx, TELEMETRY_OP_AUTH_CLAIM_PAYMENT)
+    postAuthProtoTask(
+        ctx,
+        TELEMETRY_OP_AUTH_CLAIM_PAYMENT,
+        '/auth/claim-payment',
+        encodeClaimPaymentRequest(ctx, txHash.trim(), nickname.trim()),
+        parseClaimPaymentProto
     );
 
 const requireActivatedOutcome = (
@@ -362,14 +375,12 @@ export const updateNicknameTask = (
     ctx: Window,
     nickname: string
 ): Task<SessionStatus> =>
-    pipe(
-        postProtoTask(
-            ctx,
-            '/auth/nickname',
-            encodeSetNicknameRequest(ctx, nickname.trim())
-        ),
-        taskMap(bindArg(ctx, parseRequiredSessionProto)),
-        observeAuthFailure(ctx, TELEMETRY_OP_AUTH_NICKNAME)
+    postAuthProtoTask(
+        ctx,
+        TELEMETRY_OP_AUTH_NICKNAME,
+        '/auth/nickname',
+        encodeSetNicknameRequest(ctx, nickname.trim()),
+        parseRequiredSessionProto
     );
 
 const returnNull = (): null => null;

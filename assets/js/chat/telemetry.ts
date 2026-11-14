@@ -1,176 +1,120 @@
+import { bindArg, cont, on, pipe, taskMap, trigger } from '@month/utils';
+import type { DomScope, ObserverState, Task } from '@month/utils';
 import {
-    isNumber,
-    isObject,
-    isString,
-    nullable,
-    objectStruct,
-    trim,
-    validate,
-} from '@month/utils';
-import type { ReadonlyTupleOf } from '@month/utils';
+    SERVER_ERROR_CODE,
+    SERVER_ERROR_MESSAGE,
+    SERVER_FRAME_ERROR,
+    SERVER_FRAME_PAYLOAD_VALUE,
+    SERVER_FRAME_PAYLOAD_VARIANT,
+    SERVER_FRAME_VOICE_ERROR,
+    SERVER_VOICE_ERROR_CODE,
+} from '@month/gen/chat';
+import type { ServerFramePayload } from '@month/gen/chat';
 import {
-    TELEMETRY_KIND_UNCAUGHT_ERROR,
-    TELEMETRY_KIND_UNHANDLED_REJECTION,
-    TELEMETRY_OP_UNSPECIFIED,
-    TELEMETRY_PROVIDER_FLAG_ETHEREUM,
-    TELEMETRY_PROVIDER_FLAG_NONE,
-    TELEMETRY_SEVERITY_ERROR,
+    TELEMETRY_KIND_WEBRTC,
+    TELEMETRY_KIND_WS,
+    TELEMETRY_OP_VOICE_SIGNALING,
+    TELEMETRY_OP_WS_SERVER_ERROR,
+    TELEMETRY_SEVERITY_WARN,
 } from '@month/gen/telemetry';
-import { createTelemetryClient, reportTelemetryEvent } from '@month/telemetry';
-import type { TelemetryClient, TelemetryStorage } from '@month/telemetry';
+import { initTelemetry } from '@month/telemetry';
+import type { TelemetryInput, TelemetryObs } from '@month/telemetry';
+import {
+    CHAT_UI_EVENT_TYPE,
+    CHAT_UI_TELEMETRY,
+    CHAT_UI_TELEMETRY_INPUT,
+} from './chat-ui/events';
+import type { ChatUiEvent, ChatUiObs } from './chat-ui/events';
 
-const MAX_CODE_LEN = 64;
-const MAX_PATH_LEN = 128;
-const MAX_MSG_LEN = 256;
+// External State Registry (per CODESTYLE.md) associating each Window with its TelemetryObs
+const telemetryByWindow = new WeakMap<Window, TelemetryObs>();
 
-const PROVIDER_FLAGS: ReadonlyArray<readonly [string, number]> = [
-    ['isMetaMask', 2],
-    ['isPhantom', 4],
-    ['isCoinbaseWallet', 8],
-    ['isRabby', 16],
-    ['isBraveWallet', 32],
-];
-
-const clientsByWindow = new WeakMap<object, TelemetryClient>();
-const chainIdsByWindow = new WeakMap<object, number>();
-
-const ERR_NUM_CODE = 0 as const;
-const ERR_STR_CODE = 1 as const;
-const ERR_NAME = 2 as const;
-const ERR_MSG = 3 as const;
-const ERR_DATA = 4 as const;
-const DATA_MSG = 0 as const;
-
-const errorInfoStruct = objectStruct(
-    ['code', isNumber, nullable],
-    ['code', isString, trim, nullable],
-    ['name', isString, trim, nullable],
-    ['message', isString, trim, nullable],
-    ['data', objectStruct(['message', isString, trim]), nullable]
-);
-
-const ERROR_EVENT_MSG = 0 as const;
-const ERROR_EVENT_LINE = 1 as const;
-const ERROR_EVENT_COL = 2 as const;
-
-const windowErrorEventStruct = objectStruct(
-    ['message', isString, nullable],
-    ['lineno', isNumber, nullable],
-    ['colno', isNumber, nullable]
-);
-
-const EXTRACTED_CODE = 0 as const;
-const EXTRACTED_MSG = 1 as const;
-type ExtractedError = ReadonlyTupleOf<{
-    [EXTRACTED_CODE]: string;
-    [EXTRACTED_MSG]: string;
-}>;
-
-const WIN_ETH_OBJ = 0 as const;
-const ethereumObjStruct = objectStruct(['ethereum', isObject]);
-
-export const detectProviderFlags = (ctx: Window): number => {
-    const parsed = validate(ctx, ethereumObjStruct);
-    if (!parsed) return TELEMETRY_PROVIDER_FLAG_NONE;
-    const eth = parsed[WIN_ETH_OBJ];
-    let flags: number = TELEMETRY_PROVIDER_FLAG_ETHEREUM;
-    for (const [key, bit] of PROVIDER_FLAGS) {
-        if (eth[key] === true) flags |= bit;
-    }
-    return flags;
-};
-
-export const setActiveTelemetryChainId = (
+export const emitWindowTelemetry = (
     ctx: Window,
-    chainId: number
+    input: TelemetryInput
 ): void => {
-    if (chainId > 0) chainIdsByWindow.set(ctx, Math.floor(chainId));
-};
-
-export const extractTelemetryError = (err: unknown): ExtractedError => {
-    const parsed = validate(err, errorInfoStruct);
-    if (parsed) {
-        const rawCode =
-            parsed[ERR_NUM_CODE] !== null
-                ? String(parsed[ERR_NUM_CODE])
-                : parsed[ERR_STR_CODE] ||
-                  (parsed[ERR_NAME] && parsed[ERR_NAME] !== 'Error'
-                      ? parsed[ERR_NAME]
-                      : '');
-        const rawMsg =
-            parsed[ERR_MSG] ||
-            (parsed[ERR_DATA] ? parsed[ERR_DATA][DATA_MSG] : '') ||
-            String(err);
-        return [rawCode.slice(0, MAX_CODE_LEN), rawMsg.slice(0, MAX_MSG_LEN)];
+    const obs = telemetryByWindow.get(ctx);
+    if (obs) {
+        obs(bindArg(input, trigger));
     }
-    return ['', String(err ?? '').slice(0, MAX_MSG_LEN)];
 };
 
-export const emitChatTelemetry = (
-    ctx: Window,
-    severity: number,
-    kind: number,
-    op: number,
-    err: unknown,
-    explicitCode = '',
-    line = 0,
-    column = 0
+const handleIncomingServerFrame = (
+    telemetryObs: TelemetryObs,
+    frame: ServerFramePayload
 ): void => {
-    const client = clientsByWindow.get(ctx);
-    if (!client) return;
-    const extracted = extractTelemetryError(err);
-    reportTelemetryEvent(
-        ctx,
-        severity,
-        kind,
-        op,
-        (explicitCode || extracted[EXTRACTED_CODE]).slice(0, MAX_CODE_LEN),
-        extracted[EXTRACTED_MSG],
-        (ctx.location?.pathname ?? '').slice(0, MAX_PATH_LEN),
-        line > 0 ? Math.floor(line) : 0,
-        column > 0 ? Math.floor(column) : 0,
-        chainIdsByWindow.get(ctx) ?? 0,
-        detectProviderFlags(ctx),
-        client
-    );
+    const variant = frame[SERVER_FRAME_PAYLOAD_VARIANT];
+    if (variant === SERVER_FRAME_ERROR) {
+        const errVal = frame[SERVER_FRAME_PAYLOAD_VALUE];
+        telemetryObs(
+            bindArg(
+                [
+                    TELEMETRY_SEVERITY_WARN,
+                    TELEMETRY_KIND_WS,
+                    TELEMETRY_OP_WS_SERVER_ERROR,
+                    errVal[SERVER_ERROR_MESSAGE] || 'Server error',
+                    errVal[SERVER_ERROR_CODE],
+                ] as const,
+                trigger
+            )
+        );
+    } else if (variant === SERVER_FRAME_VOICE_ERROR) {
+        const code = frame[SERVER_FRAME_PAYLOAD_VALUE][SERVER_VOICE_ERROR_CODE];
+        telemetryObs(
+            bindArg(
+                [
+                    TELEMETRY_SEVERITY_WARN,
+                    TELEMETRY_KIND_WEBRTC,
+                    TELEMETRY_OP_VOICE_SIGNALING,
+                    code,
+                    code,
+                ] as const,
+                trigger
+            )
+        );
+    }
+};
+
+const handleChatUiEvent = (
+    telemetryObs: TelemetryObs,
+    event: ChatUiEvent
+): void => {
+    if (event[CHAT_UI_EVENT_TYPE] === CHAT_UI_TELEMETRY) {
+        telemetryObs(bindArg(event[CHAT_UI_TELEMETRY_INPUT], trigger));
+    }
+};
+
+export const wireIncomingTelemetry = (
+    telemetryObs: TelemetryObs,
+    incoming: ObserverState<ServerFramePayload>
+): void => {
+    on(bindArg(telemetryObs, handleIncomingServerFrame), incoming);
+};
+
+export const wireChatUiTelemetry = (
+    telemetryObs: TelemetryObs,
+    chatUiObs: ChatUiObs
+): void => {
+    chatUiObs(bindArg(bindArg(telemetryObs, handleChatUiEvent), on));
 };
 
 export const initChatTelemetry = (
     ctx: Window,
-    storage: TelemetryStorage | null = null
-): TelemetryClient => {
-    const existing = clientsByWindow.get(ctx);
-    if (existing) return existing;
-
-    const client = createTelemetryClient(ctx, storage);
-    clientsByWindow.set(ctx, client);
-
-    if (typeof ctx.addEventListener === 'function') {
-        ctx.addEventListener('error', (ev: Event) => {
-            const parsed = validate(ev, windowErrorEventStruct);
-            const errObj = (ev as ErrorEvent).error;
-            emitChatTelemetry(
-                ctx,
-                TELEMETRY_SEVERITY_ERROR,
-                TELEMETRY_KIND_UNCAUGHT_ERROR,
-                TELEMETRY_OP_UNSPECIFIED,
-                errObj ?? (parsed ? parsed[ERROR_EVENT_MSG] : 'Uncaught error'),
-                '',
-                parsed ? (parsed[ERROR_EVENT_LINE] ?? 0) : 0,
-                parsed ? (parsed[ERROR_EVENT_COL] ?? 0) : 0
-            );
-        });
-
-        ctx.addEventListener('unhandledrejection', (ev: Event) => {
-            emitChatTelemetry(
-                ctx,
-                TELEMETRY_SEVERITY_ERROR,
-                TELEMETRY_KIND_UNHANDLED_REJECTION,
-                TELEMETRY_OP_UNSPECIFIED,
-                (ev as PromiseRejectionEvent).reason
-            );
-        });
+    resolveChainId: (ctx: Window) => number,
+    scope: DomScope = []
+): Task<TelemetryObs> => {
+    const existing = telemetryByWindow.get(ctx);
+    if (existing) {
+        return cont(existing);
     }
-
-    return client;
+    return pipe(
+        initTelemetry(ctx, resolveChainId, scope),
+        taskMap((obs: TelemetryObs) => {
+            telemetryByWindow.set(ctx, obs);
+            scope.push(() => {
+                telemetryByWindow.delete(ctx);
+            });
+            return obs;
+        })
+    );
 };

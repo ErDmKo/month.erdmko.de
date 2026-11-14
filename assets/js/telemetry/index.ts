@@ -1,4 +1,4 @@
 export * from './dedup';
-export * from './idb-storage';
+export * from './error';
 export * from './queue';
 export * from './transport';

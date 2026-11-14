@@ -1,5 +1,14 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import {
+    bindArg,
+    domDispose,
+    noop,
+    pipe,
+    taskFork,
+    trigger,
+} from '@month/utils';
+import type { DomScope } from '@month/utils';
 import * as telemetryModule from '@month/gen/telemetry';
 import {
     TELEMETRY_ACK_ACK_ID,
@@ -52,20 +61,18 @@ import type {
 } from '@month/gen/telemetry';
 import {
     BACKOFF_DELAYS_MS,
-    CLIENT_QUEUE,
-    CLIENT_WS,
-    createIdbTelemetryStorage,
-    createTelemetryClient,
-    disposeTelemetryClient,
+    detectProviderFlags,
+    EXTRACTED_CODE,
+    EXTRACTED_MESSAGE,
+    extractErrorInfo,
+    initTelemetry,
     MAX_BATCH_EVENTS,
-    MAX_QUEUE_BYTES,
+    MAX_CODE_LEN,
+    MAX_MSG_LEN,
     MAX_QUEUE_EVENTS,
-    QUEUE_ENTRIES,
-    QUEUE_ENTRY_ID,
-    queueEntryCount,
-    queueTotalBytes,
-    reportTelemetryEvent,
+    TELEMETRY_STORAGE_KEY,
 } from './index';
+import type { TelemetryInput, TelemetryObs } from './index';
 
 const ctx = {
     TextEncoder,
@@ -266,181 +273,7 @@ test('generated telemetry module exports only numbers and codec functions with z
     }
 });
 
-// ── TELEM-30: Fake IndexedDB + Fake WebSocket + Fake Timer harness ────────────
-
-type FakeIdbBacking = {
-    nextKey: number;
-    records: Map<number, Uint8Array>;
-};
-
-const createFakeIdbBacking = (): FakeIdbBacking => ({
-    nextKey: 1,
-    records: new Map(),
-});
-
-const createFakeIdbFactory = (backing: FakeIdbBacking): IDBFactory => {
-    const storeNames = new Set<string>(['q']);
-    const db = {
-        objectStoreNames: {
-            contains: (name: string) => storeNames.has(name),
-        },
-        createObjectStore: (name: string) => {
-            storeNames.add(name);
-            return {};
-        },
-        transaction: () => {
-            let pendingOps = 0;
-            let completeScheduled = false;
-            const scheduleComplete = () => {
-                if (pendingOps === 0 && !completeScheduled) {
-                    completeScheduled = true;
-                    queueMicrotask(() => {
-                        txObj.oncomplete?.();
-                    });
-                }
-            };
-            const txObj: {
-                oncomplete: (() => void) | null;
-                onerror: (() => void) | null;
-                onabort: (() => void) | null;
-                error: unknown;
-                objectStore: () => unknown;
-            } = {
-                oncomplete: null,
-                onerror: null,
-                onabort: null,
-                error: null,
-                objectStore: () => ({
-                    put: (value: Uint8Array, key: number) => {
-                        pendingOps++;
-                        const req: {
-                            result: number;
-                            onsuccess: (() => void) | null;
-                        } = {
-                            result: key,
-                            onsuccess: null,
-                        };
-                        queueMicrotask(() => {
-                            if (key >= backing.nextKey) {
-                                backing.nextKey = key + 1;
-                            }
-                            backing.records.set(key, new Uint8Array(value));
-                            req.onsuccess?.();
-                            pendingOps--;
-                            scheduleComplete();
-                        });
-                        return req;
-                    },
-                    add: (value: Uint8Array) => {
-                        pendingOps++;
-                        const req: {
-                            result: number;
-                            onsuccess: (() => void) | null;
-                        } = {
-                            result: 0,
-                            onsuccess: null,
-                        };
-                        queueMicrotask(() => {
-                            const id = backing.nextKey++;
-                            backing.records.set(id, new Uint8Array(value));
-                            req.result = id;
-                            req.onsuccess?.();
-                            pendingOps--;
-                            scheduleComplete();
-                        });
-                        return req;
-                    },
-                    delete: (keyOrRange: number | { __upperBound: number }) => {
-                        pendingOps++;
-                        queueMicrotask(() => {
-                            if (typeof keyOrRange === 'number') {
-                                backing.records.delete(keyOrRange);
-                            } else if (
-                                keyOrRange &&
-                                typeof keyOrRange.__upperBound === 'number'
-                            ) {
-                                for (const k of [...backing.records.keys()]) {
-                                    if (k <= keyOrRange.__upperBound) {
-                                        backing.records.delete(k);
-                                    }
-                                }
-                            }
-                            pendingOps--;
-                            scheduleComplete();
-                        });
-                        return {};
-                    },
-                    openCursor: () => {
-                        const keys = [...backing.records.keys()].sort(
-                            (a, b) => a - b
-                        );
-                        let idx = 0;
-                        const req: {
-                            result: unknown;
-                            onsuccess: (() => void) | null;
-                            onerror: (() => void) | null;
-                        } = {
-                            result: null,
-                            onsuccess: null,
-                            onerror: null,
-                        };
-                        const step = () => {
-                            queueMicrotask(() => {
-                                while (
-                                    idx < keys.length &&
-                                    !backing.records.has(keys[idx])
-                                ) {
-                                    idx++;
-                                }
-                                if (idx >= keys.length) {
-                                    req.result = null;
-                                    req.onsuccess?.();
-                                    return;
-                                }
-                                const k = keys[idx++];
-                                req.result = {
-                                    key: k,
-                                    value: backing.records.get(k)!,
-                                    continue: step,
-                                };
-                                req.onsuccess?.();
-                            });
-                        };
-                        step();
-                        return req;
-                    },
-                }),
-            };
-            return txObj;
-        },
-        close: () => {},
-    };
-
-    return {
-        open: () => {
-            const req: {
-                result: unknown;
-                error: unknown;
-                onupgradeneeded: (() => void) | null;
-                onsuccess: (() => void) | null;
-                onerror: (() => void) | null;
-                onblocked: (() => void) | null;
-            } = {
-                result: db,
-                error: null,
-                onupgradeneeded: null,
-                onsuccess: null,
-                onerror: null,
-                onblocked: null,
-            };
-            queueMicrotask(() => {
-                req.onupgradeneeded?.();
-                req.onsuccess?.();
-            });
-            return req;
-        },
-    } as unknown as IDBFactory;
-};
+// ── TELEM-30: Observer + Task + localStorage + Fake WebSocket harness ────────
 
 type FakeSocketRecord = {
     url: string;
@@ -465,16 +298,23 @@ type TimerTask = {
 };
 
 const createMockTelemetryEnv = (options?: {
-    backing?: FakeIdbBacking | null;
-    failIdbOpen?: boolean;
+    storageMap?: Map<string, string> | null;
+    throwStorageGetter?: boolean;
+    throwStorageWrite?: boolean;
     online?: boolean;
+    pathname?: string;
+    ethereum?: Record<string, unknown>;
 }) => {
     let nowMs = 1_794_614_400_000;
     let online = options?.online ?? true;
     let nextTimerId = 1;
     const timers = new Map<number, TimerTask>();
     const sockets: FakeSocketRecord[] = [];
-    const listeners = new Map<string, Set<() => void>>();
+    const listeners = new Map<string, Set<(ev?: unknown) => void>>();
+    const storageMap =
+        options?.storageMap === undefined
+            ? new Map<string, string>()
+            : options.storageMap;
 
     class MockWebSocket {
         static CONNECTING = 0;
@@ -523,46 +363,40 @@ const createMockTelemetryEnv = (options?: {
         }
     }
 
-    const idbProp = options?.failIdbOpen
-        ? ({
-              open: () => {
-                  const req: {
-                      error: Error;
-                      onupgradeneeded: (() => void) | null;
-                      onsuccess: (() => void) | null;
-                      onerror: (() => void) | null;
-                      onblocked: (() => void) | null;
-                  } = {
-                      error: new Error('SecurityError'),
-                      onupgradeneeded: null,
-                      onsuccess: null,
-                      onerror: null,
-                      onblocked: null,
-                  };
-                  queueMicrotask(() => req.onerror?.());
-                  return req;
-              },
-          } as unknown as IDBFactory)
-        : options?.backing === null
-          ? undefined
-          : createFakeIdbFactory(options?.backing ?? createFakeIdbBacking());
+    const storageObj =
+        storageMap === null
+            ? undefined
+            : {
+                  getItem: (key: string) => storageMap.get(key) ?? null,
+                  setItem: (key: string, val: string) => {
+                      if (options?.throwStorageWrite) {
+                          throw new Error('QuotaExceededError');
+                      }
+                      storageMap.set(key, val);
+                  },
+                  removeItem: (key: string) => {
+                      storageMap.delete(key);
+                  },
+              };
 
-    const mockCtx = {
+    const mockCtx: Record<string, unknown> = {
+        JSON,
         TextEncoder,
         TextDecoder,
         Uint8Array,
         ArrayBuffer,
         Date: { now: () => nowMs },
-        location: { protocol: 'https:', host: 'erdmko.dev' },
+        location: {
+            protocol: 'https:',
+            host: 'erdmko.dev',
+            pathname: options?.pathname ?? '/chat',
+        },
         navigator: {
             get onLine() {
                 return online;
             },
         },
-        indexedDB: idbProp,
-        IDBKeyRange: {
-            upperBound: (n: number) => ({ __upperBound: n }),
-        },
+        ethereum: options?.ethereum,
         WebSocket: MockWebSocket,
         setTimeout: (fn: () => void, delayMs = 0) => {
             const id = nextTimerId++;
@@ -572,7 +406,7 @@ const createMockTelemetryEnv = (options?: {
         clearTimeout: (id: number) => {
             timers.delete(id);
         },
-        addEventListener: (event: string, fn: () => void) => {
+        addEventListener: (event: string, fn: (ev?: unknown) => void) => {
             let set = listeners.get(event);
             if (!set) {
                 set = new Set();
@@ -580,19 +414,24 @@ const createMockTelemetryEnv = (options?: {
             }
             set.add(fn);
         },
-        removeEventListener: (event: string, fn: () => void) => {
+        removeEventListener: (event: string, fn: (ev?: unknown) => void) => {
             listeners.get(event)?.delete(fn);
         },
-    } as unknown as Window;
-
-    const flushMicrotasks = async (rounds = 6) => {
-        for (let i = 0; i < rounds; i++) {
-            await new Promise<void>((r) => queueMicrotask(r));
-        }
     };
 
+    if (options?.throwStorageGetter) {
+        Object.defineProperty(mockCtx, 'localStorage', {
+            get() {
+                throw new Error('SecurityError');
+            },
+        });
+    } else if (storageObj !== undefined) {
+        mockCtx['localStorage'] = storageObj;
+    }
+
     return {
-        ctx: mockCtx,
+        ctx: mockCtx as unknown as Window,
+        storageMap,
         sockets,
         timers,
         advanceTime: (deltaMs: number) => {
@@ -604,6 +443,9 @@ const createMockTelemetryEnv = (options?: {
                 for (const fn of listeners.get('online') ?? []) fn();
             }
         },
+        dispatchWindowEvent: (type: string, ev: unknown) => {
+            for (const fn of listeners.get(type) ?? []) fn(ev);
+        },
         runNextTimer: () => {
             const first = timers.values().next().value as TimerTask | undefined;
             if (!first) return null;
@@ -611,73 +453,82 @@ const createMockTelemetryEnv = (options?: {
             first.fn();
             return first.delayMs;
         },
-        flushMicrotasks,
     };
 };
 
-test('clean page load with empty IndexedDB opens zero WebSockets', async () => {
-    const backing = createFakeIdbBacking();
-    const env = createMockTelemetryEnv({ backing, online: true });
-    const client = createTelemetryClient(env.ctx, createIdbTelemetryStorage());
-    await env.flushMicrotasks();
+const mountTelemetry = (
+    envCtx: Window,
+    scope: DomScope,
+    chainId = 0,
+    idleMs = 1000,
+    dedupMs = 5000
+): TelemetryObs => {
+    let obs!: TelemetryObs;
+    pipe(
+        initTelemetry(
+            envCtx,
+            () => chainId,
+            scope,
+            TELEMETRY_STORAGE_KEY,
+            idleMs,
+            dedupMs
+        ),
+        taskFork((resolved: TelemetryObs) => {
+            obs = resolved;
+        }, noop)
+    );
+    return obs;
+};
+
+const emit = (obs: TelemetryObs, input: TelemetryInput): void => {
+    obs(bindArg(input, trigger));
+};
+
+test('clean page load with empty localStorage opens zero WebSockets', () => {
+    const env = createMockTelemetryEnv({ online: true });
+    const scope: DomScope = [];
+    mountTelemetry(env.ctx, scope);
 
     assert.equal(env.sockets.length, 0);
-    assert.equal(queueEntryCount(client[CLIENT_QUEUE]), 0);
-    disposeTelemetryClient(env.ctx, client);
+    assert.equal(Boolean(env.storageMap?.get(TELEMETRY_STORAGE_KEY)), false);
+    domDispose(scope);
 });
 
-test('offline enqueue persists in IndexedDB across reload, survives WS drop before ACK, and purges only on TelemetryAck', async () => {
-    const backing = createFakeIdbBacking();
-    const env1 = createMockTelemetryEnv({ backing, online: false });
-    const client1 = createTelemetryClient(
-        env1.ctx,
-        createIdbTelemetryStorage()
-    );
+test('offline enqueue persists Protobuf TelemetryBatch in localStorage across reload, survives WS drop before ACK, and purges only on TelemetryAck', () => {
+    const sharedStorage = new Map<string, string>();
+    const env1 = createMockTelemetryEnv({
+        storageMap: sharedStorage,
+        online: false,
+        ethereum: { isPhantom: true },
+    });
+    const scope1: DomScope = [];
+    const obs1 = mountTelemetry(env1.ctx, scope1, 1);
 
-    // Enqueue 2 events while offline (1st even before hydration finishes!)
-    reportTelemetryEvent(
-        env1.ctx,
+    emit(obs1, [
         TELEMETRY_SEVERITY_ERROR,
         TELEMETRY_KIND_WALLET_RPC,
         TELEMETRY_OP_PERSONAL_SIGN,
-        '-32000',
-        'checksum mismatch',
-        '/chat',
-        0,
-        0,
-        1,
-        TELEMETRY_PROVIDER_FLAG_ETHEREUM | TELEMETRY_PROVIDER_FLAG_PHANTOM,
-        client1
-    );
-    await env1.flushMicrotasks();
-    reportTelemetryEvent(
-        env1.ctx,
+        { code: -32000, message: 'checksum mismatch' },
+    ]);
+    emit(obs1, [
         TELEMETRY_SEVERITY_WARN,
         TELEMETRY_KIND_WEBRTC,
         TELEMETRY_OP_VOICE_SIGNALING,
-        'VOICE_ROOM_FULL',
         'room full',
-        '/chat/general',
-        0,
-        0,
-        0,
-        0,
-        client1
-    );
-    await env1.flushMicrotasks();
+        'VOICE_ROOM_FULL',
+    ]);
 
     assert.equal(env1.sockets.length, 0);
-    assert.equal(backing.records.size, 2);
-    disposeTelemetryClient(env1.ctx, client1);
+    assert.equal(Boolean(sharedStorage.get(TELEMETRY_STORAGE_KEY)), true);
+    domDispose(scope1);
 
     // Simulate page reload while still offline -> hydrates 2 records, still 0 sockets
-    const env2 = createMockTelemetryEnv({ backing, online: false });
-    const client2 = createTelemetryClient(
-        env2.ctx,
-        createIdbTelemetryStorage()
-    );
-    await env2.flushMicrotasks();
-    assert.equal(queueEntryCount(client2[CLIENT_QUEUE]), 2);
+    const env2 = createMockTelemetryEnv({
+        storageMap: sharedStorage,
+        online: false,
+    });
+    const scope2: DomScope = [];
+    mountTelemetry(env2.ctx, scope2, 1);
     assert.equal(env2.sockets.length, 0);
 
     // Connectivity returns -> opens wss://erdmko.dev/ws/telemetry and sends batch
@@ -691,230 +542,215 @@ test('offline enqueue persists in IndexedDB across reload, survives WS drop befo
     assert.ok(sentBatch1 !== null);
     assert.equal(sentBatch1[TELEMETRY_BATCH_ACK_ID], 2);
     assert.equal(sentBatch1[TELEMETRY_BATCH_EVENTS].length, 2);
+    assert.equal(
+        sentBatch1[TELEMETRY_BATCH_EVENTS][0][TELEMETRY_EVENT_CODE],
+        '-32000'
+    );
+    assert.equal(
+        sentBatch1[TELEMETRY_BATCH_EVENTS][0][TELEMETRY_EVENT_PROVIDER_FLAGS],
+        TELEMETRY_PROVIDER_FLAG_ETHEREUM | TELEMETRY_PROVIDER_FLAG_PHANTOM
+    );
 
-    // Socket drops mid-flight BEFORE TelemetryAck -> records stay in IndexedDB + backoff scheduled
+    // Socket drops mid-flight BEFORE TelemetryAck -> localStorage stays intact + backoff scheduled
     env2.sockets[0].drop();
-    await env2.flushMicrotasks();
-    assert.equal(backing.records.size, 2);
-    assert.equal(queueEntryCount(client2[CLIENT_QUEUE]), 2);
+    assert.equal(Boolean(sharedStorage.get(TELEMETRY_STORAGE_KEY)), true);
     const delay = env2.runNextTimer();
     assert.equal(delay, BACKOFF_DELAYS_MS[0]);
 
-    // Reconnected socket re-sends batch and receives TelemetryAck(2) -> purges IndexedDB
+    // Reconnected socket re-sends batch and receives TelemetryAck(2) -> purges localStorage
     assert.equal(env2.sockets.length, 2);
     env2.sockets[1].open();
     assert.equal(env2.sockets[1].sent.length, 1);
     env2.sockets[1].receive(encodeTelemetryAck(env2.ctx, 2));
-    await env2.flushMicrotasks();
 
-    assert.equal(queueEntryCount(client2[CLIENT_QUEUE]), 0);
-    assert.equal(backing.records.size, 0);
-    disposeTelemetryClient(env2.ctx, client2);
+    assert.equal(Boolean(sharedStorage.get(TELEMETRY_STORAGE_KEY)), false);
+    domDispose(scope2);
 });
 
-test('multi-batch drain, idle WebSocket teardown, and lazy re-open on later error (default in-memory queue)', async () => {
-    const backing = createFakeIdbBacking();
-    const env = createMockTelemetryEnv({ backing, online: true });
-    // Default storage = null: zero IndexedDB writes, synchronous in-memory queue
-    const client = createTelemetryClient(env.ctx, null, 250, 5000);
-    await env.flushMicrotasks();
+test('multi-batch drain, idle WebSocket teardown, and lazy re-open on later error', () => {
+    const env = createMockTelemetryEnv({ online: true });
+    const scope: DomScope = [];
+    const obs = mountTelemetry(env.ctx, scope, 0, 250, 5000);
 
-    for (let i = 0; i < 20; i++) {
-        reportTelemetryEvent(
-            env.ctx,
+    const totalEvents = MAX_BATCH_EVENTS * 2 + 4;
+    for (let i = 0; i < totalEvents; i++) {
+        emit(obs, [
             TELEMETRY_SEVERITY_WARN,
             TELEMETRY_KIND_WS,
             0,
-            `E_${i}`,
             `msg ${i}`,
-            '/chat',
-            0,
-            0,
-            0,
-            0,
-            client
-        );
+            `E_${i}`,
+        ]);
     }
-    await env.flushMicrotasks();
 
     assert.equal(env.sockets.length, 1);
     env.sockets[0].open();
     assert.equal(env.sockets[0].sent.length, 1);
 
-    const firstBatch = decodeTelemetryBatch(env.ctx, env.sockets[0].sent[0])!;
-    assert.equal(firstBatch[TELEMETRY_BATCH_EVENTS].length, MAX_BATCH_EVENTS);
-    assert.equal(firstBatch[TELEMETRY_BATCH_ACK_ID], 16);
+    const batch1 = decodeTelemetryBatch(env.ctx, env.sockets[0].sent[0])!;
+    assert.equal(batch1[TELEMETRY_BATCH_EVENTS].length, MAX_BATCH_EVENTS);
+    assert.equal(batch1[TELEMETRY_BATCH_ACK_ID], MAX_BATCH_EVENTS);
 
-    // Acking 16 immediately flushes remaining 4 events on the same socket
-    env.sockets[0].receive(encodeTelemetryAck(env.ctx, 16));
-    await env.flushMicrotasks();
+    env.sockets[0].receive(encodeTelemetryAck(env.ctx, MAX_BATCH_EVENTS));
     assert.equal(env.sockets[0].sent.length, 2);
 
-    const secondBatch = decodeTelemetryBatch(env.ctx, env.sockets[0].sent[1])!;
-    assert.equal(secondBatch[TELEMETRY_BATCH_EVENTS].length, 4);
-    assert.equal(secondBatch[TELEMETRY_BATCH_ACK_ID], 20);
+    const batch2 = decodeTelemetryBatch(env.ctx, env.sockets[0].sent[1])!;
+    assert.equal(batch2[TELEMETRY_BATCH_EVENTS].length, MAX_BATCH_EVENTS);
+    assert.equal(batch2[TELEMETRY_BATCH_ACK_ID], MAX_BATCH_EVENTS * 2);
 
-    // Acking 20 empties queue and arms idle close timer (250ms)
-    env.sockets[0].receive(encodeTelemetryAck(env.ctx, 20));
-    await env.flushMicrotasks();
-    assert.equal(queueEntryCount(client[CLIENT_QUEUE]), 0);
+    env.sockets[0].receive(encodeTelemetryAck(env.ctx, MAX_BATCH_EVENTS * 2));
+    assert.equal(env.sockets[0].sent.length, 3);
+
+    const batch3 = decodeTelemetryBatch(env.ctx, env.sockets[0].sent[2])!;
+    assert.equal(batch3[TELEMETRY_BATCH_EVENTS].length, 4);
+    assert.equal(batch3[TELEMETRY_BATCH_ACK_ID], totalEvents);
+
+    // Acking final batch empties queue & storage, and arms 250ms idle close timer
+    env.sockets[0].receive(encodeTelemetryAck(env.ctx, totalEvents));
+    assert.equal(Boolean(env.storageMap?.get(TELEMETRY_STORAGE_KEY)), false);
     assert.equal(env.sockets[0].closed, false);
 
     const idleDelay = env.runNextTimer();
     assert.equal(idleDelay, 250);
     assert.equal(env.sockets[0].closed, true);
-    assert.equal(client[CLIENT_WS], null);
 
-    // A subsequent error lazily opens a brand-new WebSocket
-    reportTelemetryEvent(
-        env.ctx,
+    // Subsequent error lazily opens a brand-new WebSocket
+    emit(obs, [
         TELEMETRY_SEVERITY_ERROR,
         TELEMETRY_KIND_UNCAUGHT_ERROR,
         0,
-        'ReferenceError',
-        'x is not defined',
-        '/chat',
-        10,
-        2,
-        0,
-        0,
-        client
-    );
-    await env.flushMicrotasks();
+        new ReferenceError('x is not defined'),
+    ]);
     assert.equal(env.sockets.length, 2);
-    assert.equal(backing.records.size, 0);
-    disposeTelemetryClient(env.ctx, client);
+    domDispose(scope);
 });
 
-test('queue cap evicts oldest entries by count (64) and bytes (32 KiB)', async () => {
-    const backing = createFakeIdbBacking();
-    const env = createMockTelemetryEnv({ backing, online: false });
-    const client = createTelemetryClient(
-        env.ctx,
-        createIdbTelemetryStorage(),
-        1000,
-        0
-    );
-    await env.flushMicrotasks();
+test('queue cap evicts oldest entries at 64 and truncates oversized code/message fields', () => {
+    const sharedStorage = new Map<string, string>();
+    const env = createMockTelemetryEnv({
+        storageMap: sharedStorage,
+        online: false,
+    });
+    const scope: DomScope = [];
+    const obs = mountTelemetry(env.ctx, scope, 0, 1000, 0);
 
     for (let i = 1; i <= 70; i++) {
-        reportTelemetryEvent(
-            env.ctx,
+        emit(obs, [
             TELEMETRY_SEVERITY_WARN,
             TELEMETRY_KIND_WS,
             0,
-            `C_${i}`,
-            `event-${i}`,
-            '/chat',
-            0,
-            0,
-            0,
-            0,
-            client
-        );
-        if (i === 50) {
-            await env.flushMicrotasks();
-        }
+            `${'x'.repeat(400)}-${i}`,
+            `${'C'.repeat(80)}_${i}`,
+        ]);
     }
-    await env.flushMicrotasks();
 
-    assert.equal(queueEntryCount(client[CLIENT_QUEUE]), MAX_QUEUE_EVENTS);
-    assert.equal(backing.records.size, MAX_QUEUE_EVENTS);
-    assert.equal(client[CLIENT_QUEUE][QUEUE_ENTRIES][0][QUEUE_ENTRY_ID], 7);
-    assert.equal(client[CLIENT_QUEUE][QUEUE_ENTRIES][63][QUEUE_ENTRY_ID], 70);
-
-    // Enqueue 12 large (~4 KiB) events -> total queued bytes stay <= MAX_QUEUE_BYTES (32 KiB)
-    const bigPayload = 'x'.repeat(4000);
-    for (let i = 0; i < 12; i++) {
-        reportTelemetryEvent(
-            env.ctx,
-            TELEMETRY_SEVERITY_ERROR,
-            TELEMETRY_KIND_UNCAUGHT_ERROR,
-            0,
-            `BIG_${i}`,
-            bigPayload,
-            '/chat',
-            0,
-            0,
-            0,
-            0,
-            client
-        );
-    }
-    await env.flushMicrotasks(20);
-    assert.ok(queueTotalBytes(client[CLIENT_QUEUE]) <= MAX_QUEUE_BYTES);
-    assert.ok(queueEntryCount(client[CLIENT_QUEUE]) <= 8);
-    disposeTelemetryClient(env.ctx, client);
+    env.setOnline(true);
+    env.sockets[0].open();
+    const firstSent = decodeTelemetryBatch(env.ctx, env.sockets[0].sent[0])!;
+    assert.equal(firstSent[TELEMETRY_BATCH_EVENTS].length, MAX_BATCH_EVENTS);
+    // First 6 entries (1..6) were evicted; oldest remaining entry is #7 (ack_id of first 10 = 16)
+    assert.equal(firstSent[TELEMETRY_BATCH_ACK_ID], 6 + MAX_BATCH_EVENTS);
+    assert.equal(
+        firstSent[TELEMETRY_BATCH_EVENTS][0][TELEMETRY_EVENT_CODE].length,
+        MAX_CODE_LEN
+    );
+    assert.equal(
+        firstSent[TELEMETRY_BATCH_EVENTS][0][TELEMETRY_EVENT_MESSAGE].length,
+        MAX_MSG_LEN
+    );
+    domDispose(scope);
 });
 
-test('missing or failing indexedDB falls back to in-memory queue and deduplicates bursts', async () => {
-    for (const mode of [{ backing: null }, { failIdbOpen: true }] as const) {
-        const env = createMockTelemetryEnv({ ...mode, online: true });
-        const client = createTelemetryClient(
-            env.ctx,
-            createIdbTelemetryStorage(),
-            1000,
-            5000
-        );
-        await env.flushMicrotasks();
+test('missing or throwing localStorage falls back to in-memory queue and deduplicates bursts', () => {
+    for (const opts of [
+        { storageMap: null },
+        { throwStorageGetter: true },
+        { throwStorageWrite: true },
+    ] as const) {
+        const env = createMockTelemetryEnv({ ...opts, online: true });
+        const scope: DomScope = [];
+        const obs = mountTelemetry(env.ctx, scope, 1, 1000, 5000);
 
-        // Duplicate errors within 5000ms are coalesced into 1 entry
-        reportTelemetryEvent(
-            env.ctx,
+        const rejectedInput: TelemetryInput = [
             TELEMETRY_SEVERITY_WARN,
             TELEMETRY_KIND_WALLET_RPC,
             TELEMETRY_OP_PERSONAL_SIGN,
-            '4001',
-            'User rejected the request.',
-            '/chat',
-            0,
-            0,
-            1,
-            0,
-            client
-        );
-        reportTelemetryEvent(
-            env.ctx,
-            TELEMETRY_SEVERITY_WARN,
-            TELEMETRY_KIND_WALLET_RPC,
-            TELEMETRY_OP_PERSONAL_SIGN,
-            '4001',
-            'User rejected the request.',
-            '/chat',
-            0,
-            0,
-            1,
-            0,
-            client
-        );
-        await env.flushMicrotasks();
+            { code: 4001, message: 'User rejected the request.' },
+        ];
+        emit(obs, rejectedInput);
+        emit(obs, rejectedInput);
 
-        assert.equal(queueEntryCount(client[CLIENT_QUEUE]), 1);
         assert.equal(env.sockets.length, 1);
         env.sockets[0].open();
         assert.equal(env.sockets[0].sent.length, 1);
+        const batch = decodeTelemetryBatch(env.ctx, env.sockets[0].sent[0])!;
+        assert.equal(batch[TELEMETRY_BATCH_EVENTS].length, 1);
+
         env.sockets[0].receive(encodeTelemetryAck(env.ctx, 1));
-        await env.flushMicrotasks();
-        assert.equal(queueEntryCount(client[CLIENT_QUEUE]), 0);
 
         // After 5001ms cooldown, identical error is recorded again
         env.advanceTime(5001);
-        reportTelemetryEvent(
-            env.ctx,
-            TELEMETRY_SEVERITY_WARN,
-            TELEMETRY_KIND_WALLET_RPC,
-            TELEMETRY_OP_PERSONAL_SIGN,
-            '4001',
-            'User rejected the request.',
-            '/chat',
-            0,
-            0,
-            1,
-            0,
-            client
-        );
-        await env.flushMicrotasks();
+        emit(obs, rejectedInput);
         assert.equal(env.sockets[0].sent.length, 2);
-        disposeTelemetryClient(env.ctx, client);
+        domDispose(scope);
     }
+});
+
+test('global error & unhandledrejection hooks, extractErrorInfo, and detectProviderFlags work via validate', () => {
+    const env = createMockTelemetryEnv({
+        online: true,
+        pathname: '/chat/general',
+        ethereum: { isMetaMask: true, isRabby: true },
+    });
+    const scope: DomScope = [];
+    mountTelemetry(env.ctx, scope, 11155111);
+
+    assert.equal(
+        detectProviderFlags(env.ctx),
+        TELEMETRY_PROVIDER_FLAG_ETHEREUM |
+            TELEMETRY_PROVIDER_FLAG_METAMASK |
+            telemetryModule.TELEMETRY_PROVIDER_FLAG_RABBY
+    );
+
+    const extractedObj = extractErrorInfo(
+        env.ctx,
+        { code: -32603 },
+        'fallback'
+    );
+    assert.equal(extractedObj[EXTRACTED_CODE], '-32603');
+    assert.equal(extractedObj[EXTRACTED_MESSAGE], '{"code":-32603}');
+
+    env.dispatchWindowEvent('error', {
+        message: 'Uncaught TypeError: boom',
+        lineno: 42,
+        colno: 9,
+        error: new TypeError('boom'),
+    });
+    env.dispatchWindowEvent('unhandledrejection', {
+        reason: { code: 'E_ASYNC', data: { message: 'nested failure' } },
+    });
+
+    assert.equal(env.sockets.length, 1);
+    env.sockets[0].open();
+    const sent = decodeTelemetryBatch(env.ctx, env.sockets[0].sent[0])!;
+    assert.equal(sent[TELEMETRY_BATCH_EVENTS].length, 2);
+
+    const errEv = sent[TELEMETRY_BATCH_EVENTS][0];
+    assert.equal(errEv[TELEMETRY_EVENT_KIND], TELEMETRY_KIND_UNCAUGHT_ERROR);
+    assert.equal(errEv[TELEMETRY_EVENT_CODE], 'TypeError');
+    assert.equal(errEv[TELEMETRY_EVENT_MESSAGE], 'boom');
+    assert.equal(errEv[TELEMETRY_EVENT_LINE], 42);
+    assert.equal(errEv[TELEMETRY_EVENT_COLUMN], 9);
+    assert.equal(errEv[TELEMETRY_EVENT_PATH], '/chat/general');
+    assert.equal(errEv[TELEMETRY_EVENT_CHAIN_ID], 11155111);
+
+    const rejEv = sent[TELEMETRY_BATCH_EVENTS][1];
+    assert.equal(
+        rejEv[TELEMETRY_EVENT_KIND],
+        TELEMETRY_KIND_UNHANDLED_REJECTION
+    );
+    assert.equal(rejEv[TELEMETRY_EVENT_CODE], 'E_ASYNC');
+    assert.equal(rejEv[TELEMETRY_EVENT_MESSAGE], 'nested failure');
+
+    domDispose(scope);
 });

@@ -19,22 +19,13 @@ export const shouldRecordEvent = (
     if (prevMs !== undefined && nowMs - prevMs < windowMs) {
         return false;
     }
-
-    if (!state.has(key) && state.size >= MAX_DEDUP_ENTRIES) {
-        for (const [k, ts] of state) {
-            if (nowMs - ts >= windowMs) {
-                state.delete(k);
-            }
-        }
-        if (state.size >= MAX_DEDUP_ENTRIES) {
-            const oldestKey = state.keys().next().value;
-            if (oldestKey !== undefined) {
-                state.delete(oldestKey);
-            }
-        }
-    }
-
     state.delete(key);
     state.set(key, nowMs);
+    if (state.size > MAX_DEDUP_ENTRIES) {
+        const oldestKey = state.keys().next().value;
+        if (oldestKey !== undefined) {
+            state.delete(oldestKey);
+        }
+    }
     return true;
 };

@@ -33,8 +33,8 @@ While debugging Phantom wallet sign-in (`code: -32000`, `"The app's signature re
 - **Standalone Protobuf contract (`contracts/telemetry/telemetry.proto`) & server-only decoding**:
   - Represent event categories (`TelemetryKind`), operations (`TelemetryOp`), and wallet provider flags (`TelemetryProviderFlag` bitmask) as numeric Protobuf enums/varints folded to integer literals by Closure Compiler `ADVANCED`.
   - Human-readable enum/bitmask decoding happens exclusively on the Rust server; unused client decode functions are tree-shaken out of `chat-bundle.js`.
-- **Client binary queue & optional IndexedDB adapter (`TELEM-30`)**:
-  - Bounded FIFO in-memory `Uint8Array` `TelemetryEvent` queue (`64` events / `32 KiB`) with ACK-gated deletion, plus an optional tree-shakable `createIdbTelemetryStorage()` adapter (`assets/js/telemetry/idb-storage.ts`) when cross-reload persistence is desired. Keeping `storage` optional saves ~541 B Brotli in `chat-bundle.js`.
+- **Client `observer` + `localStorage` binary queue (`TELEM-30`)**:
+  - `initTelemetry(ctx, ...): Task<TelemetryObs>` exposes a standard `ObserverInstance<TelemetryInput>` pipeline (`assets/js/CODESTYLE.md`), storing pre-encoded `Uint8Array` `TelemetryEvent` records in a bounded FIFO queue (`64` events) backed synchronously by `ctx.localStorage` (`'chat-telemetry'` hex slices, zero `decodeTelemetryEvent` / `decodeTelemetryBatch` client code) with ACK-gated deletion.
 - **Auth- & room-independent `/ws/telemetry` channel (`TELEM-20`, `TELEM-30`)**:
   - Transport is a lazy WebSocket channel `GET /ws/telemetry` (no session cookie, no room dependency, zero SQLite access, isolated connection cap, covered by existing Nginx `location ^~ /ws/`). Server replies with `TelemetryAck { ack_id }` and idle connections close automatically once drained. (`sendBeacon` was intentionally omitted since IndexedDB persists unacknowledged records across reloads/unloads.)
 - **OpenTelemetry-ready server sink (`TELEM-20`)**:
@@ -42,11 +42,11 @@ While debugging Phantom wallet sign-in (`code: -32000`, `"The app's signature re
 - **Bundle coverage (`TELEM-40`)**:
   - Wired into `chat-bundle` initially (`/chat` and `/chat/{room}`), while keeping the wire contract and client telemetry module chat-agnostic for future opt-in by other bundles.
 
-## Open Follow-Up (WIP — Bundle Size Optimization)
+## Open Follow-Up (WIP — Bundle Size Measurements)
 
-- Removing `logger.ts` / `ws-logger.ts` / `voiceLog` saved **-546 B Brotli** (`12,062 B` → `11,516 B`) on `chat-bundle.js`.
-- Adding the full `/ws/telemetry` transport, queue, dedup, and 20 chat/wallet/WS/voice error hooks currently brings `chat-bundle.js` to **13,181 B Brotli** (`+1,119 B` vs original baseline without IndexedDB, or `13,722 B` / `+1,660 B` with `createIdbTelemetryStorage()`).
-- Follow-up needed to shrink the client transport, error-extraction boilerplate, and local storage buffering so persistent offline queuing fits closer to (or under) the original bundle budget.
+- Baseline before `TELEM-10` (`a747f80`): `chat-bundle.js` = `34,386 B` raw / `12,062 B` Brotli-11 (`23,566 B` Brotli across all 5 bundles).
+- Removing `logger.ts` / `ws-logger.ts` / `voiceLog` (`TELEM-10`) saved **-546 B Brotli** (`12,062 B` → `11,516 B`) on `chat-bundle.js` (`-868 B` Brotli across all 5 bundles).
+- Refactoring telemetry to `CODESTYLE.md` (`ObserverInstance<TelemetryInput>` + `Task` init + shared `extractErrorInfo` + central `incoming` / `chatUiObs` listeners + synchronous `localStorage` Protobuf hex queue instead of `IndexedDB`) brings `chat-bundle.js` **with full cross-reload local persistence enabled** to **`37,545 B` raw / `13,414 B` Brotli-11** (`+1,352 B` on `chat-bundle.js`, or **`+1,030 B` Brotli net across all 5 bundles** — `-1,592 B` raw / `-308 B` Brotli smaller than the previous IndexedDB build).
 
 ## Acceptance
 

@@ -1,17 +1,13 @@
 import {
     bindArg,
-    isString,
-    nullable,
-    objectStruct,
     pipe,
     SIGNAL_GET,
     SIGNAL_SET,
     taskFork,
     trigger,
-    trim,
-    validate,
 } from '../../utils';
 import type { ObserverInstance } from '../../utils';
+import { EXTRACTED_MESSAGE, extractErrorInfo } from '@month/telemetry';
 import { CLIENT_FRAME_JOIN } from '@month/gen/chat';
 import type { ClientFramePayload } from '@month/gen/chat';
 import {
@@ -90,36 +86,8 @@ export const applySessionStatusToState = (
     }
 };
 
-const ERR_MESSAGE = 0 as const;
-const ERR_REASON = 1 as const;
-const ERR_DATA = 2 as const;
-const ERR_DATA_MESSAGE = 0 as const;
-
-const errorObjectStruct = objectStruct(
-    ['message', isString, trim, nullable],
-    ['reason', isString, trim, nullable],
-    ['data', objectStruct(['message', isString, trim]), nullable]
-);
-
-export const formatAuthError = (ctx: Window, err: unknown): string => {
-    const direct = validate(err, isString, trim);
-    if (direct) return direct;
-    const parsed = validate(err, errorObjectStruct);
-    if (parsed) {
-        const data = parsed[ERR_DATA];
-        const msg =
-            parsed[ERR_MESSAGE] ??
-            parsed[ERR_REASON] ??
-            (data ? data[ERR_DATA_MESSAGE] : null);
-        if (msg) return msg;
-        try {
-            return ctx.JSON.stringify(err);
-        } catch {
-            return 'Wallet request failed.';
-        }
-    }
-    return String(err);
-};
+export const formatAuthError = (ctx: Window, err: unknown): string =>
+    extractErrorInfo(ctx, err, 'Wallet request failed.')[EXTRACTED_MESSAGE];
 
 export const handleNicknameInput = (
     ctx: Window,

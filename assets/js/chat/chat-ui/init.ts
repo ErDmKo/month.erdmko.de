@@ -44,10 +44,10 @@ import type { ServerFramePayload, ClientFramePayload } from '@month/gen/chat';
 import {
     TELEMETRY_KIND_WS,
     TELEMETRY_OP_WS_CONNECT,
-    TELEMETRY_OP_WS_SERVER_ERROR,
+    TELEMETRY_OP_WS_DECODE,
+    TELEMETRY_SEVERITY_ERROR,
     TELEMETRY_SEVERITY_WARN,
 } from '@month/gen/telemetry';
-import { emitChatTelemetry } from '../telemetry';
 import { mountChatUi } from './template';
 import {
     CHAT_UI_STATE_HAS_ACTIVE_ACCESS,
@@ -66,6 +66,7 @@ export {
     CHAT_UI_JOINED,
     CHAT_UI_FILE_SELECTED,
     CHAT_UI_AUTH_VERIFIED,
+    CHAT_UI_TELEMETRY,
     CHAT_UI_EVENT_TYPE,
     CHAT_UI_INIT_REFS,
     CHAT_UI_INIT_STATE,
@@ -73,6 +74,7 @@ export {
     CHAT_UI_JOINED_SENDER_ID,
     CHAT_UI_FILE_SELECTED_FILE,
     CHAT_UI_AUTH_VERIFIED_WALLET,
+    CHAT_UI_TELEMETRY_INPUT,
 } from './events';
 export type { ChatUiEvent, ChatUiObs } from './events';
 
@@ -92,6 +94,7 @@ import {
     CHAT_UI_ERROR,
     CHAT_UI_JOINED,
     CHAT_UI_AUTH_VERIFIED,
+    CHAT_UI_TELEMETRY,
     CHAT_UI_EVENT_TYPE,
     CHAT_UI_ERROR_MESSAGE,
 } from './events';
@@ -182,11 +185,27 @@ export const initChatUi =
             // wire ws.onmessage → incoming (all frames are binary)
             ws.onmessage = (msg) => {
                 msg.data.arrayBuffer().then((buf: ArrayBuffer) => {
-                    const wsEvent = parseBinaryFrame(
-                        ctx,
-                        new ctx.Uint8Array(buf)
-                    );
-                    if (wsEvent) trigger(wsEvent, incoming);
+                    const bytes = new ctx.Uint8Array(buf);
+                    const wsEvent = parseBinaryFrame(ctx, bytes);
+                    if (wsEvent) {
+                        trigger(wsEvent, incoming);
+                    } else if (bytes.length > 0) {
+                        chatUiObs(
+                            bindArg(
+                                [
+                                    CHAT_UI_TELEMETRY,
+                                    [
+                                        TELEMETRY_SEVERITY_ERROR,
+                                        TELEMETRY_KIND_WS,
+                                        TELEMETRY_OP_WS_DECODE,
+                                        `Malformed ServerFrame (${bytes.length}B)`,
+                                        'MALFORMED_FRAME',
+                                    ],
+                                ] as const,
+                                trigger
+                            )
+                        );
+                    }
                 });
             };
 
@@ -223,13 +242,20 @@ export const initChatUi =
             };
 
             ws.onerror = () => {
-                emitChatTelemetry(
-                    ctx,
-                    TELEMETRY_SEVERITY_WARN,
-                    TELEMETRY_KIND_WS,
-                    TELEMETRY_OP_WS_CONNECT,
-                    'Connection error.',
-                    'WS_ERROR'
+                chatUiObs(
+                    bindArg(
+                        [
+                            CHAT_UI_TELEMETRY,
+                            [
+                                TELEMETRY_SEVERITY_WARN,
+                                TELEMETRY_KIND_WS,
+                                TELEMETRY_OP_WS_CONNECT,
+                                'Connection error.',
+                                'WS_ERROR',
+                            ],
+                        ] as const,
+                        trigger
+                    )
                 );
                 setError('Connection error.');
             };
@@ -264,14 +290,6 @@ export const initChatUi =
             if (event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_ERROR) {
                 const errVal = event[SERVER_FRAME_PAYLOAD_VALUE];
                 const errCode = errVal[SERVER_ERROR_CODE];
-                emitChatTelemetry(
-                    ctx,
-                    TELEMETRY_SEVERITY_WARN,
-                    TELEMETRY_KIND_WS,
-                    TELEMETRY_OP_WS_SERVER_ERROR,
-                    errVal[SERVER_ERROR_MESSAGE] || 'Server error',
-                    errCode
-                );
                 if (
                     errCode === 'UNAUTHORIZED' ||
                     errCode === 'PAYMENT_REQUIRED'

@@ -49,6 +49,7 @@ import {
     PAYMENT_CONFIG_MIN_WEI_HEX,
     SESSION_STATUS_HAS_ACTIVE_ACCESS,
     SESSION_STATUS_NICKNAME,
+    setWalletChainId,
     updateNicknameTask,
 } from '../auth';
 import type { EthereumProvider } from '../auth/wallet';
@@ -542,6 +543,7 @@ export const handleChainChanged = (
     const expectedChainId =
         getActivePaymentConfig(ctx)[PAYMENT_CONFIG_CHAIN_ID];
     const nextChainId = parseChainId(rawChainId);
+    setWalletChainId(ctx, nextChainId);
     if (nextChainId !== 0 && nextChainId !== expectedChainId) {
         state[CHAT_UI_STATE_ERROR][SIGNAL_SET](
             `Switch your wallet network to ${formatChainName(expectedChainId)} (chain ID ${expectedChainId}) to continue.`
