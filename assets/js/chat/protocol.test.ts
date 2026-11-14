@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import {
     DOM_PROPS,
     DOM_CHILDREN,
+    domCreator,
     PROP,
     PROP_TYPE,
     PROP_KEY,
@@ -131,4 +132,21 @@ test('message template renders body as plain text (XSS guard)', () => {
         );
     }
     assert.deepEqual(body[DOM_CHILDREN], [xssPayload]);
+});
+
+test('message template renders delete button only when isOwn is true', () => {
+    const ul = ctx.document.createElement('ul');
+    domCreator(
+        ctx,
+        ul,
+        chatMessageTemplate(11, 'other', 'foreign message', [], '12:00', false)
+    );
+    domCreator(
+        ctx,
+        ul,
+        chatMessageTemplate(12, 'me', 'own message', [], '12:01', true)
+    );
+    const deleteButtons = ul.querySelectorAll('[data-delete-id]');
+    assert.equal(deleteButtons.length, 1);
+    assert.equal(deleteButtons[0].getAttribute('data-delete-id'), '12');
 });

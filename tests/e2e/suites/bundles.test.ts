@@ -112,6 +112,28 @@ describe('optimized browser bundles', () => {
         expect(await roomPage.storedRoomNickname(roomId)).toBe(nick);
         await roomPage.sendMessage('advanced message');
         await roomPage.waitForMessage('advanced message');
+        expect(await roomPage.deleteButtonCount()).toBe(1);
+
+        // Second wallet joining the same room sees the message without a delete button
+        const peerSession = await createIsolatedPageSession(browser);
+        try {
+            const peerOnboarding = new ChatOnboardingPage(
+                peerSession.page,
+                baseUrl()
+            );
+            const { roomPage: peerRoom } =
+                await peerOnboarding.onboardAndEnterRoom(roomId, {
+                    nickname: `peer_${Date.now()}`,
+                });
+            await peerRoom.waitForMessage('advanced message');
+            expect(await peerRoom.deleteButtonCount()).toBe(0);
+            expect(peerSession.errors).toEqual([]);
+        } finally {
+            await peerSession.close();
+        }
+
+        await roomPage.deleteFirstOwnMessageAndWaitRemoved('advanced message');
+        expect(await roomPage.deleteButtonCount()).toBe(0);
         expect(session.errors).toEqual([]);
     });
 

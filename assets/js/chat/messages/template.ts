@@ -42,17 +42,21 @@ export const chatMessageTemplate = (
                         [genClass($chat__message_meta)],
                         [`${senderName}${createdAt ? ` • ${createdAt}` : ''}`]
                     ),
-                    genTagName(
-                        'button',
-                        [
-                            genClass($chat__delete),
-                            genAttr('type', 'button'),
-                            genAttr('data-delete-id', id),
-                            genAttr('aria-label', 'Delete message'),
-                            genAttr('title', 'Delete message'),
-                        ],
-                        ['×']
-                    ),
+                    ...(isOwn
+                        ? [
+                              genTagName(
+                                  'button',
+                                  [
+                                      genClass($chat__delete),
+                                      genAttr('type', 'button'),
+                                      genAttr('data-delete-id', id),
+                                      genAttr('aria-label', 'Delete message'),
+                                      genAttr('title', 'Delete message'),
+                                  ],
+                                  ['×']
+                              ),
+                          ]
+                        : []),
                 ]
             ),
             genTagName('div', [genClass($chat__message_body)], [body]),

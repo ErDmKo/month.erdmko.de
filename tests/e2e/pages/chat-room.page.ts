@@ -70,6 +70,28 @@ export class ChatRoomPage extends BasePage {
         await this.waitForContainerText(MESSAGE_LIST, text);
     }
 
+    async deleteButtonCount(): Promise<number> {
+        return this.page.$$eval(
+            `${MESSAGE_LIST} [data-delete-id]`,
+            (els) => els.length
+        );
+    }
+
+    async deleteFirstOwnMessageAndWaitRemoved(text: string): Promise<void> {
+        await this.page.click(`${MESSAGE_LIST} [data-delete-id]`);
+        await this.page.waitForFunction(
+            (sel, needle) => {
+                const list = document.querySelector(sel);
+                return Boolean(
+                    list && !(list.textContent ?? '').includes(needle)
+                );
+            },
+            { timeout: PAGE_TIMEOUT_MS },
+            MESSAGE_LIST,
+            text
+        );
+    }
+
     async storedRoomNickname(roomId: string): Promise<string | null> {
         return this.localStorageItem(`chat-nickname-${roomId}`);
     }
