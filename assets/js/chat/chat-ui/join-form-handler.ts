@@ -8,6 +8,7 @@ import {
 } from '../../utils';
 import type { ObserverInstance } from '../../utils';
 import { EXTRACTED_MESSAGE, extractErrorInfo } from '@month/telemetry';
+import type { TelemetryObs } from '@month/telemetry';
 import { CLIENT_FRAME_JOIN } from '@month/gen/chat';
 import type { ClientFramePayload } from '@month/gen/chat';
 import {
@@ -113,14 +114,15 @@ export const handleConnectWallet = (
     ctx: Window,
     nicknameKey: string,
     chatUiObs: ChatUiObs,
-    state: ChatUiState
+    state: ChatUiState,
+    telemetryObs?: TelemetryObs
 ): void => {
     if (state[CHAT_UI_STATE_AUTH_IN_FLIGHT][SIGNAL_GET]()) return;
     state[CHAT_UI_STATE_AUTH_IN_FLIGHT][SIGNAL_SET](true);
     state[CHAT_UI_STATE_ERROR][SIGNAL_SET]('');
 
     pipe(
-        connectAndSignInTask(ctx),
+        connectAndSignInTask(ctx, telemetryObs),
         taskFork(
             (status: SessionStatus) => {
                 state[CHAT_UI_STATE_AUTH_IN_FLIGHT][SIGNAL_SET](false);
@@ -148,7 +150,8 @@ export const handleConnectWallet = (
 export const handlePayAndUnlock = (
     ctx: Window,
     nicknameKey: string,
-    state: ChatUiState
+    state: ChatUiState,
+    telemetryObs?: TelemetryObs
 ): void => {
     if (state[CHAT_UI_STATE_AUTH_IN_FLIGHT][SIGNAL_GET]()) return;
     const walletAddress = state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_GET]();
@@ -176,7 +179,11 @@ export const handlePayAndUnlock = (
             undefined,
             (pendingTx: string) => {
                 state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_SET](pendingTx);
-            }
+            },
+            undefined,
+            undefined,
+            undefined,
+            telemetryObs
         ),
         taskFork(
             (status: SessionStatus) => {

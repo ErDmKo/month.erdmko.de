@@ -13,3 +13,17 @@ export const bindArg = <Arg, RestArgs extends any[], Result>(
 ): ((...rest: RestArgs) => Result) => {
     return bindArgs([arg], fn);
 };
+
+export const once = <Args extends any[], Result>(
+    fn: (...args: Args) => Result
+): ((...args: Args) => Result) => {
+    let called = false;
+    let result: Result;
+    return (...args: Args) => {
+        if (!called) {
+            called = true;
+            result = fn(...args);
+        }
+        return result;
+    };
+};

@@ -1,12 +1,11 @@
 import {
     bindArg,
-    isFunction,
-    objectStruct,
+    bindArgs,
     pipe,
     taskCatch,
     taskChain,
     taskMap,
-    validate,
+    trigger,
 } from '@month/utils';
 import type { ReadonlyTupleOf, Task } from '@month/utils';
 import {
@@ -55,15 +54,8 @@ import {
     TELEMETRY_OP_AUTH_NONCE,
     TELEMETRY_OP_AUTH_VERIFY,
     TELEMETRY_SEVERITY_ERROR,
-    TELEMETRY_SEVERITY_WARN,
 } from '@month/gen/telemetry';
-import { emitWindowTelemetry } from '../telemetry';
-
-declare global {
-    interface Window {
-        fetch: typeof fetch;
-    }
-}
+import type { TelemetryObs } from '@month/telemetry';
 
 export const PAYMENT_CONFIG_CHAIN_ID = 0 as const;
 export const PAYMENT_CONFIG_RECIPIENT = 1 as const;
@@ -114,8 +106,6 @@ export type SessionStatus = ReadonlyTupleOf<{
 }>;
 
 const PROTO_CONTENT_TYPE = 'application/x-protobuf';
-const WIN_FETCH = 0 as const;
-const windowFetchStruct = objectStruct(['fetch', isFunction<typeof fetch>]);
 
 export const applyPaymentConfig = (
     ctx: Window,
@@ -151,12 +141,7 @@ type ResponseBuffer = ReadonlyTupleOf<{
 const rawFetchTask =
     (ctx: Window, url: string, init: RequestInit): Task<Response> =>
     (resolve, reject) => {
-        const winFetch = validate(ctx, windowFetchStruct);
-        if (!winFetch) {
-            reject(new Error('Fetch API is not available.'));
-            return;
-        }
-        winFetch[WIN_FETCH](url, init).then(resolve, reject);
+        ctx.fetch(url, init).then(resolve, reject);
     };
 
 const readResponseBufferTask =
@@ -168,19 +153,13 @@ const readResponseBufferTask =
         );
     };
 
-const httpStatusByError = new WeakMap<Error, number>();
-
 const unwrapProtoBytes = (ctx: Window, pair: ResponseBuffer): Uint8Array => {
     const res = pair[RES_OBJ];
     const bytes = new ctx.Uint8Array(pair[RES_BUF]);
     if (!res.ok) {
         const notice = decodePaymentClaimNotice(ctx, bytes);
         const msg = notice ? notice[PAYMENT_CLAIM_NOTICE_MESSAGE].trim() : '';
-        const err = new Error(
-            msg || `Request failed with status ${res.status}`
-        );
-        httpStatusByError.set(err, res.status);
-        throw err;
+        throw new Error(msg || `Request failed with status ${res.status}`);
     }
     return bytes;
 };
@@ -196,37 +175,45 @@ const fetchProtoTask = (
         taskMap(bindArg(ctx, unwrapProtoBytes))
     );
 
-const postAuthProtoTask =
-    <T>(
-        ctx: Window,
-        op: number,
-        url: string,
-        bodyBytes: Uint8Array,
-        parseFn: (ctx: Window, bytes: Uint8Array) => T
-    ): Task<T> =>
-    (resolve, reject) =>
-        pipe(
-            fetchProtoTask(ctx, url, {
-                ['method']: 'POST',
-                ['headers']: { ['Content-Type']: PROTO_CONTENT_TYPE },
-                ['credentials']: 'same-origin',
-                ['body']: bodyBytes as unknown as BodyInit,
-            }),
-            taskMap((bytes: Uint8Array) => parseFn(ctx, bytes))
-        )(resolve, (err: unknown) => {
-            const status =
-                err instanceof Error ? (httpStatusByError.get(err) ?? 0) : 0;
-            emitWindowTelemetry(ctx, [
-                status >= 400 && status < 500
-                    ? TELEMETRY_SEVERITY_WARN
-                    : TELEMETRY_SEVERITY_ERROR,
-                TELEMETRY_KIND_AUTH_HTTP,
-                op,
-                err,
-                status ? String(status) : '',
-            ]);
-            reject(err);
-        });
+const rethrowAuthError = (
+    telemetryObs: TelemetryObs | undefined,
+    op: number,
+    err: unknown
+): never => {
+    if (telemetryObs) {
+        telemetryObs(
+            bindArg(
+                [
+                    TELEMETRY_SEVERITY_ERROR,
+                    TELEMETRY_KIND_AUTH_HTTP,
+                    op,
+                    err,
+                ] as const,
+                trigger
+            )
+        );
+    }
+    throw err;
+};
+
+const postAuthProtoTask = <T>(
+    ctx: Window,
+    telemetryObs: TelemetryObs | undefined,
+    op: number,
+    url: string,
+    bodyBytes: Uint8Array,
+    parseFn: (ctx: Window, bytes: Uint8Array) => T
+): Task<T> =>
+    pipe(
+        fetchProtoTask(ctx, url, {
+            ['method']: 'POST',
+            ['headers']: { ['Content-Type']: PROTO_CONTENT_TYPE },
+            ['credentials']: 'same-origin',
+            ['body']: bodyBytes as unknown as BodyInit,
+        }),
+        taskMap((bytes: Uint8Array) => parseFn(ctx, bytes)),
+        taskCatch(bindArgs([telemetryObs, op], rethrowAuthError))
+    );
 
 export const authSessionToStatus = (
     ctx: Window,
@@ -281,10 +268,12 @@ const parseOptionalSessionProto = (
 
 export const fetchNonceTask = (
     ctx: Window,
-    walletAddress: string
+    walletAddress: string,
+    telemetryObs?: TelemetryObs
 ): Task<NonceChallenge> =>
     postAuthProtoTask(
         ctx,
+        telemetryObs,
         TELEMETRY_OP_AUTH_NONCE,
         '/auth/nonce',
         encodeNonceRequest(ctx, walletAddress),
@@ -294,10 +283,12 @@ export const fetchNonceTask = (
 export const verifySiweTask = (
     ctx: Window,
     message: string,
-    signature: string
+    signature: string,
+    telemetryObs?: TelemetryObs
 ): Task<SessionStatus> =>
     postAuthProtoTask(
         ctx,
+        telemetryObs,
         TELEMETRY_OP_AUTH_VERIFY,
         '/auth/verify',
         encodeVerifySiweRequest(ctx, message, signature),
@@ -334,10 +325,12 @@ const parseClaimPaymentProto = (
 export const claimPaymentProtoTask = (
     ctx: Window,
     txHash: string,
-    nickname: string
+    nickname: string,
+    telemetryObs?: TelemetryObs
 ): Task<ClaimPaymentResponsePayload> =>
     postAuthProtoTask(
         ctx,
+        telemetryObs,
         TELEMETRY_OP_AUTH_CLAIM_PAYMENT,
         '/auth/claim-payment',
         encodeClaimPaymentRequest(ctx, txHash.trim(), nickname.trim()),
@@ -364,19 +357,22 @@ const requireActivatedOutcome = (
 export const claimPaymentTask = (
     ctx: Window,
     txHash: string,
-    nickname: string
+    nickname: string,
+    telemetryObs?: TelemetryObs
 ): Task<SessionStatus> =>
     pipe(
-        claimPaymentProtoTask(ctx, txHash, nickname),
+        claimPaymentProtoTask(ctx, txHash, nickname, telemetryObs),
         taskMap(bindArg(ctx, requireActivatedOutcome))
     );
 
 export const updateNicknameTask = (
     ctx: Window,
-    nickname: string
+    nickname: string,
+    telemetryObs?: TelemetryObs
 ): Task<SessionStatus> =>
     postAuthProtoTask(
         ctx,
+        telemetryObs,
         TELEMETRY_OP_AUTH_NICKNAME,
         '/auth/nickname',
         encodeSetNicknameRequest(ctx, nickname.trim()),

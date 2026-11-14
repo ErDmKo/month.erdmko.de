@@ -1,5 +1,5 @@
-import { bindArg, cont, on, pipe, taskMap, trigger } from '@month/utils';
-import type { DomScope, ObserverState, Task } from '@month/utils';
+import { bindArg, on, trigger } from '@month/utils';
+import type { ObserverState } from '@month/utils';
 import {
     SERVER_ERROR_CODE,
     SERVER_ERROR_MESSAGE,
@@ -17,27 +17,13 @@ import {
     TELEMETRY_OP_WS_SERVER_ERROR,
     TELEMETRY_SEVERITY_WARN,
 } from '@month/gen/telemetry';
-import { initTelemetry } from '@month/telemetry';
-import type { TelemetryInput, TelemetryObs } from '@month/telemetry';
+import type { TelemetryObs } from '@month/telemetry';
 import {
     CHAT_UI_EVENT_TYPE,
     CHAT_UI_TELEMETRY,
     CHAT_UI_TELEMETRY_INPUT,
 } from './chat-ui/events';
 import type { ChatUiEvent, ChatUiObs } from './chat-ui/events';
-
-// External State Registry (per CODESTYLE.md) associating each Window with its TelemetryObs
-const telemetryByWindow = new WeakMap<Window, TelemetryObs>();
-
-export const emitWindowTelemetry = (
-    ctx: Window,
-    input: TelemetryInput
-): void => {
-    const obs = telemetryByWindow.get(ctx);
-    if (obs) {
-        obs(bindArg(input, trigger));
-    }
-};
 
 const handleIncomingServerFrame = (
     telemetryObs: TelemetryObs,
@@ -96,25 +82,4 @@ export const wireChatUiTelemetry = (
     chatUiObs: ChatUiObs
 ): void => {
     chatUiObs(bindArg(bindArg(telemetryObs, handleChatUiEvent), on));
-};
-
-export const initChatTelemetry = (
-    ctx: Window,
-    resolveChainId: (ctx: Window) => number,
-    scope: DomScope = []
-): Task<TelemetryObs> => {
-    const existing = telemetryByWindow.get(ctx);
-    if (existing) {
-        return cont(existing);
-    }
-    return pipe(
-        initTelemetry(ctx, resolveChainId, scope),
-        taskMap((obs: TelemetryObs) => {
-            telemetryByWindow.set(ctx, obs);
-            scope.push(() => {
-                telemetryByWindow.delete(ctx);
-            });
-            return obs;
-        })
-    );
 };

@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import {
     bindArg,
     bindArgs,
+    once,
     identity,
     pipe,
     observer,
@@ -97,6 +98,15 @@ test('bindArg and bindArgs partially apply arguments in order', () => {
 
     const withTwo = bindArgs([1, 2], add3);
     assert.equal(withTwo(3), 123);
+
+    let calls = 0;
+    const initOnce = once((x: number) => {
+        calls += 1;
+        return x * 10;
+    });
+    assert.equal(initOnce(4), 40);
+    assert.equal(initOnce(9), 40);
+    assert.equal(calls, 1);
 });
 
 test('pipe composes functions left-to-right', () => {

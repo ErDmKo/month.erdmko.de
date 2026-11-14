@@ -27,6 +27,7 @@ import {
     validate,
 } from '@month/utils';
 import type { Signal, TupleOf } from '@month/utils';
+import type { TelemetryObs } from '@month/telemetry';
 import {
     $chat__meta,
     $chat__form,
@@ -49,7 +50,6 @@ import {
     PAYMENT_CONFIG_MIN_WEI_HEX,
     SESSION_STATUS_HAS_ACTIVE_ACCESS,
     SESSION_STATUS_NICKNAME,
-    setWalletChainId,
     updateNicknameTask,
 } from '../auth';
 import type { EthereumProvider } from '../auth/wallet';
@@ -143,15 +143,17 @@ export const handleRoomSlugInput = (
 
 export const handleOnboardingPayAndUnlock = (
     ctx: Window,
-    onboardingState: OnboardingState
+    onboardingState: OnboardingState,
+    telemetryObs?: TelemetryObs
 ): void => {
     const chatState = onboardingState[ONBOARDING_CHAT_STATE];
-    handlePayAndUnlock(ctx, GLOBAL_NICKNAME_KEY, chatState);
+    handlePayAndUnlock(ctx, GLOBAL_NICKNAME_KEY, chatState, telemetryObs);
 };
 
 export const handleOnboardingSubmit = (
     ctx: Window,
     onboardingState: OnboardingState,
+    telemetryObs: TelemetryObs | undefined,
     event: Event
 ): void => {
     event.preventDefault();
@@ -193,7 +195,7 @@ export const handleOnboardingSubmit = (
     ctx.localStorage.setItem(`chat-nickname-${roomSlug}`, nickname);
 
     pipe(
-        updateNicknameTask(ctx, nickname),
+        updateNicknameTask(ctx, nickname, telemetryObs),
         taskFork(
             (status: SessionStatus) => {
                 chatState[CHAT_UI_STATE_AUTH_IN_FLIGHT][SIGNAL_SET](false);
@@ -224,7 +226,8 @@ export const onboardingTemplate = (
     ctx: Window,
     chatUiObs: ChatUiObs,
     onboardingState: OnboardingState,
-    paymentTermsSig?: Signal<string>
+    paymentTermsSig?: Signal<string>,
+    telemetryObs?: TelemetryObs
 ) => {
     const state = onboardingState[ONBOARDING_CHAT_STATE];
     const roomSig = onboardingState[ONBOARDING_ROOM_SLUG];
@@ -373,6 +376,7 @@ export const onboardingTemplate = (
                                                 GLOBAL_NICKNAME_KEY,
                                                 chatUiObs,
                                                 state,
+                                                telemetryObs,
                                             ],
                                             handleConnectWallet
                                         )
@@ -429,7 +433,10 @@ export const onboardingTemplate = (
                     genProp('hidden', walletDisconnected),
                     genOn(
                         'submit',
-                        bindArgs([ctx, onboardingState], handleOnboardingSubmit)
+                        bindArgs(
+                            [ctx, onboardingState, telemetryObs],
+                            handleOnboardingSubmit
+                        )
                     ),
                 ],
                 [
@@ -501,7 +508,11 @@ export const onboardingTemplate = (
                                     genOn(
                                         'click',
                                         bindArgs(
-                                            [ctx, onboardingState],
+                                            [
+                                                ctx,
+                                                onboardingState,
+                                                telemetryObs,
+                                            ],
                                             handleOnboardingPayAndUnlock
                                         )
                                     ),
@@ -543,7 +554,6 @@ export const handleChainChanged = (
     const expectedChainId =
         getActivePaymentConfig(ctx)[PAYMENT_CONFIG_CHAIN_ID];
     const nextChainId = parseChainId(rawChainId);
-    setWalletChainId(ctx, nextChainId);
     if (nextChainId !== 0 && nextChainId !== expectedChainId) {
         state[CHAT_UI_STATE_ERROR][SIGNAL_SET](
             `Switch your wallet network to ${formatChainName(expectedChainId)} (chain ID ${expectedChainId}) to continue.`
@@ -576,7 +586,8 @@ export const handleAccountsChanged = (
 
 export const initChatOnboarding = (
     ctx: Window,
-    root: Element
+    root: Element,
+    telemetryObs?: TelemetryObs
 ): OnboardingState => {
     const htmlRoot = root as HTMLDivElement;
     const targetRoom = sanitizeRoomSlug(htmlRoot.dataset['targetRoom'] || '');
@@ -595,7 +606,13 @@ export const initChatOnboarding = (
     domCreator(
         ctx,
         htmlRoot,
-        onboardingTemplate(ctx, chatUiObs, onboardingState, paymentTermsSig)
+        onboardingTemplate(
+            ctx,
+            chatUiObs,
+            onboardingState,
+            paymentTermsSig,
+            telemetryObs
+        )
     );
 
     const ethEvents = validate(ctx, windowEthereumEventsStruct);
@@ -663,7 +680,12 @@ export const initChatOnboarding = (
                     state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_GET]() &&
                     isValidNickname(state[CHAT_UI_STATE_NICKNAME][SIGNAL_GET]())
                 ) {
-                    handlePayAndUnlock(ctx, GLOBAL_NICKNAME_KEY, state);
+                    handlePayAndUnlock(
+                        ctx,
+                        GLOBAL_NICKNAME_KEY,
+                        state,
+                        telemetryObs
+                    );
                 }
             }
         }, noop)

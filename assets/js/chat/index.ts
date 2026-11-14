@@ -2,6 +2,7 @@ import {
     bindArg,
     noop,
     observer,
+    once,
     pipe,
     taskChain,
     taskFork,
@@ -15,13 +16,9 @@ import {
     TELEMETRY_OP_CHAT_INIT,
     TELEMETRY_SEVERITY_ERROR,
 } from '@month/gen/telemetry';
-import { detectProviderFlags } from '@month/telemetry';
+import { detectProviderFlags, initTelemetry } from '@month/telemetry';
 import type { TelemetryObs } from '@month/telemetry';
-import {
-    getActivePaymentConfig,
-    getWalletChainId,
-    PAYMENT_CONFIG_CHAIN_ID,
-} from './auth';
+import { getActivePaymentConfig, PAYMENT_CONFIG_CHAIN_ID } from './auth';
 import { initChatUi, CHAT_UI_ERROR, CHAT_UI_TELEMETRY } from './chat-ui/init';
 import { initChatOnboarding } from './chat-ui/onboarding';
 import type { ChatUiObs } from './chat-ui/events';
@@ -29,11 +26,7 @@ import { initMessages } from './messages/init';
 import type { MsgsObs } from './messages/handler';
 import { initAttachments } from './attachments/init';
 import { initVoice } from './voice/index';
-import {
-    initChatTelemetry,
-    wireChatUiTelemetry,
-    wireIncomingTelemetry,
-} from './telemetry';
+import { wireChatUiTelemetry, wireIncomingTelemetry } from './telemetry';
 
 declare global {
     interface Window {
@@ -46,10 +39,9 @@ declare global {
 }
 
 const resolveChatChainId = (ctx: Window): number =>
-    getWalletChainId(ctx) ||
-    (detectProviderFlags(ctx)
+    detectProviderFlags(ctx)
         ? getActivePaymentConfig(ctx)[PAYMENT_CONFIG_CHAIN_ID]
-        : 0);
+        : 0;
 
 const reportFeatureInitError = (chatUiObs: ChatUiObs, err: unknown): void => {
     chatUiObs(
@@ -114,15 +106,15 @@ const initTemplate = (
     );
 };
 
-export const initChatEffect = (ctx: Window): void => {
+export const initChatEffect = once((ctx: Window): void => {
     pipe(
-        initChatTelemetry(ctx, resolveChatChainId),
+        initTelemetry(ctx, resolveChatChainId),
         taskFork((telemetryObs: TelemetryObs) => {
             const onboardingTags = ctx.document.querySelectorAll(
                 '.js-chat-onboarding'
             );
             ctx.Array.from(onboardingTags).forEach((el) =>
-                initChatOnboarding(ctx, el)
+                initChatOnboarding(ctx, el, telemetryObs)
             );
             const tags = ctx.document.querySelectorAll('.js-chat');
             ctx.Array.from(tags).forEach((el) =>
@@ -130,4 +122,4 @@ export const initChatEffect = (ctx: Window): void => {
             );
         }, noop)
     );
-};
+});

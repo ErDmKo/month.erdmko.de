@@ -1,5 +1,6 @@
 import { bindArg, bindArgs, cont, pipe, taskChain } from '@month/utils';
 import type { Task } from '@month/utils';
+import type { TelemetryObs } from '@month/telemetry';
 import {
     CLAIM_PAYMENT_RESPONSE_ACTIVATED,
     CLAIM_PAYMENT_RESPONSE_INVALID_TRANSACTION,
@@ -18,14 +19,12 @@ import {
     formatChainIdHex,
     formatChainName,
     formatWeiAsEth,
-    getWalletChainId,
     normalizeTxHash,
     normalizeWalletAddress,
     parseChainId,
     RECIPIENT_WALLET_ADDRESS,
     requestAccountsTask,
     sendPaymentTransactionTask,
-    setWalletChainId,
     signSiweMessageTask,
 } from './wallet';
 import {
@@ -75,7 +74,6 @@ export {
     formatChainName,
     formatWeiAsEth,
     getActivePaymentConfig,
-    getWalletChainId,
     NONCE_CHALLENGE_EXPIRES_AT,
     NONCE_CHALLENGE_NONCE,
     NONCE_CHALLENGE_SIWE_MESSAGE,
@@ -94,7 +92,6 @@ export {
     SESSION_STATUS_HAS_ACTIVE_ACCESS,
     SESSION_STATUS_NICKNAME,
     SESSION_STATUS_WALLET,
-    setWalletChainId,
     signSiweMessageTask,
     updateNicknameTask,
     verifySiweTask,
@@ -161,35 +158,58 @@ export const clearPendingPaymentTx = (ctx: Window): void => {
     ctx.localStorage?.setItem(PENDING_PAYMENT_STORAGE_KEY, '');
 };
 
+const fetchNonceForSignInTask = (
+    ctx: Window,
+    telemetryObs: TelemetryObs | undefined,
+    walletAddress: string
+): Task<NonceChallenge> => fetchNonceTask(ctx, walletAddress, telemetryObs);
+
+const verifySignedMessageTask = (
+    ctx: Window,
+    telemetryObs: TelemetryObs | undefined,
+    message: string,
+    signature: string
+): Task<SessionStatus> => verifySiweTask(ctx, message, signature, telemetryObs);
+
 const signAndVerifyChallengeTask = (
     ctx: Window,
+    telemetryObs: TelemetryObs | undefined,
     challenge: NonceChallenge
 ): Task<SessionStatus> => {
     const wallet = challenge[NONCE_CHALLENGE_WALLET];
     const message = challenge[NONCE_CHALLENGE_SIWE_MESSAGE];
     return pipe(
-        signSiweMessageTask(ctx, wallet, message),
-        taskChain(bindArgs([ctx, message], verifySiweTask))
+        signSiweMessageTask(ctx, wallet, message, telemetryObs),
+        taskChain(
+            bindArgs([ctx, telemetryObs, message], verifySignedMessageTask)
+        )
     );
 };
 
 const verifyChallengeOnChainTask = (
     ctx: Window,
+    telemetryObs: TelemetryObs | undefined,
     challenge: NonceChallenge
 ): Task<SessionStatus> =>
     pipe(
         ensureWalletChainTask(
             ctx,
-            getActivePaymentConfig(ctx)[PAYMENT_CONFIG_CHAIN_ID]
+            getActivePaymentConfig(ctx)[PAYMENT_CONFIG_CHAIN_ID],
+            telemetryObs
         ),
-        taskChain(bindArgs([ctx, challenge], signAndVerifyChallengeTask))
+        taskChain(
+            bindArgs([ctx, telemetryObs, challenge], signAndVerifyChallengeTask)
+        )
     );
 
-export const connectAndSignInTask = (ctx: Window): Task<SessionStatus> =>
+export const connectAndSignInTask = (
+    ctx: Window,
+    telemetryObs?: TelemetryObs
+): Task<SessionStatus> =>
     pipe(
-        requestAccountsTask(ctx),
-        taskChain(bindArg(ctx, fetchNonceTask)),
-        taskChain(bindArg(ctx, verifyChallengeOnChainTask))
+        requestAccountsTask(ctx, telemetryObs),
+        taskChain(bindArgs([ctx, telemetryObs], fetchNonceForSignInTask)),
+        taskChain(bindArgs([ctx, telemetryObs], verifyChallengeOnChainTask))
     );
 
 export const pollClaimPaymentTask =
@@ -200,7 +220,8 @@ export const pollClaimPaymentTask =
         nickname: string,
         maxPollAttempts: number = DEFAULT_CLAIM_POLL_ATTEMPTS,
         pollIntervalMs: number = DEFAULT_CLAIM_POLL_INTERVAL_MS,
-        onPendingTx?: (txHash: string) => void
+        onPendingTx?: (txHash: string) => void,
+        telemetryObs?: TelemetryObs
     ): Task<SessionStatus> =>
     (resolve, reject) => {
         const normWallet = normalizeWalletAddress(fromWallet);
@@ -209,7 +230,8 @@ export const pollClaimPaymentTask =
             claimPaymentProtoTask(
                 ctx,
                 txHash,
-                nickname
+                nickname,
+                telemetryObs
             )(
                 (outcome: ClaimPaymentResponsePayload) => {
                     const variant =
@@ -296,6 +318,7 @@ const saveAndPollClaimTask = (
     maxPollAttempts: number,
     pollIntervalMs: number,
     onPendingTx: ((txHash: string) => void) | undefined,
+    telemetryObs: TelemetryObs | undefined,
     txHash: string
 ): Task<SessionStatus> => {
     const savedTx = savePendingPaymentTx(
@@ -314,7 +337,8 @@ const saveAndPollClaimTask = (
         nickname,
         maxPollAttempts,
         pollIntervalMs,
-        onPendingTx
+        onPendingTx,
+        telemetryObs
     );
 };
 
@@ -327,7 +351,8 @@ export const payAndClaimTask = (
     onPendingTx?: (txHash: string) => void,
     maxPollAttempts: number = DEFAULT_CLAIM_POLL_ATTEMPTS,
     pollIntervalMs: number = DEFAULT_CLAIM_POLL_INTERVAL_MS,
-    targetChainId?: number
+    targetChainId?: number,
+    telemetryObs?: TelemetryObs
 ): Task<SessionStatus> => {
     const cfg = getActivePaymentConfig(ctx);
     const resolvedTo = toWallet ?? cfg[PAYMENT_CONFIG_RECIPIENT];
@@ -349,7 +374,8 @@ export const payAndClaimTask = (
                   fromWallet,
                   resolvedTo,
                   resolvedValue,
-                  resolvedChainId
+                  resolvedChainId,
+                  telemetryObs
               ),
         taskChain(
             bindArgs(
@@ -363,6 +389,7 @@ export const payAndClaimTask = (
                     maxPollAttempts,
                     pollIntervalMs,
                     onPendingTx,
+                    telemetryObs,
                 ],
                 saveAndPollClaimTask
             )

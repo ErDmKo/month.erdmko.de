@@ -8,3 +8,9 @@ export * from './observer';
 export * from './dom';
 export * from './tuple';
 export * from './validator';
+
+declare global {
+    interface Window {
+        fetch: typeof fetch;
+    }
+}
