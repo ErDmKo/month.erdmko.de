@@ -11,7 +11,7 @@ export const bindArg = <Arg, RestArgs extends any[], Result>(
     arg: Arg,
     fn: (a: Arg, ...rest: RestArgs) => Result
 ): ((...rest: RestArgs) => Result) => {
-    return bindArgs([arg], fn);
+    return (...args: RestArgs) => fn(arg, ...args);
 };
 
 export const once = <Args extends any[], Result>(

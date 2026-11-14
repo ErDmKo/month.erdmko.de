@@ -27,7 +27,6 @@ import {
     validate,
 } from '@month/utils';
 import type { Signal, TupleOf } from '@month/utils';
-import type { TelemetryObs } from '@month/telemetry';
 import {
     $chat__meta,
     $chat__form,
@@ -143,17 +142,15 @@ export const handleRoomSlugInput = (
 
 export const handleOnboardingPayAndUnlock = (
     ctx: Window,
-    onboardingState: OnboardingState,
-    telemetryObs?: TelemetryObs
+    onboardingState: OnboardingState
 ): void => {
     const chatState = onboardingState[ONBOARDING_CHAT_STATE];
-    handlePayAndUnlock(ctx, GLOBAL_NICKNAME_KEY, chatState, telemetryObs);
+    handlePayAndUnlock(ctx, GLOBAL_NICKNAME_KEY, chatState);
 };
 
 export const handleOnboardingSubmit = (
     ctx: Window,
     onboardingState: OnboardingState,
-    telemetryObs: TelemetryObs | undefined,
     event: Event
 ): void => {
     event.preventDefault();
@@ -195,7 +192,7 @@ export const handleOnboardingSubmit = (
     ctx.localStorage.setItem(`chat-nickname-${roomSlug}`, nickname);
 
     pipe(
-        updateNicknameTask(ctx, nickname, telemetryObs),
+        updateNicknameTask(ctx, nickname),
         taskFork(
             (status: SessionStatus) => {
                 chatState[CHAT_UI_STATE_AUTH_IN_FLIGHT][SIGNAL_SET](false);
@@ -226,8 +223,7 @@ export const onboardingTemplate = (
     ctx: Window,
     chatUiObs: ChatUiObs,
     onboardingState: OnboardingState,
-    paymentTermsSig?: Signal<string>,
-    telemetryObs?: TelemetryObs
+    paymentTermsSig?: Signal<string>
 ) => {
     const state = onboardingState[ONBOARDING_CHAT_STATE];
     const roomSig = onboardingState[ONBOARDING_ROOM_SLUG];
@@ -376,7 +372,6 @@ export const onboardingTemplate = (
                                                 GLOBAL_NICKNAME_KEY,
                                                 chatUiObs,
                                                 state,
-                                                telemetryObs,
                                             ],
                                             handleConnectWallet
                                         )
@@ -433,10 +428,7 @@ export const onboardingTemplate = (
                     genProp('hidden', walletDisconnected),
                     genOn(
                         'submit',
-                        bindArgs(
-                            [ctx, onboardingState, telemetryObs],
-                            handleOnboardingSubmit
-                        )
+                        bindArgs([ctx, onboardingState], handleOnboardingSubmit)
                     ),
                 ],
                 [
@@ -508,11 +500,7 @@ export const onboardingTemplate = (
                                     genOn(
                                         'click',
                                         bindArgs(
-                                            [
-                                                ctx,
-                                                onboardingState,
-                                                telemetryObs,
-                                            ],
+                                            [ctx, onboardingState],
                                             handleOnboardingPayAndUnlock
                                         )
                                     ),
@@ -586,8 +574,7 @@ export const handleAccountsChanged = (
 
 export const initChatOnboarding = (
     ctx: Window,
-    root: Element,
-    telemetryObs?: TelemetryObs
+    root: Element
 ): OnboardingState => {
     const htmlRoot = root as HTMLDivElement;
     const targetRoom = sanitizeRoomSlug(htmlRoot.dataset['targetRoom'] || '');
@@ -606,13 +593,7 @@ export const initChatOnboarding = (
     domCreator(
         ctx,
         htmlRoot,
-        onboardingTemplate(
-            ctx,
-            chatUiObs,
-            onboardingState,
-            paymentTermsSig,
-            telemetryObs
-        )
+        onboardingTemplate(ctx, chatUiObs, onboardingState, paymentTermsSig)
     );
 
     const ethEvents = validate(ctx, windowEthereumEventsStruct);
@@ -680,12 +661,7 @@ export const initChatOnboarding = (
                     state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_GET]() &&
                     isValidNickname(state[CHAT_UI_STATE_NICKNAME][SIGNAL_GET]())
                 ) {
-                    handlePayAndUnlock(
-                        ctx,
-                        GLOBAL_NICKNAME_KEY,
-                        state,
-                        telemetryObs
-                    );
+                    handlePayAndUnlock(ctx, GLOBAL_NICKNAME_KEY, state);
                 }
             }
         }, noop)

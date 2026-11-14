@@ -11,7 +11,6 @@ import {
     taskCatch,
     taskChain,
     taskMap,
-    trigger,
     trim,
     validate,
 } from '@month/utils';
@@ -31,7 +30,7 @@ import {
     EXTRACTED_MESSAGE,
     extractErrorInfo,
 } from '@month/telemetry';
-import type { TelemetryObs } from '@month/telemetry';
+import { emitChatTelemetry } from '../telemetry';
 
 export const DEFAULT_CHAIN_ID = 1;
 export const RECIPIENT_WALLET_ADDRESS =
@@ -163,45 +162,30 @@ const rawEthereumRequestTask =
         request(args).then(resolve, reject);
     };
 
-const rethrowWalletError = (
-    ctx: Window,
-    telemetryObs: TelemetryObs | undefined,
-    op: number,
-    err: unknown
-): never => {
-    if (telemetryObs) {
-        const extracted = extractErrorInfo(ctx, err);
-        const code = extracted[EXTRACTED_CODE];
-        const sev =
-            code === '4001'
-                ? TELEMETRY_SEVERITY_WARN
-                : TELEMETRY_SEVERITY_ERROR;
-        telemetryObs(
-            bindArg(
-                [
-                    sev,
-                    TELEMETRY_KIND_WALLET_RPC,
-                    op,
-                    extracted[EXTRACTED_MESSAGE],
-                    code,
-                ] as const,
-                trigger
-            )
-        );
-    }
+const rethrowWalletError = (ctx: Window, op: number, err: unknown): never => {
+    const extracted = extractErrorInfo(ctx, err);
+    const code = extracted[EXTRACTED_CODE];
+    const sev =
+        code === '4001' ? TELEMETRY_SEVERITY_WARN : TELEMETRY_SEVERITY_ERROR;
+    emitChatTelemetry([
+        sev,
+        TELEMETRY_KIND_WALLET_RPC,
+        op,
+        extracted[EXTRACTED_MESSAGE],
+        code,
+    ]);
     throw err;
 };
 
 const ethereumRequestTask = (
     ctx: Window,
-    telemetryObs: TelemetryObs | undefined,
     op: number,
     method: string,
     params?: readonly unknown[]
 ): Task<unknown> =>
     pipe(
         rawEthereumRequestTask(ctx, method, params),
-        taskCatch(bindArgs([ctx, telemetryObs, op], rethrowWalletError))
+        taskCatch(bindArgs([ctx, op], rethrowWalletError))
     );
 
 const chainSwitchError = (targetChainId: number): Error =>
@@ -209,17 +193,9 @@ const chainSwitchError = (targetChainId: number): Error =>
         `Switch your wallet network to ${formatChainName(targetChainId)} (chain ID ${targetChainId}) to continue.`
     );
 
-const readChainIdTask = (
-    ctx: Window,
-    telemetryObs?: TelemetryObs
-): Task<number> =>
+const readChainIdTask = (ctx: Window): Task<number> =>
     pipe(
-        ethereumRequestTask(
-            ctx,
-            telemetryObs,
-            TELEMETRY_OP_ETH_CHAIN_ID,
-            'eth_chainId'
-        ),
+        ethereumRequestTask(ctx, TELEMETRY_OP_ETH_CHAIN_ID, 'eth_chainId'),
         taskMap(parseChainId)
     );
 
@@ -239,7 +215,6 @@ const rejectChainSwitch = (targetChainId: number): never => {
 
 const switchToTargetChainTask = (
     ctx: Window,
-    telemetryObs: TelemetryObs | undefined,
     targetChainId: number,
     currentChainId: number
 ): Task<number> =>
@@ -248,29 +223,22 @@ const switchToTargetChainTask = (
         : pipe(
               ethereumRequestTask(
                   ctx,
-                  telemetryObs,
                   TELEMETRY_OP_WALLET_SWITCH_ETHEREUM_CHAIN,
                   'wallet_switchEthereumChain',
                   [{ ['chainId']: formatChainIdHex(targetChainId) }]
               ),
-              taskChain(bindArgs([ctx, telemetryObs], readChainIdTask)),
+              taskChain(bindArg(ctx, readChainIdTask)),
               taskMap(bindArg(targetChainId, assertTargetChain)),
               taskCatch(bindArg(targetChainId, rejectChainSwitch))
           );
 
 export const ensureWalletChainTask = (
     ctx: Window,
-    targetChainId: number = DEFAULT_CHAIN_ID,
-    telemetryObs?: TelemetryObs
+    targetChainId: number = DEFAULT_CHAIN_ID
 ): Task<number> =>
     pipe(
-        readChainIdTask(ctx, telemetryObs),
-        taskChain(
-            bindArgs(
-                [ctx, telemetryObs, targetChainId],
-                switchToTargetChainTask
-            )
-        )
+        readChainIdTask(ctx),
+        taskChain(bindArgs([ctx, targetChainId], switchToTargetChainTask))
     );
 
 const extractFirstAccount = (result: unknown): string => {
@@ -300,14 +268,10 @@ const extractTxHash = (result: unknown): string => {
     return normalizeTxHash(txHash);
 };
 
-export const requestAccountsTask = (
-    ctx: Window,
-    telemetryObs?: TelemetryObs
-): Task<string> =>
+export const requestAccountsTask = (ctx: Window): Task<string> =>
     pipe(
         ethereumRequestTask(
             ctx,
-            telemetryObs,
             TELEMETRY_OP_ETH_REQUEST_ACCOUNTS,
             'eth_requestAccounts'
         ),
@@ -317,30 +281,24 @@ export const requestAccountsTask = (
 export const signSiweMessageTask = (
     ctx: Window,
     walletAddress: string,
-    message: string,
-    telemetryObs?: TelemetryObs
+    message: string
 ): Task<string> =>
     pipe(
-        ethereumRequestTask(
-            ctx,
-            telemetryObs,
-            TELEMETRY_OP_PERSONAL_SIGN,
-            'personal_sign',
-            [message, normalizeWalletAddress(walletAddress)]
-        ),
+        ethereumRequestTask(ctx, TELEMETRY_OP_PERSONAL_SIGN, 'personal_sign', [
+            message,
+            normalizeWalletAddress(walletAddress),
+        ]),
         taskMap(extractSignature)
     );
 
 const requestSendTransactionTask = (
     ctx: Window,
-    telemetryObs: TelemetryObs | undefined,
     fromWallet: string,
     toWallet: string,
     valueHex: string
 ): Task<unknown> =>
     ethereumRequestTask(
         ctx,
-        telemetryObs,
         TELEMETRY_OP_ETH_SEND_TRANSACTION,
         'eth_sendTransaction',
         [
@@ -357,14 +315,13 @@ export const sendPaymentTransactionTask = (
     fromWallet: string,
     toWallet: string = RECIPIENT_WALLET_ADDRESS,
     valueHex: string = DEFAULT_PAYMENT_VALUE_HEX,
-    targetChainId: number = DEFAULT_CHAIN_ID,
-    telemetryObs?: TelemetryObs
+    targetChainId: number = DEFAULT_CHAIN_ID
 ): Task<string> =>
     pipe(
-        ensureWalletChainTask(ctx, targetChainId, telemetryObs),
+        ensureWalletChainTask(ctx, targetChainId),
         taskChain(
             bindArgs(
-                [ctx, telemetryObs, fromWallet, toWallet, valueHex],
+                [ctx, fromWallet, toWallet, valueHex],
                 requestSendTransactionTask
             )
         ),

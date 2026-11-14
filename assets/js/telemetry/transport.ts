@@ -143,6 +143,7 @@ export const initTelemetry =
         ctx: Window,
         resolveChainId: (ctx: Window) => number = zeroChainId,
         scope: DomScope = [],
+        telemetryObs: TelemetryObs = observer<TelemetryInput>(),
         storageKey: string = TELEMETRY_STORAGE_KEY,
         idleCloseMs: number = IDLE_CLOSE_MS,
         dedupWindowMs: number = DEDUP_WINDOW_MS
@@ -152,7 +153,6 @@ export const initTelemetry =
         hydrateQueue(ctx, storageKey, queue);
 
         const dedup = createDedupState();
-        const telemetryObs = observer<TelemetryInput>();
 
         let ws: WebSocket | null = null;
         let inFlightAck = 0;

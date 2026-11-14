@@ -469,6 +469,7 @@ const mountTelemetry = (
             envCtx,
             () => chainId,
             scope,
+            undefined,
             TELEMETRY_STORAGE_KEY,
             idleMs,
             dedupMs
