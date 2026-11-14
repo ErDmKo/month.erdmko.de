@@ -14,8 +14,15 @@ export interface WalletBehaviorOptions {
     initialChainIdHex?: string;
     rejectChainSwitch?: boolean;
     rejectSign?: boolean;
+    signError?: { code: number; message: string };
     rejectTransfer?: boolean;
     nextTxStatus?: MockTxStatus;
+    providerFlags?: {
+        isPhantom?: boolean;
+        isMetaMask?: boolean;
+        isRabby?: boolean;
+        isBraveWallet?: boolean;
+    };
 }
 
 export interface InstalledMockWallet {
@@ -110,27 +117,49 @@ export async function installMockWallet(
         }
     );
 
-    await page.evaluateOnNewDocument(() => {
-        const listeners: Record<
-            string,
-            Array<(...args: unknown[]) => void>
-        > = {};
-        (window as any).__e2eEmitWalletEvent = (
-            event: string,
-            payload: unknown
+    await page.evaluateOnNewDocument(
+        (
+            flags: WalletBehaviorOptions['providerFlags'],
+            customSignErr: WalletBehaviorOptions['signError']
         ) => {
-            for (const fn of listeners[event] ?? []) {
-                fn(payload);
-            }
-        };
-        (window as any).ethereum = {
-            request: (args: { method: string; params?: unknown[] }) =>
-                (window as any).__e2eWalletRpc(args.method, args.params),
-            on: (event: string, cb: (...args: unknown[]) => void) => {
-                (listeners[event] ??= []).push(cb);
-            },
-        };
-    });
+            const listeners: Record<
+                string,
+                Array<(...args: unknown[]) => void>
+            > = {};
+            (window as any).__e2eEmitWalletEvent = (
+                event: string,
+                payload: unknown
+            ) => {
+                for (const fn of listeners[event] ?? []) {
+                    fn(payload);
+                }
+            };
+            (window as any).ethereum = {
+                ...(flags ?? {}),
+                request: async (args: {
+                    method: string;
+                    params?: unknown[];
+                }) => {
+                    if (args.method === 'personal_sign' && customSignErr) {
+                        const rpcErr = new Error(
+                            customSignErr.message
+                        ) as Error & { code: number };
+                        rpcErr.code = customSignErr.code;
+                        throw rpcErr;
+                    }
+                    return (window as any).__e2eWalletRpc(
+                        args.method,
+                        args.params
+                    );
+                },
+                on: (event: string, cb: (...args: unknown[]) => void) => {
+                    (listeners[event] ??= []).push(cb);
+                },
+            };
+        },
+        options.providerFlags,
+        options.signError
+    );
 
     return {
         address,

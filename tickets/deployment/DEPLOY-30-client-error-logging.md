@@ -1,7 +1,7 @@
 ---
 title: "Forward Frontend Runtime and Wallet Errors to Server Logs"
 ticket: "DEPLOY-30"
-status: "planned"
+status: "in_progress"
 draft: false
 weight: 30
 ---
@@ -33,9 +33,8 @@ While debugging Phantom wallet sign-in (`code: -32000`, `"The app's signature re
 - **Standalone Protobuf contract (`contracts/telemetry/telemetry.proto`) & server-only decoding**:
   - Represent event categories (`TelemetryKind`), operations (`TelemetryOp`), and wallet provider flags (`TelemetryProviderFlag` bitmask) as numeric Protobuf enums/varints folded to integer literals by Closure Compiler `ADVANCED`.
   - Human-readable enum/bitmask decoding happens exclusively on the Rust server; unused client decode functions are tree-shaken out of `chat-bundle.js`.
-- **Client IndexedDB binary queue (`TELEM-30`)**:
-  - Persist pre-encoded `Uint8Array` `TelemetryEvent` records in IndexedDB (`autoIncrement` keys, bounded at `64` events / `32 KiB` FIFO) with a synchronized in-memory mirror (falling back cleanly to memory if IndexedDB is blocked).
-  - Retain events across reloads when offline and delete records only after receiving a server `TelemetryAck`.
+- **Client binary queue & optional IndexedDB adapter (`TELEM-30`)**:
+  - Bounded FIFO in-memory `Uint8Array` `TelemetryEvent` queue (`64` events / `32 KiB`) with ACK-gated deletion, plus an optional tree-shakable `createIdbTelemetryStorage()` adapter (`assets/js/telemetry/idb-storage.ts`) when cross-reload persistence is desired. Keeping `storage` optional saves ~541 B Brotli in `chat-bundle.js`.
 - **Auth- & room-independent `/ws/telemetry` channel (`TELEM-20`, `TELEM-30`)**:
   - Transport is a lazy WebSocket channel `GET /ws/telemetry` (no session cookie, no room dependency, zero SQLite access, isolated connection cap, covered by existing Nginx `location ^~ /ws/`). Server replies with `TelemetryAck { ack_id }` and idle connections close automatically once drained. (`sendBeacon` was intentionally omitted since IndexedDB persists unacknowledged records across reloads/unloads.)
 - **OpenTelemetry-ready server sink (`TELEM-20`)**:
@@ -43,9 +42,15 @@ While debugging Phantom wallet sign-in (`code: -32000`, `"The app's signature re
 - **Bundle coverage (`TELEM-40`)**:
   - Wired into `chat-bundle` initially (`/chat` and `/chat/{room}`), while keeping the wire contract and client telemetry module chat-agnostic for future opt-in by other bundles.
 
+## Open Follow-Up (WIP — Bundle Size Optimization)
+
+- Removing `logger.ts` / `ws-logger.ts` / `voiceLog` saved **-546 B Brotli** (`12,062 B` → `11,516 B`) on `chat-bundle.js`.
+- Adding the full `/ws/telemetry` transport, queue, dedup, and 20 chat/wallet/WS/voice error hooks currently brings `chat-bundle.js` to **13,181 B Brotli** (`+1,119 B` vs original baseline without IndexedDB, or `13,722 B` / `+1,660 B` with `createIdbTelemetryStorage()`).
+- Follow-up needed to shrink the client transport, error-extraction boilerplate, and local storage buffering so persistent offline queuing fits closer to (or under) the original bundle budget.
+
 ## Acceptance
 
 - [x] [`TELEM-10`](../telemetry/TELEM-10-contract-and-logger-removal.md): `logger.ts` / `ws-logger.ts` removed; `contracts/telemetry/telemetry.proto` and numeric TS enum codegen working.
 - [x] [`TELEM-20`](../telemetry/TELEM-20-server-ws-beacon-otel-sink.md): `GET /ws/telemetry` (with `TelemetryAck`) enforces `Origin`, connection cap, size, and rate limits, scrubs secrets/control chars, and emits OpenTelemetry-aligned records via `TelemetrySink`.
-- [ ] [`TELEM-30`](../telemetry/TELEM-30-client-idb-queue-and-ws-transport.md): IndexedDB binary queue retains events offline, flushes over `/ws/telemetry` with ACK-gated deletion, and closes idle sockets.
-- [ ] [`TELEM-40`](../telemetry/TELEM-40-chat-error-hooks-and-e2e.md): `chat-bundle` reports wallet RPC, auth HTTP, WS, WebRTC, and uncaught errors; unit, Rust, and Puppeteer Page Object E2E suites pass with verified zero debug/enum string bloat.
+- [x] [`TELEM-30`](../telemetry/TELEM-30-client-idb-queue-and-ws-transport.md): Client binary queue (with optional tree-shakable IndexedDB adapter) retains events offline, flushes over `/ws/telemetry` with ACK-gated deletion, and closes idle sockets.
+- [x] [`TELEM-40`](../telemetry/TELEM-40-chat-error-hooks-and-e2e.md): `chat-bundle` reports wallet RPC, auth HTTP, WS, WebRTC, and uncaught errors; unit, Rust, and Puppeteer Page Object E2E suites pass with verified zero debug/enum string bloat.

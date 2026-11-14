@@ -159,6 +159,20 @@ ts_project(
     declaration = True,
     deps = [
         ":gen",
+        ":telemetry",
+    ],
+)
+
+ts_project(
+    name = "telemetry",
+    srcs = glob(
+        ["telemetry/**/*.ts"],
+        exclude = ["telemetry/**/*.test.ts"],
+    ),
+    declaration = True,
+    deps = [
+        ":gen",
+        ":utils",
     ],
 )
 
@@ -171,6 +185,7 @@ ts_project(
         ":chat",
         ":gen",
         ":month",
+        ":telemetry",
         ":utils",
         "//:node_modules/@types/node",
     ],

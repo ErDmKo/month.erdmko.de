@@ -41,6 +41,13 @@ import {
 } from './join-form-handler';
 import { GLOBAL_NICKNAME_KEY, navigateToUrl } from './onboarding';
 import type { ServerFramePayload, ClientFramePayload } from '@month/gen/chat';
+import {
+    TELEMETRY_KIND_WS,
+    TELEMETRY_OP_WS_CONNECT,
+    TELEMETRY_OP_WS_SERVER_ERROR,
+    TELEMETRY_SEVERITY_WARN,
+} from '@month/gen/telemetry';
+import { emitChatTelemetry } from '../telemetry';
 import { mountChatUi } from './template';
 import {
     CHAT_UI_STATE_HAS_ACTIVE_ACCESS,
@@ -216,6 +223,14 @@ export const initChatUi =
             };
 
             ws.onerror = () => {
+                emitChatTelemetry(
+                    ctx,
+                    TELEMETRY_SEVERITY_WARN,
+                    TELEMETRY_KIND_WS,
+                    TELEMETRY_OP_WS_CONNECT,
+                    'Connection error.',
+                    'WS_ERROR'
+                );
                 setError('Connection error.');
             };
         };
@@ -249,6 +264,14 @@ export const initChatUi =
             if (event[SERVER_FRAME_PAYLOAD_VARIANT] === SERVER_FRAME_ERROR) {
                 const errVal = event[SERVER_FRAME_PAYLOAD_VALUE];
                 const errCode = errVal[SERVER_ERROR_CODE];
+                emitChatTelemetry(
+                    ctx,
+                    TELEMETRY_SEVERITY_WARN,
+                    TELEMETRY_KIND_WS,
+                    TELEMETRY_OP_WS_SERVER_ERROR,
+                    errVal[SERVER_ERROR_MESSAGE] || 'Server error',
+                    errCode
+                );
                 if (
                     errCode === 'UNAUTHORIZED' ||
                     errCode === 'PAYMENT_REQUIRED'

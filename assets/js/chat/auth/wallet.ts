@@ -15,6 +15,21 @@ import {
     validate,
 } from '@month/utils';
 import type { Task } from '@month/utils';
+import {
+    TELEMETRY_KIND_WALLET_RPC,
+    TELEMETRY_OP_ETH_CHAIN_ID,
+    TELEMETRY_OP_ETH_REQUEST_ACCOUNTS,
+    TELEMETRY_OP_ETH_SEND_TRANSACTION,
+    TELEMETRY_OP_PERSONAL_SIGN,
+    TELEMETRY_OP_WALLET_SWITCH_ETHEREUM_CHAIN,
+    TELEMETRY_SEVERITY_ERROR,
+    TELEMETRY_SEVERITY_WARN,
+} from '@month/gen/telemetry';
+import {
+    emitChatTelemetry,
+    extractTelemetryError,
+    setActiveTelemetryChainId,
+} from '../telemetry';
 
 export const DEFAULT_CHAIN_ID = 1;
 export const RECIPIENT_WALLET_ADDRESS =
@@ -126,16 +141,33 @@ export const normalizeTxHash = (raw: string): string => {
     return trimmed.toLowerCase();
 };
 
+const reportWalletError = (
+    ctx: Window,
+    op: number,
+    err: unknown,
+    explicitCode = ''
+): void => {
+    const code = explicitCode || extractTelemetryError(err)[0];
+    const sev =
+        code === '4001' ? TELEMETRY_SEVERITY_WARN : TELEMETRY_SEVERITY_ERROR;
+    emitChatTelemetry(ctx, sev, TELEMETRY_KIND_WALLET_RPC, op, err, code);
+};
+
 const ethereumRequestTask =
-    (ctx: Window, method: string, params?: readonly unknown[]): Task<unknown> =>
+    (
+        ctx: Window,
+        op: number,
+        method: string,
+        params?: readonly unknown[]
+    ): Task<unknown> =>
     (resolve, reject) => {
         const eth = validate(ctx, windowEthereumStruct);
         if (!eth) {
-            reject(
-                new Error(
-                    'No Ethereum wallet detected (window.ethereum is missing).'
-                )
+            const err = new Error(
+                'No Ethereum wallet detected (window.ethereum is missing).'
             );
+            reportWalletError(ctx, op, err, 'NO_PROVIDER');
+            reject(err);
             return;
         }
         const request = eth[WIN_ETHEREUM][PROVIDER_REQUEST];
@@ -143,7 +175,10 @@ const ethereumRequestTask =
             params === undefined
                 ? { ['method']: method }
                 : { ['method']: method, ['params']: params };
-        request(args).then(resolve, reject);
+        request(args).then(resolve, (err: unknown) => {
+            reportWalletError(ctx, op, err);
+            reject(err);
+        });
     };
 
 const chainSwitchError = (targetChainId: number): Error =>
@@ -152,7 +187,14 @@ const chainSwitchError = (targetChainId: number): Error =>
     );
 
 const readChainIdTask = (ctx: Window): Task<number> =>
-    pipe(ethereumRequestTask(ctx, 'eth_chainId'), taskMap(parseChainId));
+    pipe(
+        ethereumRequestTask(ctx, TELEMETRY_OP_ETH_CHAIN_ID, 'eth_chainId'),
+        taskMap((raw: unknown) => {
+            const parsed = parseChainId(raw);
+            setActiveTelemetryChainId(ctx, parsed);
+            return parsed;
+        })
+    );
 
 const assertTargetChain = (
     targetChainId: number,
@@ -176,9 +218,12 @@ const switchToTargetChainTask = (
     currentChainId === targetChainId
         ? cont(targetChainId)
         : pipe(
-              ethereumRequestTask(ctx, 'wallet_switchEthereumChain', [
-                  { ['chainId']: formatChainIdHex(targetChainId) },
-              ]),
+              ethereumRequestTask(
+                  ctx,
+                  TELEMETRY_OP_WALLET_SWITCH_ETHEREUM_CHAIN,
+                  'wallet_switchEthereumChain',
+                  [{ ['chainId']: formatChainIdHex(targetChainId) }]
+              ),
               taskChain(bindArg(ctx, readChainIdTask)),
               taskMap(bindArg(targetChainId, assertTargetChain)),
               taskCatch(bindArg(targetChainId, rejectChainSwitch))
@@ -222,7 +267,11 @@ const extractTxHash = (result: unknown): string => {
 
 export const requestAccountsTask = (ctx: Window): Task<string> =>
     pipe(
-        ethereumRequestTask(ctx, 'eth_requestAccounts'),
+        ethereumRequestTask(
+            ctx,
+            TELEMETRY_OP_ETH_REQUEST_ACCOUNTS,
+            'eth_requestAccounts'
+        ),
         taskMap(extractFirstAccount)
     );
 
@@ -232,7 +281,7 @@ export const signSiweMessageTask = (
     message: string
 ): Task<string> =>
     pipe(
-        ethereumRequestTask(ctx, 'personal_sign', [
+        ethereumRequestTask(ctx, TELEMETRY_OP_PERSONAL_SIGN, 'personal_sign', [
             message,
             normalizeWalletAddress(walletAddress),
         ]),
@@ -245,13 +294,18 @@ const requestSendTransactionTask = (
     toWallet: string,
     valueHex: string
 ): Task<unknown> =>
-    ethereumRequestTask(ctx, 'eth_sendTransaction', [
-        {
-            ['from']: normalizeWalletAddress(fromWallet),
-            ['to']: normalizeWalletAddress(toWallet),
-            ['value']: valueHex,
-        },
-    ]);
+    ethereumRequestTask(
+        ctx,
+        TELEMETRY_OP_ETH_SEND_TRANSACTION,
+        'eth_sendTransaction',
+        [
+            {
+                ['from']: normalizeWalletAddress(fromWallet),
+                ['to']: normalizeWalletAddress(toWallet),
+                ['value']: valueHex,
+            },
+        ]
+    );
 
 export const sendPaymentTransactionTask = (
     ctx: Window,

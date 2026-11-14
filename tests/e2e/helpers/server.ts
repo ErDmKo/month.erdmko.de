@@ -22,6 +22,7 @@ export interface ServerHandle {
     baseDir: string;
     rpcUrl: string;
     rpcPort: number;
+    getStdout: () => string;
     stop: () => Promise<void>;
 }
 
@@ -166,6 +167,7 @@ export async function startServer(
     const port = await freePort();
     const serverBin = path.join(root, 'bazel-bin', 'server', 'server');
     const recentLogs: string[] = [];
+    const stdoutChunks: string[] = [];
     const appendLog = (chunk: Buffer) => {
         const text = chunk.toString();
         recentLogs.push(text);
@@ -186,7 +188,10 @@ export async function startServer(
         stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    proc.stdout?.on('data', appendLog);
+    proc.stdout?.on('data', (chunk: Buffer) => {
+        stdoutChunks.push(chunk.toString());
+        appendLog(chunk);
+    });
     proc.stderr?.on('data', appendLog);
 
     const cleanupProcessAndFiles = async () => {
@@ -224,6 +229,7 @@ export async function startServer(
         baseDir,
         rpcUrl,
         rpcPort,
+        getStdout: () => stdoutChunks.join(''),
         stop: cleanupProcessAndFiles,
     };
 }

@@ -17,6 +17,12 @@ import { initMessages } from './messages/init';
 import type { MsgsObs } from './messages/handler';
 import { initAttachments } from './attachments/init';
 import { initVoice } from './voice/index';
+import { emitChatTelemetry, initChatTelemetry } from './telemetry';
+import {
+    TELEMETRY_KIND_UNCAUGHT_ERROR,
+    TELEMETRY_OP_CHAT_INIT,
+    TELEMETRY_SEVERITY_ERROR,
+} from '@month/gen/telemetry';
 
 declare global {
     interface Window {
@@ -42,31 +48,52 @@ const initTemplate = (ctx: Window, root: Element) => {
                     taskChain((msgsObs: MsgsObs) =>
                         initAttachments(ctx, socket, chatUiObs, msgsObs)
                     ),
-                    taskFork(noop, (err) =>
+                    taskFork(noop, (err) => {
+                        emitChatTelemetry(
+                            ctx,
+                            TELEMETRY_SEVERITY_ERROR,
+                            TELEMETRY_KIND_UNCAUGHT_ERROR,
+                            TELEMETRY_OP_CHAT_INIT,
+                            err
+                        );
                         chatUiObs(
                             bindArg(
                                 [CHAT_UI_ERROR, String(err)] as const,
                                 trigger
                             )
-                        )
-                    )
+                        );
+                    })
                 );
                 // Voice is independent of the messages/attachments chain —
                 // it only needs `chatUiObs` (VOICE-20's signaling is carried
                 // over the same chat WS, no separate init dependency).
                 pipe(
                     initVoice(ctx, socket, chatUiObs),
-                    taskFork(noop, (err) =>
+                    taskFork(noop, (err) => {
+                        emitChatTelemetry(
+                            ctx,
+                            TELEMETRY_SEVERITY_ERROR,
+                            TELEMETRY_KIND_UNCAUGHT_ERROR,
+                            TELEMETRY_OP_CHAT_INIT,
+                            err
+                        );
                         chatUiObs(
                             bindArg(
                                 [CHAT_UI_ERROR, String(err)] as const,
                                 trigger
                             )
-                        )
-                    )
+                        );
+                    })
                 );
             },
             (err) => {
+                emitChatTelemetry(
+                    ctx,
+                    TELEMETRY_SEVERITY_ERROR,
+                    TELEMETRY_KIND_UNCAUGHT_ERROR,
+                    TELEMETRY_OP_CHAT_INIT,
+                    err
+                );
                 throw err;
             }
         )
@@ -74,6 +101,7 @@ const initTemplate = (ctx: Window, root: Element) => {
 };
 
 export const initChatEffect = (ctx: Window) => {
+    initChatTelemetry(ctx);
     const onboardingTags = ctx.document.querySelectorAll('.js-chat-onboarding');
     ctx.Array.from(onboardingTags).forEach((el) => initChatOnboarding(ctx, el));
     const tags = ctx.document.querySelectorAll('.js-chat');

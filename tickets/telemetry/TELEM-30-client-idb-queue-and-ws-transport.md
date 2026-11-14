@@ -1,7 +1,7 @@
 ---
 title: "Client IndexedDB Binary Queue & /ws/telemetry Transport"
 ticket: "TELEM-30"
-status: "planned"
+status: "in_progress"
 draft: false
 weight: 30
 ---
@@ -59,9 +59,9 @@ Build a small, dependency-free, codestyle-compliant client telemetry module that
 
 ## Tests and Acceptance
 
-- [ ] Enqueuing events while offline (`navigator.onLine === false`) persists raw `Uint8Array` records in IndexedDB without opening a WebSocket.
-- [ ] Firing `online` (or starting a new session with pre-existing IndexedDB records) opens `/ws/telemetry`, sends `TelemetryBatch`, keeps records if WS drops mid-flight, and deletes records `<= ack_id` only upon receiving `TelemetryAck`.
-- [ ] Idle timer closes `/ws/telemetry` once the queue drains and re-opens lazily if a later error occurs.
-- [ ] Queue cap (`64` events / `32 KiB`) evicts oldest entries cleanly; missing/throwing `indexedDB` falls back to the in-memory queue without throwing.
-- [ ] Duplicate errors within the cooldown window are coalesced.
-- [ ] `bazel test //assets/js:all` passes.
+- [x] Enqueuing events while offline (`navigator.onLine === false`) persists raw `Uint8Array` records in IndexedDB without opening a WebSocket.
+- [x] Firing `online` (or starting a new session with pre-existing IndexedDB records) opens `/ws/telemetry`, sends `TelemetryBatch`, keeps records if WS drops mid-flight, and deletes records `<= ack_id` only upon receiving `TelemetryAck`.
+- [x] Idle timer closes `/ws/telemetry` once the queue drains and re-opens lazily if a later error occurs.
+- [x] Queue cap (`64` events / `32 KiB`) evicts oldest entries cleanly; missing/throwing `indexedDB` falls back to the in-memory queue without throwing.
+- [x] Duplicate errors within the cooldown window are coalesced.
+- [x] `bazel test //assets/js:all` passes.

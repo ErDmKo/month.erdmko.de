@@ -67,6 +67,22 @@ export class ChatOnboardingPage extends BasePage {
         );
     }
 
+    async setNetworkOffline(offline: boolean): Promise<void> {
+        await this.page.setOfflineMode(offline);
+        await this.page.evaluate((isOffline) => {
+            window.dispatchEvent(new Event(isOffline ? 'offline' : 'online'));
+        }, offline);
+    }
+
+    async triggerUncaughtRuntimeError(message: string): Promise<void> {
+        await this.page.evaluate((msg) => {
+            const script = document.createElement('script');
+            script.textContent = `throw new TypeError(${JSON.stringify(msg)});`;
+            document.head.appendChild(script);
+            script.remove();
+        }, message);
+    }
+
     async attemptAnonymousWebSocket(
         roomId: string
     ): Promise<{ opened: boolean; messages: number }> {

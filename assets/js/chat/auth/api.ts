@@ -48,6 +48,16 @@ import {
     DEFAULT_PAYMENT_VALUE_HEX,
     RECIPIENT_WALLET_ADDRESS,
 } from './wallet';
+import {
+    TELEMETRY_KIND_AUTH_HTTP,
+    TELEMETRY_OP_AUTH_CLAIM_PAYMENT,
+    TELEMETRY_OP_AUTH_NICKNAME,
+    TELEMETRY_OP_AUTH_NONCE,
+    TELEMETRY_OP_AUTH_VERIFY,
+    TELEMETRY_SEVERITY_ERROR,
+    TELEMETRY_SEVERITY_WARN,
+} from '@month/gen/telemetry';
+import { emitChatTelemetry, setActiveTelemetryChainId } from '../telemetry';
 
 declare global {
     interface Window {
@@ -127,6 +137,7 @@ export const applyPaymentConfig = (
             prev[PAYMENT_CONFIG_DURATION_SECS],
     ];
     configByWindow.set(ctx, next);
+    setActiveTelemetryChainId(ctx, next[PAYMENT_CONFIG_CHAIN_ID]);
     return next;
 };
 
@@ -151,14 +162,30 @@ const readProtoResponseTask =
                 const msg = notice
                     ? notice[PAYMENT_CLAIM_NOTICE_MESSAGE].trim()
                     : '';
-                reject(
-                    new Error(msg || `Request failed with status ${res.status}`)
-                );
+                const err = new Error(
+                    msg || `Request failed with status ${res.status}`
+                ) as Error & { ['code']?: number };
+                err['code'] = res.status;
+                reject(err);
                 return;
             }
             resolve(bytes);
         }, reject);
     };
+
+const observeAuthFailure =
+    <T>(ctx: Window, op: number) =>
+    (task: Task<T>): Task<T> =>
+    (resolve, reject) =>
+        task(resolve, (err: unknown) => {
+            const status = (err as { ['code']?: number } | null)?.['code'] ?? 0;
+            const sev =
+                status >= 400 && status < 500
+                    ? TELEMETRY_SEVERITY_WARN
+                    : TELEMETRY_SEVERITY_ERROR;
+            emitChatTelemetry(ctx, sev, TELEMETRY_KIND_AUTH_HTTP, op, err);
+            reject(err);
+        });
 
 const fetchProtoTask = (
     ctx: Window,
@@ -243,7 +270,8 @@ export const fetchNonceTask = (
             '/auth/nonce',
             encodeNonceRequest(ctx, walletAddress)
         ),
-        taskMap(bindArg(ctx, parseNonceProto))
+        taskMap(bindArg(ctx, parseNonceProto)),
+        observeAuthFailure(ctx, TELEMETRY_OP_AUTH_NONCE)
     );
 
 export const verifySiweTask = (
@@ -257,7 +285,8 @@ export const verifySiweTask = (
             '/auth/verify',
             encodeVerifySiweRequest(ctx, message, signature)
         ),
-        taskMap(bindArg(ctx, parseRequiredSessionProto))
+        taskMap(bindArg(ctx, parseRequiredSessionProto)),
+        observeAuthFailure(ctx, TELEMETRY_OP_AUTH_VERIFY)
     );
 
 export const claimPaymentOutcomeMessage = (
@@ -298,7 +327,8 @@ export const claimPaymentProtoTask = (
             '/auth/claim-payment',
             encodeClaimPaymentRequest(ctx, txHash.trim(), nickname.trim())
         ),
-        taskMap(bindArg(ctx, parseClaimPaymentProto))
+        taskMap(bindArg(ctx, parseClaimPaymentProto)),
+        observeAuthFailure(ctx, TELEMETRY_OP_AUTH_CLAIM_PAYMENT)
     );
 
 const requireActivatedOutcome = (
@@ -338,7 +368,8 @@ export const updateNicknameTask = (
             '/auth/nickname',
             encodeSetNicknameRequest(ctx, nickname.trim())
         ),
-        taskMap(bindArg(ctx, parseRequiredSessionProto))
+        taskMap(bindArg(ctx, parseRequiredSessionProto)),
+        observeAuthFailure(ctx, TELEMETRY_OP_AUTH_NICKNAME)
     );
 
 const returnNull = (): null => null;
