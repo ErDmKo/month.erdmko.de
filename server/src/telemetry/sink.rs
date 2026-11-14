@@ -61,7 +61,7 @@ impl StdoutTelemetrySink {
             "[{observed_iso} {:<5} telemetry] event={} severity={} kind={} op={} code={:?} chain_id={} providers={} path={:?} loc={}:{} client_ts={} msg={:?}",
             record.severity_text,
             record.event_name,
-            record.severity_number,
+            record.severity_text,
             record.kind,
             record.op,
             record.code,

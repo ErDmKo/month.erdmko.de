@@ -178,7 +178,7 @@ ts_project(
 
 ts_project(
     name = "chat_tests",
-    srcs = glob(["**/*.test.ts"]),
+    srcs = ["test-window.ts"] + glob(["**/*.test.ts"]),
     declaration = True,
     tsconfig = ":tsconfig_test",
     deps = [
@@ -188,6 +188,7 @@ ts_project(
         ":telemetry",
         ":utils",
         "//:node_modules/@types/node",
+        "//:node_modules/happy-dom",
     ],
 )
 
@@ -197,6 +198,7 @@ ts_project(
             name = src.removesuffix(".ts") + "-bin",
             bundle = True,
             entry_point = src,
+            external = ["happy-dom"],
             metafile = False,
             minify = False,
             platform = "node",
@@ -207,7 +209,10 @@ ts_project(
         ),
         js_test(
             name = src.removesuffix(".ts"),
-            data = [src.removesuffix(".ts") + "-bin"],
+            data = [
+                src.removesuffix(".ts") + "-bin",
+                "//:node_modules/happy-dom",
+            ],
             entry_point = src.removesuffix(".ts") + "-bin",
             node_options = ["--test"],
         ),

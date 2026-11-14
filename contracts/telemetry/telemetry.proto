@@ -72,10 +72,5 @@ message TelemetryEvent {
 }
 
 message TelemetryBatch {
-  uint32                  ack_id = 1;
-  repeated TelemetryEvent events = 2;
-}
-
-message TelemetryAck {
-  uint32 ack_id = 1;
+  repeated TelemetryEvent events = 1;
 }

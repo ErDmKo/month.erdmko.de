@@ -1,35 +1,33 @@
 import {
     bindArg,
     identity,
-    isBoolean,
-    isFunction,
     isNumber,
     isString,
     nullable,
     objectStruct,
     observer,
     on,
+    pipe,
+    taskFork,
     trigger,
     validate,
 } from '@month/utils';
 import type { DomScope, Task } from '@month/utils';
 import {
-    TELEMETRY_ACK_ACK_ID,
     TELEMETRY_KIND_UNCAUGHT_ERROR,
     TELEMETRY_KIND_UNHANDLED_REJECTION,
     TELEMETRY_OP_UNSPECIFIED,
     TELEMETRY_SEVERITY_ERROR,
-    decodeTelemetryAck,
 } from '@month/gen/telemetry';
 import { createDedupState, DEDUP_WINDOW_MS } from './dedup';
 import { encodeAcceptedTelemetry } from './error';
 import type { TelemetryInput, TelemetryObs } from './error';
 import {
-    ackQueueEntries,
     assembleNextBatch,
-    BATCH_ACK_ID,
-    BATCH_FRAME,
+    BATCH_BODY,
+    BATCH_LAST,
     createTelemetryQueue,
+    dropThroughItem,
     enqueueBytes,
     hydrateQueue,
     persistQueue,
@@ -37,37 +35,9 @@ import {
     TELEMETRY_STORAGE_KEY,
 } from './queue';
 
-declare global {
-    interface Window {
-        WebSocket: typeof WebSocket;
-        ArrayBuffer: typeof ArrayBuffer;
-    }
-}
-
-export const IDLE_CLOSE_MS = 10000;
 export const BACKOFF_DELAYS_MS = [1000, 2000, 5000, 15000] as const;
 
-const WS_CONNECTING_STATE = 0;
-const WS_OPEN_STATE = 1;
-
-const WIN_NAVIGATOR = 0 as const;
-const NAV_ON_LINE = 0 as const;
-
-const navigatorOnlineStruct = objectStruct([
-    'navigator',
-    objectStruct(['onLine', isBoolean]),
-]);
-
-const WIN_ADD_EVENT = 0 as const;
-const WIN_REMOVE_EVENT = 1 as const;
-
-const windowEventsStruct = objectStruct(
-    ['addEventListener', isFunction<Window['addEventListener']>],
-    ['removeEventListener', isFunction<Window['removeEventListener']>, nullable]
-);
-
-const MSG_EVENT_DATA = 0 as const;
-const messageEventStruct = objectStruct(['data', identity, nullable]);
+const PROTO_CONTENT_TYPE = 'application/x-protobuf';
 
 const ERROR_EVENT_MSG = 0 as const;
 const ERROR_EVENT_LINE = 1 as const;
@@ -86,18 +56,19 @@ const rejectionEventStruct = objectStruct(['reason', identity, nullable]);
 
 const zeroChainId = (): number => 0;
 
-export const isNavigatorOnline = (ctx: Window): boolean => {
-    const parsed = validate(ctx, navigatorOnlineStruct);
-    return parsed ? parsed[WIN_NAVIGATOR][NAV_ON_LINE] : true;
-};
+export const isNavigatorOnline = (ctx: Window): boolean => ctx.navigator.onLine;
 
-const toFrameBytes = (ctx: Window, raw: unknown): Uint8Array | null => {
-    if (raw instanceof ctx.Uint8Array) return raw;
-    if (ctx.ArrayBuffer && raw instanceof ctx.ArrayBuffer) {
-        return new ctx.Uint8Array(raw);
-    }
-    return null;
-};
+const postTelemetryTask =
+    (ctx: Window, body: Uint8Array): Task<number> =>
+    (resolve, reject) => {
+        ctx.fetch('/telemetry', {
+            ['method']: 'POST',
+            ['headers']: { ['Content-Type']: PROTO_CONTENT_TYPE },
+            ['credentials']: 'same-origin',
+            ['keepalive']: true,
+            ['body']: body as unknown as BodyInit,
+        }).then((res: Response) => resolve(res.status), reject);
+    };
 
 const handleWindowError = (telemetryObs: TelemetryObs, ev: Event): void => {
     const parsed = validate(ev, errorEventStruct);
@@ -145,7 +116,6 @@ export const initTelemetry =
         scope: DomScope = [],
         telemetryObs: TelemetryObs = observer<TelemetryInput>(),
         storageKey: string = TELEMETRY_STORAGE_KEY,
-        idleCloseMs: number = IDLE_CLOSE_MS,
         dedupWindowMs: number = DEDUP_WINDOW_MS
     ): Task<TelemetryObs> =>
     (resolve) => {
@@ -154,11 +124,9 @@ export const initTelemetry =
 
         const dedup = createDedupState();
 
-        let ws: WebSocket | null = null;
-        let inFlightAck = 0;
+        let inFlight = false;
         let retryAttempt = 0;
         let retryTimer: number | null = null;
-        let idleTimer: number | null = null;
         let active = true;
 
         const clearRetry = (): void => {
@@ -168,43 +136,7 @@ export const initTelemetry =
             }
         };
 
-        const clearIdle = (): void => {
-            if (idleTimer !== null) {
-                ctx.clearTimeout(idleTimer);
-                idleTimer = null;
-            }
-        };
-
-        const closeSocket = (): void => {
-            const current = ws;
-            ws = null;
-            inFlightAck = 0;
-            if (current) {
-                current.onopen =
-                    current.onmessage =
-                    current.onerror =
-                    current.onclose =
-                        null;
-                try {
-                    current.close();
-                } catch {
-                    // ignore
-                }
-            }
-        };
-
-        const startIdle = (): void => {
-            clearIdle();
-            if (!ws || !active) return;
-            idleTimer = ctx.setTimeout(() => {
-                idleTimer = null;
-                if (!queueHasEntries(queue) && inFlightAck === 0) {
-                    closeSocket();
-                }
-            }, idleCloseMs);
-        };
-
-        const scheduleReconnect = (): void => {
+        const scheduleRetry = (): void => {
             if (
                 !active ||
                 retryTimer !== null ||
@@ -224,95 +156,42 @@ export const initTelemetry =
             }, delayMs);
         };
 
-        const sendNext = (): void => {
-            if (!ws || ws.readyState !== WS_OPEN_STATE || inFlightAck !== 0) {
+        const flush = (): void => {
+            if (
+                !active ||
+                inFlight ||
+                !queueHasEntries(queue) ||
+                !isNavigatorOnline(ctx)
+            ) {
                 return;
             }
             const batch = assembleNextBatch(ctx, queue);
-            if (!batch) {
-                startIdle();
-                return;
-            }
-            clearIdle();
-            inFlightAck = batch[BATCH_ACK_ID];
-            try {
-                ws.send(batch[BATCH_FRAME] as Uint8Array<ArrayBuffer>);
-            } catch {
-                closeSocket();
-                scheduleReconnect();
-            }
-        };
-
-        const flush = (): void => {
-            if (!active || !queueHasEntries(queue) || !isNavigatorOnline(ctx)) {
-                return;
-            }
-            if (ws) {
-                if (ws.readyState === WS_OPEN_STATE) {
-                    sendNext();
-                    return;
-                }
-                if (ws.readyState === WS_CONNECTING_STATE) return;
-                closeSocket();
-            }
+            if (!batch) return;
 
             clearRetry();
-            clearIdle();
+            inFlight = true;
+            const lastItem = batch[BATCH_LAST];
 
-            const proto = ctx.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            let sock: WebSocket;
-            try {
-                sock = new ctx.WebSocket(
-                    `${proto}//${ctx.location.host}/ws/telemetry`
-                );
-            } catch {
-                scheduleReconnect();
-                return;
-            }
-
-            sock.binaryType = 'arraybuffer';
-            ws = sock;
-            inFlightAck = 0;
-
-            sock.onopen = () => {
-                if (ws === sock) sendNext();
-            };
-
-            sock.onmessage = (ev: MessageEvent) => {
-                if (ws !== sock) return;
-                const msg = validate(ev, messageEventStruct);
-                const bytes = msg
-                    ? toFrameBytes(ctx, msg[MSG_EVENT_DATA])
-                    : null;
-                const ack = bytes ? decodeTelemetryAck(ctx, bytes) : null;
-                const ackId = ack ? ack[TELEMETRY_ACK_ACK_ID] : 0;
-                if (ackId <= 0) return;
-
-                retryAttempt = 0;
-                if (ackId >= inFlightAck) inFlightAck = 0;
-                ackQueueEntries(ackId, queue);
-                persistQueue(ctx, storageKey, queue);
-                if (queueHasEntries(queue)) {
-                    sendNext();
-                } else {
-                    startIdle();
-                }
-            };
-
-            sock.onclose = () => {
-                if (ws !== sock) return;
-                sock.onopen =
-                    sock.onmessage =
-                    sock.onerror =
-                    sock.onclose =
-                        null;
-                ws = null;
-                inFlightAck = 0;
-                clearIdle();
-                if (queueHasEntries(queue)) {
-                    scheduleReconnect();
-                }
-            };
+            pipe(
+                postTelemetryTask(ctx, batch[BATCH_BODY]),
+                taskFork(
+                    (status: number) => {
+                        inFlight = false;
+                        if (status === 429 || status >= 500) {
+                            scheduleRetry();
+                            return;
+                        }
+                        retryAttempt = 0;
+                        dropThroughItem(lastItem, queue);
+                        persistQueue(ctx, storageKey, queue);
+                        flush();
+                    },
+                    () => {
+                        inFlight = false;
+                        scheduleRetry();
+                    }
+                )
+            );
         };
 
         telemetryObs(
@@ -332,37 +211,25 @@ export const initTelemetry =
             }, on)
         );
 
-        const winEvents = validate(ctx, windowEventsStruct);
-        if (winEvents) {
-            const addEvent = winEvents[WIN_ADD_EVENT];
-            const removeEvent = winEvents[WIN_REMOVE_EVENT];
-            const onOnline = (): void => {
-                if (!active) return;
-                retryAttempt = 0;
-                clearRetry();
-                flush();
-            };
-            const onError = bindArg(telemetryObs, handleWindowError);
-            const onRejection = bindArg(telemetryObs, handleUnhandledRejection);
+        const onOnline = (): void => {
+            if (!active) return;
+            retryAttempt = 0;
+            clearRetry();
+            flush();
+        };
+        const onError = bindArg(telemetryObs, handleWindowError);
+        const onRejection = bindArg(telemetryObs, handleUnhandledRejection);
 
-            addEvent('online', onOnline);
-            addEvent('error', onError);
-            addEvent('unhandledrejection', onRejection);
-
-            scope.push(() => {
-                if (removeEvent) {
-                    removeEvent('online', onOnline);
-                    removeEvent('error', onError);
-                    removeEvent('unhandledrejection', onRejection);
-                }
-            });
-        }
+        ctx.addEventListener('online', onOnline);
+        ctx.addEventListener('error', onError);
+        ctx.addEventListener('unhandledrejection', onRejection);
 
         scope.push(() => {
             active = false;
             clearRetry();
-            clearIdle();
-            closeSocket();
+            ctx.removeEventListener('online', onOnline);
+            ctx.removeEventListener('error', onError);
+            ctx.removeEventListener('unhandledrejection', onRejection);
         });
 
         flush();

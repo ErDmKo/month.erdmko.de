@@ -19,7 +19,9 @@ import {
     DOWNLOAD_CHUNK_DATA,
 } from '@month/gen/chat';
 
-const ctx = globalThis as unknown as Window;
+import { createTestWindow } from '../test-window';
+
+const ctx = createTestWindow();
 
 test('UploadChunk round-trip via ClientFrame', () => {
     const uploadId = 7;

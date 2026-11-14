@@ -25,11 +25,9 @@ import {
     decodeClientFrame,
 } from '@month/gen/chat';
 
-const ctx = {
-    TextEncoder,
-    TextDecoder,
-    Uint8Array,
-} as unknown as Window;
+import { createTestWindow } from '../test-window';
+
+const ctx = createTestWindow();
 
 test('join encode/decode round-trip', () => {
     const buf = new Uint8Array(

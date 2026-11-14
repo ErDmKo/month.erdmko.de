@@ -2,5 +2,6 @@ User-agent: *
 Allow: /
 Disallow: /api/
 Disallow: /ws/
+Disallow: /telemetry
 
 Sitemap: https://erdmko.dev/sitemap.xml

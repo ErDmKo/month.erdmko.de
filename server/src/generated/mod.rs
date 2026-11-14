@@ -6,8 +6,8 @@ pub use telemetry_proto::telemetry;
 #[cfg(test)]
 mod tests {
     use super::telemetry::{
-        TelemetryAck, TelemetryBatch, TelemetryEvent, TelemetryKind, TelemetryOp,
-        TelemetryProviderFlag, TelemetrySeverity,
+        TelemetryBatch, TelemetryEvent, TelemetryKind, TelemetryOp, TelemetryProviderFlag,
+        TelemetrySeverity,
     };
     use prost::Message;
 
@@ -29,14 +29,12 @@ mod tests {
             provider_flags: flags,
         };
         let batch = TelemetryBatch {
-            ack_id: 7,
             events: vec![event],
         };
 
         let bytes = batch.encode_to_vec();
         let expected_wire: &[u8] = &[
-            0x08, 0x07, // ack_id = 7
-            0x12, 0x36, // events[0] len = 54
+            0x0a, 0x36, // field 1 (events[0]), len = 54
             0x08, 0xfb, 0xa8, 0xea, 0xba, 0x9d, 0x34, // timestamp_ms = 1794614400123
             0x10, 0x11, // severity = ERROR (17)
             0x18, 0x03, // kind = WALLET_RPC (3)
@@ -51,7 +49,6 @@ mod tests {
         assert_eq!(bytes.as_slice(), expected_wire);
 
         let decoded = TelemetryBatch::decode(bytes.as_slice()).expect("decode TelemetryBatch");
-        assert_eq!(decoded.ack_id, 7);
         assert_eq!(decoded.events.len(), 1);
 
         let ev = &decoded.events[0];
@@ -64,10 +61,5 @@ mod tests {
         assert_eq!(ev.path, "/chat");
         assert_eq!(ev.chain_id, 11_155_111);
         assert_eq!(ev.provider_flags, 5);
-
-        let ack = TelemetryAck { ack_id: 7 };
-        let ack_bytes = ack.encode_to_vec();
-        let decoded_ack = TelemetryAck::decode(ack_bytes.as_slice()).expect("decode TelemetryAck");
-        assert_eq!(decoded_ack.ack_id, 7);
     }
 }

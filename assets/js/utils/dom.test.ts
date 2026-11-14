@@ -45,130 +45,7 @@ import {
     SIGNAL_OBS,
     SIGNAL_SET,
 } from './index';
-
-// Minimal mock DOM environment for pure Node testing via explicit `ctx: Window`
-class MockTextNode {
-    nodeType = 3;
-    data: string;
-    parentNode: MockElement | null = null;
-    constructor(data: string) {
-        this.data = data;
-    }
-    get nextSibling(): MockNode | null {
-        if (!this.parentNode) return null;
-        const idx = this.parentNode.childNodes.indexOf(this);
-        return idx >= 0 && idx + 1 < this.parentNode.childNodes.length
-            ? this.parentNode.childNodes[idx + 1]
-            : null;
-    }
-    get textContent(): string {
-        return this.data;
-    }
-}
-
-class MockElement {
-    nodeType = 1;
-    tagName: string;
-    style: Record<string, any> = {};
-    attributes = new Map<string, string>();
-    childNodes: MockNode[] = [];
-    parentNode: MockElement | null = null;
-    listeners = new Map<string, Set<Function>>();
-    hidden = false;
-    disabled = false;
-    innerText = '';
-
-    constructor(tag: string) {
-        this.tagName = tag.toUpperCase();
-    }
-
-    setAttribute(key: string, val: string) {
-        this.attributes.set(key, val);
-    }
-
-    getAttribute(key: string): string | undefined {
-        return this.attributes.get(key);
-    }
-
-    hasAttribute(key: string): boolean {
-        return this.attributes.has(key);
-    }
-
-    removeAttribute(key: string) {
-        this.attributes.delete(key);
-    }
-
-    appendChild(node: MockNode): MockNode {
-        if (node.parentNode) {
-            node.parentNode.removeChild(node);
-        }
-        node.parentNode = this;
-        this.childNodes.push(node);
-        return node;
-    }
-
-    insertBefore(node: MockNode, refNode: MockNode | null): MockNode {
-        if (!refNode) {
-            return this.appendChild(node);
-        }
-        if (node.parentNode) {
-            node.parentNode.removeChild(node);
-        }
-        const idx = this.childNodes.indexOf(refNode);
-        if (idx === -1) {
-            return this.appendChild(node);
-        }
-        node.parentNode = this;
-        this.childNodes.splice(idx, 0, node);
-        return node;
-    }
-
-    removeChild(node: MockNode): MockNode {
-        const idx = this.childNodes.indexOf(node);
-        if (idx !== -1) {
-            this.childNodes.splice(idx, 1);
-            node.parentNode = null;
-        }
-        return node;
-    }
-
-    addEventListener(type: string, fn: Function) {
-        let set = this.listeners.get(type);
-        if (!set) {
-            set = new Set();
-            this.listeners.set(type, set);
-        }
-        set.add(fn);
-    }
-
-    removeEventListener(type: string, fn: Function) {
-        this.listeners.get(type)?.delete(fn);
-    }
-
-    dispatchEvent(type: string, ev: any = {}) {
-        const set = this.listeners.get(type);
-        if (set) {
-            for (const fn of [...set]) {
-                fn(ev);
-            }
-        }
-    }
-
-    get nextSibling(): MockNode | null {
-        if (!this.parentNode) return null;
-        const idx = this.parentNode.childNodes.indexOf(this);
-        return idx >= 0 && idx + 1 < this.parentNode.childNodes.length
-            ? this.parentNode.childNodes[idx + 1]
-            : null;
-    }
-
-    get textContent(): string {
-        if (this.innerText) return this.innerText;
-        return this.childNodes.map((c) => c.textContent).join('');
-    }
-}
-
-type MockNode = MockElement | MockTextNode;
+import { createTestWindow } from '../test-window';
 
 const REF_BTN = 0 as const;
 const REF_INPUT = 1 as const;
@@ -176,13 +53,8 @@ const REF_BANNER = 0 as const;
 const REF_LIST = 1 as const;
 
 const createMockCtx = (): [Window, HTMLElement] => {
-    const root = new MockElement('div') as unknown as HTMLElement;
-    const ctx = {
-        document: {
-            createElement: (tag: string) => new MockElement(tag),
-            createTextNode: (text: string) => new MockTextNode(text),
-        },
-    } as unknown as Window;
+    const ctx = createTestWindow();
+    const root = ctx.document.createElement('div');
     return [ctx, root];
 };
 
@@ -472,10 +344,9 @@ test('genTagName binds direct text, signal children, and reactive props/attrs', 
         scope
     );
 
-    const containerEl = (root as unknown as MockElement)
-        .childNodes[0] as MockElement;
-    const btnEl = refs[REF_BTN] as unknown as MockElement;
-    const inputEl = refs[REF_INPUT] as unknown as MockElement;
+    const containerEl = root.childNodes[0] as HTMLElement;
+    const btnEl = refs[REF_BTN] as unknown as HTMLButtonElement;
+    const inputEl = refs[REF_INPUT] as unknown as HTMLInputElement;
 
     assert.equal(containerEl.getAttribute('class'), 'chat-header');
     assert.equal(containerEl.textContent, 'Status: connectingSend');
@@ -514,13 +385,12 @@ test('genOn attaches typed event listeners and cleans up on domDispose', () => {
         scope
     );
 
-    const mockBtn = btn as unknown as MockElement;
-    mockBtn.dispatchEvent('click');
-    mockBtn.dispatchEvent('click');
+    btn.click();
+    btn.click();
     assert.equal(clicks, 2);
 
     domDispose(scope);
-    mockBtn.dispatchEvent('click');
+    btn.click();
     assert.equal(clicks, 2);
 });
 
@@ -547,21 +417,20 @@ test('raw prop entries bind styles, text, and nullable attributes with scoped cl
         ),
         scope
     );
-    const mockEl = el as unknown as MockElement;
-    assert.equal(mockEl.style.color, 'red');
-    assert.equal(mockEl.getAttribute('data-state'), 'ready');
-    assert.equal(mockEl.hasAttribute('hidden'), false);
-    assert.equal(mockEl.textContent, '0');
+    assert.equal(el.style.color, 'red');
+    assert.equal(el.getAttribute('data-state'), 'ready');
+    assert.equal(el.hasAttribute('hidden'), false);
+    assert.equal(el.textContent, '0');
 
     styleSig[SIGNAL_SET]({ color: 'blue' });
     textSig[SIGNAL_SET](42);
     attrSig[SIGNAL_SET](true);
-    assert.equal(mockEl.style.color, 'blue');
-    assert.equal(mockEl.textContent, '42');
-    assert.equal(mockEl.getAttribute('data-state'), '');
+    assert.equal(el.style.color, 'blue');
+    assert.equal(el.textContent, '42');
+    assert.equal(el.getAttribute('data-state'), '');
     for (const absent of [false, null, undefined]) {
         attrSig[SIGNAL_SET](absent);
-        assert.equal(mockEl.hasAttribute('data-state'), false);
+        assert.equal(el.hasAttribute('data-state'), false);
         attrSig[SIGNAL_SET]('present');
     }
 
@@ -569,9 +438,9 @@ test('raw prop entries bind styles, text, and nullable attributes with scoped cl
     styleSig[SIGNAL_SET]({ color: 'green' });
     textSig[SIGNAL_SET](99);
     attrSig[SIGNAL_SET]('disposed');
-    assert.equal(mockEl.style.color, 'blue');
-    assert.equal(mockEl.textContent, '42');
-    assert.equal(mockEl.getAttribute('data-state'), 'present');
+    assert.equal(el.style.color, 'blue');
+    assert.equal(el.textContent, '42');
+    assert.equal(el.getAttribute('data-state'), 'present');
     assert.equal(scope.length, 0);
 });
 
@@ -618,10 +487,9 @@ test('domShow, domIf, and domList control flow primitives', () => {
         scope
     );
 
-    const bannerEl = refs[REF_BANNER] as unknown as MockElement;
-    const listEl = refs[REF_LIST] as unknown as MockElement;
-    const containerEl = (root as unknown as MockElement)
-        .childNodes[0] as MockElement;
+    const bannerEl = refs[REF_BANNER] as HTMLElement;
+    const listEl = refs[REF_LIST] as HTMLElement;
+    const containerEl = root.childNodes[0] as HTMLElement;
 
     assert.equal(bannerEl.hidden, false);
     assert.equal(containerEl.textContent.includes('Please log in'), true);

@@ -1,7 +1,7 @@
 /**
  * telemetry.test.ts — Real Chromium + Rust server E2E verification of binary Protobuf
- * client error telemetry over `/ws/telemetry`, structured OpenTelemetry-aligned stdout
- * output, offline buffering & reconnect flush, and Closure ADVANCED bundle string audit.
+ * client error telemetry over `POST /telemetry`, structured OpenTelemetry-aligned stdout
+ * output, offline localStorage persistence & reload flush, and Closure ADVANCED bundle audit.
  *
  * All browser/DOM interactions go strictly through `ChatOnboardingPage`.
  */
@@ -46,8 +46,8 @@ afterAll(async () => {
     if (telemetryServer) await telemetryServer.stop();
 });
 
-describe('client error telemetry E2E (/ws/telemetry -> server stdout)', () => {
-    test('unauthenticated Phantom personal_sign -32000 failure on /chat streams binary batch and logs structured ERROR to server stdout', async () => {
+describe('client error telemetry E2E (POST /telemetry -> server stdout)', () => {
+    test('unauthenticated Phantom personal_sign -32000 failure on /chat posts binary batch and logs structured ERROR to server stdout', async () => {
         const session = await createIsolatedPageSession(browser);
         try {
             await installMockWallet(session.page, {
@@ -84,7 +84,7 @@ describe('client error telemetry E2E (/ws/telemetry -> server stdout)', () => {
                     s.includes('code="-32000"')
             );
 
-            expect(stdout).toContain('severity=17');
+            expect(stdout).toContain('severity=ERROR');
             expect(stdout).toContain('chain_id=1');
             expect(stdout).toContain('providers=ethereum,phantom');
             expect(stdout).toContain('path="/chat"');
@@ -93,7 +93,7 @@ describe('client error telemetry E2E (/ws/telemetry -> server stdout)', () => {
         }
     });
 
-    test('offline uncaught runtime error persists in localStorage across reload, flushes once online, and clears on ACK', async () => {
+    test('offline uncaught runtime error persists in localStorage across reload, flushes once online, and clears on 204', async () => {
         const session = await createIsolatedPageSession(browser);
         try {
             const onboarding = new ChatOnboardingPage(
@@ -123,12 +123,14 @@ describe('client error telemetry E2E (/ws/telemetry -> server stdout)', () => {
             await reloadedOnboarding.openLanding();
 
             const stdout = await waitForStdoutMatch((s) => s.includes(marker));
-            expect(stdout).toContain('ERROR telemetry] event=browser.error');
+            expect(stdout).toContain(
+                'ERROR telemetry] event=browser.error severity=ERROR'
+            );
             expect(stdout).toContain('kind=uncaught_error');
             // Query string `?room=secret-room` is never leaked in telemetry path
             expect(stdout).not.toContain('secret-room');
 
-            // Once server sends TelemetryAck, `chat-telemetry` is purged from localStorage
+            // Once server returns 204 No Content, `chat-telemetry` is purged from localStorage
             await new Promise((r) => setTimeout(r, 150));
             expect(
                 await reloadedOnboarding.localStorageItem('chat-telemetry')
@@ -156,5 +158,6 @@ describe('client error telemetry E2E (/ws/telemetry -> server stdout)', () => {
             /TELEMETRY_(SEVERITY|KIND|OP|PROVIDER_FLAG)_/
         );
         expect(bundleSrc).not.toContain('indexedDB');
+        expect(bundleSrc).not.toContain('/ws/telemetry');
     });
 });

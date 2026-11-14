@@ -1,14 +1,13 @@
+use actix_web::http::StatusCode;
 use actix_web::{App, HttpServer, web};
-use awc::ws::{CloseCode, Frame, Message as WsMessage};
-use futures_util::{SinkExt, StreamExt};
 use prost::Message;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::generated::telemetry::{
-    TelemetryAck, TelemetryBatch, TelemetryEvent, TelemetryKind, TelemetryOp,
-    TelemetryProviderFlag, TelemetrySeverity,
+    TelemetryBatch, TelemetryEvent, TelemetryKind, TelemetryOp, TelemetryProviderFlag,
+    TelemetrySeverity,
 };
 
 use super::sanitize::{
@@ -22,7 +21,7 @@ use super::sink::{
     decode_severity,
 };
 use super::{
-    MAX_TELEMETRY_BATCH_EVENTS, MAX_TELEMETRY_PAYLOAD_BYTES, TelemetryState, telemetry_ws_handler,
+    MAX_TELEMETRY_BATCH_EVENTS, MAX_TELEMETRY_PAYLOAD_BYTES, TelemetryState, post_telemetry_handler,
 };
 
 #[derive(Default)]
@@ -51,11 +50,11 @@ fn spawn_telemetry_server(
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
     let addr = listener.local_addr().expect("local addr");
     // Notice: no AppCtx, no SQLite pool, and no session middleware —
-    // proving `/ws/telemetry` is 100% auth-, room-, and DB-independent.
+    // proving `POST /telemetry` is 100% auth-, room-, and DB-independent.
     let server = HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
-            .service(telemetry_ws_handler)
+            .service(post_telemetry_handler)
     })
     .shutdown_timeout(0)
     .listen(listener)
@@ -168,7 +167,7 @@ fn decodes_all_enums_severities_and_provider_bitmasks_on_server() {
 }
 
 #[test]
-fn sanitizes_control_chars_queries_secrets_and_utf8_lengths() {
+fn sanitizes_control_chars_queries_secrets_and_formats_severity_text() {
     assert_eq!(sanitize_code("  -32000\r\n\x00\x1b  "), "-32000");
     assert_eq!(
         sanitize_path("/chat/general?room=private&token=secret#frag\r\n"),
@@ -216,15 +215,15 @@ fn sanitizes_control_chars_queries_secrets_and_utf8_lengths() {
     assert_eq!(rec.event_name, OTEL_EVENT_BROWSER_ERROR);
     assert_eq!(rec.client_timestamp_ms, 1_794_614_400_000 + 86_400_000);
 
-    // StdoutTelemetrySink formats dynamic severity_text (not hardcoded WARN)
+    // StdoutTelemetrySink formats human-readable severity_text in `severity=ERROR`
     let mut stdout_buf = Vec::new();
     StdoutTelemetrySink::write_record(&mut stdout_buf, &rec).expect("write stdout line");
     let line = String::from_utf8(stdout_buf).expect("utf-8 stdout line");
     assert!(line.ends_with('\n'));
     assert_eq!(line.lines().count(), 1);
-    assert!(line.contains("ERROR telemetry] event=browser.error severity=17 kind=wallet_rpc op=personal_sign code=\"-32000\" chain_id=1 providers=ethereum,phantom path=\"/chat\" loc=12:34"));
+    assert!(line.contains("ERROR telemetry] event=browser.error severity=ERROR kind=wallet_rpc op=personal_sign code=\"-32000\" chain_id=1 providers=ethereum,phantom path=\"/chat\" loc=12:34"));
 
-    // Lower severities (INFO / DEBUG) map to event=browser.log and 5-char padded level
+    // Lower severities (INFO / DEBUG) map to event=browser.log and text severity=INFO
     let mut info_ev = sample_event("", "connected");
     info_ev.severity = TelemetrySeverity::Info as i32;
     let info_rec = build_record(&info_ev, 1_794_614_400_000);
@@ -234,24 +233,16 @@ fn sanitizes_control_chars_queries_secrets_and_utf8_lengths() {
     let mut info_buf = Vec::new();
     StdoutTelemetrySink::write_record(&mut info_buf, &info_rec).expect("write info stdout line");
     let info_line = String::from_utf8(info_buf).expect("utf-8 info line");
-    assert!(info_line.contains("INFO  telemetry] event=browser.log severity=9"));
+    assert!(info_line.contains("INFO  telemetry] event=browser.log severity=INFO"));
 }
 
 #[actix_web::test]
-async fn unauthenticated_ws_ingests_batch_emits_otel_records_and_returns_ack() {
+async fn unauthenticated_post_ingests_batch_emits_otel_records_and_returns_204() {
     let sink = Arc::new(RecordingSink::default());
     let state = web::Data::new(TelemetryState::with_sink(sink.clone()));
     let (addr, handle) = spawn_telemetry_server(state);
 
-    let (_resp, mut ws) = awc::Client::new()
-        .ws(format!("ws://{addr}/ws/telemetry"))
-        .set_header("Origin", "https://erdmko.dev")
-        .connect()
-        .await
-        .expect("connect /ws/telemetry without session cookie");
-
     let batch = TelemetryBatch {
-        ack_id: 42,
         events: vec![
             sample_event("-32000", "The app's signature request cannot be shown"),
             TelemetryEvent {
@@ -270,21 +261,15 @@ async fn unauthenticated_ws_ingests_batch_emits_otel_records_and_returns_ack() {
         ],
     };
 
-    ws.send(WsMessage::Binary(batch.encode_to_vec().into()))
+    let resp = awc::Client::new()
+        .post(format!("http://{addr}/telemetry"))
+        .insert_header(("Origin", "https://erdmko.dev"))
+        .insert_header(("Content-Type", "application/x-protobuf"))
+        .send_body(batch.encode_to_vec())
         .await
-        .expect("send batch");
+        .expect("POST /telemetry without session cookie");
 
-    let frame = actix_web::rt::time::timeout(Duration::from_secs(2), ws.next())
-        .await
-        .expect("ack timeout")
-        .expect("stream open")
-        .expect("valid ws frame");
-
-    let Frame::Binary(ack_bytes) = frame else {
-        panic!("expected binary TelemetryAck, got {frame:?}");
-    };
-    let ack = TelemetryAck::decode(ack_bytes.as_ref()).expect("decode TelemetryAck");
-    assert_eq!(ack.ack_id, 42);
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
     let records = sink.snapshot();
     assert_eq!(records.len(), 2);
@@ -310,251 +295,116 @@ async fn unauthenticated_ws_ingests_batch_emits_otel_records_and_returns_ack() {
         "Permission denied month_session=[REDACTED]"
     );
 
-    let _ = ws.close().await;
     handle.stop(true).await;
 }
 
 #[actix_web::test]
-async fn rejects_missing_or_disallowed_origin_and_enforces_isolated_connection_cap() {
-    let sink = Arc::new(RecordingSink::default());
-    let mut raw_state = TelemetryState::with_sink(sink);
-    raw_state.max_connections = 2;
-    let state = web::Data::new(raw_state);
-    let (addr, handle) = spawn_telemetry_server(state.clone());
-
-    // Missing Origin -> 403
-    match awc::Client::new()
-        .ws(format!("ws://{addr}/ws/telemetry"))
-        .connect()
-        .await
-    {
-        Err(awc::error::WsClientError::InvalidResponseStatus(status)) => {
-            assert_eq!(status, actix_web::http::StatusCode::FORBIDDEN);
-        }
-        Err(err) => panic!("expected 403 for missing Origin, got {err:?}"),
-        Ok(_) => panic!("expected missing Origin to fail"),
-    }
-
-    // Disallowed Origin -> 403
-    match awc::Client::new()
-        .ws(format!("ws://{addr}/ws/telemetry"))
-        .set_header("Origin", "https://evil.example")
-        .connect()
-        .await
-    {
-        Err(awc::error::WsClientError::InvalidResponseStatus(status)) => {
-            assert_eq!(status, actix_web::http::StatusCode::FORBIDDEN);
-        }
-        Err(err) => panic!("expected 403 for disallowed Origin, got {err:?}"),
-        Ok(_) => panic!("expected disallowed Origin to fail"),
-    }
-
-    // Open 2 connections (fills max_connections = 2)
-    let (_r1, mut ws1) = awc::Client::new()
-        .ws(format!("ws://{addr}/ws/telemetry"))
-        .set_header("Origin", "http://localhost:8080")
-        .connect()
-        .await
-        .expect("slot 1");
-    let (_r2, mut ws2) = awc::Client::new()
-        .ws(format!("ws://{addr}/ws/telemetry"))
-        .set_header("Origin", "http://localhost:8080")
-        .connect()
-        .await
-        .expect("slot 2");
-    assert_eq!(state.open_connection_count(), 2);
-
-    // 3rd connection rejected with 503 Service Unavailable
-    match awc::Client::new()
-        .ws(format!("ws://{addr}/ws/telemetry"))
-        .set_header("Origin", "http://localhost:8080")
-        .connect()
-        .await
-    {
-        Err(awc::error::WsClientError::InvalidResponseStatus(status)) => {
-            assert_eq!(status, actix_web::http::StatusCode::SERVICE_UNAVAILABLE);
-        }
-        Err(err) => panic!("expected 503 when telemetry cap reached, got {err:?}"),
-        Ok(_) => panic!("expected 3rd telemetry connection to fail"),
-    }
-
-    // Closing ws1 frees its slot so a new client can connect
-    ws1.send(WsMessage::Close(None)).await.unwrap();
-    for _ in 0..20 {
-        if state.open_connection_count() == 1 {
-            break;
-        }
-        actix_web::rt::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert_eq!(state.open_connection_count(), 1);
-
-    let (_r3, mut ws3) = awc::Client::new()
-        .ws(format!("ws://{addr}/ws/telemetry"))
-        .set_header("Origin", "http://localhost:8080")
-        .connect()
-        .await
-        .expect("slot re-acquired after disconnect");
-    let _ = ws2.close().await;
-    let _ = ws3.close().await;
-
-    handle.stop(true).await;
-}
-
-#[actix_web::test]
-async fn rejects_malformed_oversized_excess_events_rate_burst_and_closes_idle_sockets() {
+async fn rejects_bad_origin_malformed_oversized_excess_events_and_rate_bursts() {
     let sink = Arc::new(RecordingSink::default());
     let mut raw_state = TelemetryState::with_sink(sink.clone());
     raw_state.rate_limit_max_batches = 2;
-    raw_state.rate_limit_window = Duration::from_secs(60);
-    raw_state.idle_timeout = Duration::from_millis(120);
-    raw_state.heartbeat_interval = Duration::from_millis(25);
+    raw_state.rate_limit_window = Duration::from_millis(80);
     let state = web::Data::new(raw_state);
-    let (addr, handle) = spawn_telemetry_server(state.clone());
+    let (addr, handle) = spawn_telemetry_server(state);
+    let client = awc::Client::new();
+    let url = format!("http://{addr}/telemetry");
 
-    // 1. Malformed protobuf closes socket with Policy without emitting
-    {
-        let (_r, mut ws) = awc::Client::new()
-            .ws(format!("ws://{addr}/ws/telemetry"))
-            .set_header("Origin", "http://localhost:8080")
-            .connect()
-            .await
-            .unwrap();
-        ws.send(WsMessage::Binary(vec![0xff, 0xff, 0xff].into()))
-            .await
-            .unwrap();
-        let frame = actix_web::rt::time::timeout(Duration::from_secs(1), ws.next())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        match frame {
-            Frame::Close(Some(reason)) => assert_eq!(reason.code, CloseCode::Policy),
-            other => panic!("expected Policy close for malformed frame, got {other:?}"),
-        }
-    }
-
-    // 2. Oversized frame (> 16 KiB) closes socket with Size
-    {
-        let (_r, mut ws) = awc::Client::new()
-            .ws(format!("ws://{addr}/ws/telemetry"))
-            .max_frame_size(MAX_TELEMETRY_PAYLOAD_BYTES * 2)
-            .set_header("Origin", "http://localhost:8080")
-            .connect()
-            .await
-            .unwrap();
-        ws.send(WsMessage::Binary(
-            vec![0u8; MAX_TELEMETRY_PAYLOAD_BYTES + 1].into(),
-        ))
+    // 1. Missing Origin -> 403
+    let r = client
+        .post(&url)
+        .send_body(vec![0x0a, 0x00])
         .await
-        .unwrap();
-        let frame = actix_web::rt::time::timeout(Duration::from_secs(1), ws.next())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        match frame {
-            Frame::Close(Some(reason)) => assert_eq!(reason.code, CloseCode::Size),
-            other => panic!("expected Size close for oversized frame, got {other:?}"),
-        }
-    }
+        .expect("missing origin");
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
 
-    // 3. Batch exceeding MAX_TELEMETRY_BATCH_EVENTS (16) closes socket with Policy
-    {
-        let (_r, mut ws) = awc::Client::new()
-            .ws(format!("ws://{addr}/ws/telemetry"))
-            .set_header("Origin", "http://localhost:8080")
-            .connect()
-            .await
-            .unwrap();
-        let too_many = TelemetryBatch {
-            ack_id: 1,
-            events: (0..=MAX_TELEMETRY_BATCH_EVENTS)
-                .map(|_| sample_event("ERR", "msg"))
-                .collect(),
-        };
-        ws.send(WsMessage::Binary(too_many.encode_to_vec().into()))
-            .await
-            .unwrap();
-        let frame = actix_web::rt::time::timeout(Duration::from_secs(1), ws.next())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        match frame {
-            Frame::Close(Some(reason)) => assert_eq!(reason.code, CloseCode::Policy),
-            other => panic!("expected Policy close for excess events, got {other:?}"),
-        }
-    }
+    // 2. Disallowed Origin -> 403
+    let r = client
+        .post(&url)
+        .insert_header(("Origin", "https://evil.example"))
+        .send_body(vec![0x0a, 0x00])
+        .await
+        .expect("disallowed origin");
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
 
+    // 3. Empty body -> 400 (does not consume rate-limit budget)
+    let r = client
+        .post(&url)
+        .insert_header(("Origin", "http://localhost:8080"))
+        .send_body(Vec::<u8>::new())
+        .await
+        .expect("empty body");
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+
+    // 4. Oversized body (> 16 KiB) -> 413 Payload Too Large (does not consume rate-limit budget)
+    let r = client
+        .post(&url)
+        .insert_header(("Origin", "http://localhost:8080"))
+        .send_body(vec![0u8; MAX_TELEMETRY_PAYLOAD_BYTES + 1])
+        .await
+        .expect("oversized body");
+    assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+    // 5. Malformed protobuf -> 400
+    let r = client
+        .post(&url)
+        .insert_header(("Origin", "http://localhost:8080"))
+        .send_body(vec![0xff, 0xff, 0xff])
+        .await
+        .expect("malformed body");
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+
+    // 6. Excess events (> 16) -> 400
+    let too_many = TelemetryBatch {
+        events: (0..=MAX_TELEMETRY_BATCH_EVENTS)
+            .map(|_| sample_event("ERR", "msg"))
+            .collect(),
+    };
+    let r = client
+        .post(&url)
+        .insert_header(("Origin", "http://localhost:8080"))
+        .send_body(too_many.encode_to_vec())
+        .await
+        .expect("excess events");
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
     assert!(sink.snapshot().is_empty());
 
-    // 4. Per-connection rate limit allows 2 batches then closes on 3rd
-    {
-        let (_r, mut ws) = awc::Client::new()
-            .ws(format!("ws://{addr}/ws/telemetry"))
-            .set_header("Origin", "http://localhost:8080")
-            .connect()
-            .await
-            .unwrap();
-        for ack_id in [1u32, 2u32] {
-            let b = TelemetryBatch {
-                ack_id,
-                events: vec![sample_event("4001", "User rejected")],
-            };
-            ws.send(WsMessage::Binary(b.encode_to_vec().into()))
-                .await
-                .unwrap();
-            let Some(Ok(Frame::Binary(bytes))) = ws.next().await else {
-                panic!("expected ACK {ack_id}");
-            };
-            assert_eq!(TelemetryAck::decode(bytes.as_ref()).unwrap().ack_id, ack_id);
-        }
+    // Wait for rate-limit window from the two 400 checks above to expire
+    actix_web::rt::time::sleep(Duration::from_millis(100)).await;
 
-        let burst = TelemetryBatch {
-            ack_id: 3,
-            events: vec![sample_event("4001", "User rejected")],
-        };
-        ws.send(WsMessage::Binary(burst.encode_to_vec().into()))
+    // 7. Rate limit allows 2 batches, rejects 3rd with 429, then recovers after window
+    let valid_batch = TelemetryBatch {
+        events: vec![sample_event("4001", "User rejected")],
+    }
+    .encode_to_vec();
+
+    for _ in 0..2 {
+        let r = client
+            .post(&url)
+            .insert_header(("Origin", "http://localhost:8080"))
+            .send_body(valid_batch.clone())
             .await
-            .unwrap();
-        let frame = actix_web::rt::time::timeout(Duration::from_secs(1), ws.next())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        match frame {
-            Frame::Close(Some(reason)) => assert_eq!(reason.code, CloseCode::Policy),
-            other => panic!("expected Policy close on rate limit, got {other:?}"),
-        }
-        assert_eq!(sink.snapshot().len(), 2);
+            .expect("valid batch");
+        assert_eq!(r.status(), StatusCode::NO_CONTENT);
     }
 
-    // 5. Idle connection automatically closes after idle_timeout and releases slot
-    {
-        let (_r, mut ws) = awc::Client::new()
-            .ws(format!("ws://{addr}/ws/telemetry"))
-            .set_header("Origin", "http://localhost:8080")
-            .connect()
-            .await
-            .unwrap();
-        let frame = actix_web::rt::time::timeout(Duration::from_secs(1), ws.next())
-            .await
-            .expect("idle close should fire within 1s")
-            .unwrap()
-            .unwrap();
-        match frame {
-            Frame::Close(Some(reason)) => assert_eq!(reason.code, CloseCode::Normal),
-            other => panic!("expected Normal close on idle timeout, got {other:?}"),
-        }
-    }
+    let r = client
+        .post(&url)
+        .insert_header(("Origin", "http://localhost:8080"))
+        .send_body(valid_batch.clone())
+        .await
+        .expect("burst batch");
+    assert_eq!(r.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(sink.snapshot().len(), 2);
 
-    for _ in 0..20 {
-        if state.open_connection_count() == 0 {
-            break;
-        }
-        actix_web::rt::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert_eq!(state.open_connection_count(), 0);
+    actix_web::rt::time::sleep(Duration::from_millis(100)).await;
+    let r = client
+        .post(&url)
+        .insert_header(("Origin", "http://localhost:8080"))
+        .send_body(valid_batch)
+        .await
+        .expect("recovered batch");
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+    assert_eq!(sink.snapshot().len(), 3);
 
     handle.stop(true).await;
 }

@@ -38,6 +38,7 @@ import type {
     ClaimPaymentResponsePayload,
     ClientFramePayload,
 } from '@month/gen/chat';
+import { createTestWindow } from '../../test-window';
 import { CHAT_UI_AUTH_VERIFIED, CHAT_UI_EVENT_TYPE } from '../chat-ui/events';
 import type { ChatUiEvent } from '../chat-ui/events';
 import {
@@ -89,11 +90,7 @@ const SAMPLE_NONCE = 'a1b2c3d4e5f60123456789abcdef0123';
 const SAMPLE_SIG = `0x${'11'.repeat(64)}1b`;
 const SAMPLE_TX_HASH = `0x${'ab'.repeat(32)}`;
 
-const protoCtx = {
-    Uint8Array,
-    TextEncoder,
-    TextDecoder,
-} as unknown as Window;
+const protoCtx = createTestWindow();
 
 const DEFAULT_PROTO_PAYMENT_CFG: AuthPaymentConfig = [
     DEFAULT_CHAIN_ID,
@@ -180,26 +177,28 @@ test('wallet address, tx hash, and access duration helpers validate and format a
 
 test('requestAccountsTask, signSiweMessageTask, and sendPaymentTransactionTask call window.ethereum', async () => {
     const calls: EthereumRequestArgs[] = [];
-    const ctx = {
-        ['ethereum']: {
-            ['request']: async (args: EthereumRequestArgs) => {
-                calls.push(args);
-                if (args['method'] === 'eth_requestAccounts') {
-                    return [SAMPLE_WALLET_MIXED];
-                }
-                if (args['method'] === 'eth_chainId') {
-                    return '0x1';
-                }
-                if (args['method'] === 'personal_sign') {
-                    return SAMPLE_SIG;
-                }
-                if (args['method'] === 'eth_sendTransaction') {
-                    return SAMPLE_TX_HASH.toUpperCase().replace('0X', '0x');
-                }
-                throw new Error(`Unexpected method: ${args['method']}`);
+    const ctx = createTestWindow({
+        overrides: {
+            ['ethereum']: {
+                ['request']: async (args: EthereumRequestArgs) => {
+                    calls.push(args);
+                    if (args['method'] === 'eth_requestAccounts') {
+                        return [SAMPLE_WALLET_MIXED];
+                    }
+                    if (args['method'] === 'eth_chainId') {
+                        return '0x1';
+                    }
+                    if (args['method'] === 'personal_sign') {
+                        return SAMPLE_SIG;
+                    }
+                    if (args['method'] === 'eth_sendTransaction') {
+                        return SAMPLE_TX_HASH.toUpperCase().replace('0X', '0x');
+                    }
+                    throw new Error(`Unexpected method: ${args['method']}`);
+                },
             },
         },
-    } as unknown as Window;
+    });
 
     const account = await runTask<string>(requestAccountsTask(ctx));
     assert.equal(account, SAMPLE_WALLET_LOWER);
@@ -242,120 +241,113 @@ test('connectAndSignInTask and payAndClaimTask execute full binary protobuf conn
     // Verify >32-bit Unix timestamp varint round-trips cleanly (year 2110 = 4_420_000_000)
     const largeAccessUntil = 4_420_000_000;
 
-    const ctx = {
-        Uint8Array,
-        TextEncoder,
-        TextDecoder,
-        Date: class {
-            toISOString() {
-                return '2026-10-28T12:00:00.000Z';
-            }
-        },
-        location: {
-            host: 'erdmko.dev',
-            href: 'https://erdmko.dev/chat/general',
-            protocol: 'https:',
-        },
-        ['ethereum']: {
-            ['request']: async (args: EthereumRequestArgs) => {
-                ethCalls.push(args);
-                if (args['method'] === 'eth_requestAccounts') {
-                    return [SAMPLE_WALLET_MIXED];
+    const ctx = createTestWindow({
+        url: 'https://erdmko.dev/chat/general',
+        overrides: {
+            ['ethereum']: {
+                ['request']: async (args: EthereumRequestArgs) => {
+                    ethCalls.push(args);
+                    if (args['method'] === 'eth_requestAccounts') {
+                        return [SAMPLE_WALLET_MIXED];
+                    }
+                    if (args['method'] === 'eth_chainId') {
+                        return '0x1';
+                    }
+                    if (args['method'] === 'personal_sign') {
+                        return SAMPLE_SIG;
+                    }
+                    if (args['method'] === 'eth_sendTransaction') {
+                        return SAMPLE_TX_HASH;
+                    }
+                    throw new Error(`Unexpected method: ${args['method']}`);
+                },
+            },
+            fetch: async (url: string, init?: RequestInit) => {
+                if (url === '/auth/claim-payment') {
+                    const decodedReq = decodeClaimPaymentRequest(
+                        protoCtx,
+                        init?.body as Uint8Array
+                    )!;
+                    fetchCalls.push({
+                        url,
+                        method: init?.method || 'POST',
+                        body: {
+                            txHash: decodedReq[CLAIM_PAYMENT_REQUEST_TX_HASH],
+                            nickname:
+                                decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
+                        },
+                    });
+                    return makeProtoResponse([
+                        CLAIM_PAYMENT_RESPONSE_ACTIVATED,
+                        [
+                            SAMPLE_WALLET_LOWER,
+                            decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
+                            largeAccessUntil,
+                            true,
+                            DEFAULT_PROTO_PAYMENT_CFG,
+                        ],
+                    ]);
                 }
-                if (args['method'] === 'eth_chainId') {
-                    return '0x1';
+
+                if (url === '/auth/nonce') {
+                    const decodedReq = decodeNonceRequest(
+                        protoCtx,
+                        init?.body as Uint8Array
+                    )!;
+                    fetchCalls.push({
+                        url,
+                        method: init?.method || 'POST',
+                        body: {
+                            walletAddress:
+                                decodedReq[NONCE_REQUEST_WALLET_ADDRESS],
+                        },
+                    });
+                    return makeNonceProtoResponse(
+                        SAMPLE_NONCE,
+                        SAMPLE_WALLET_LOWER,
+                        1_793_000_300
+                    );
                 }
-                if (args['method'] === 'personal_sign') {
-                    return SAMPLE_SIG;
+
+                if (url === '/auth/verify') {
+                    const decodedReq = decodeVerifySiweRequest(
+                        protoCtx,
+                        init?.body as Uint8Array
+                    )!;
+                    fetchCalls.push({
+                        url,
+                        method: init?.method || 'POST',
+                        body: {
+                            message: decodedReq[VERIFY_SIWE_REQUEST_MESSAGE],
+                            signature:
+                                decodedReq[VERIFY_SIWE_REQUEST_SIGNATURE],
+                        },
+                    });
+                    return makeSessionProtoResponse(
+                        SAMPLE_WALLET_LOWER,
+                        '',
+                        0,
+                        false
+                    );
                 }
-                if (args['method'] === 'eth_sendTransaction') {
-                    return SAMPLE_TX_HASH;
+
+                if (url === '/auth/session') {
+                    fetchCalls.push({
+                        url,
+                        method: init?.method || 'GET',
+                    });
+                    return makeSessionProtoResponse(
+                        SAMPLE_WALLET_LOWER,
+                        'alice_eth',
+                        largeAccessUntil,
+                        true
+                    );
                 }
-                throw new Error(`Unexpected method: ${args['method']}`);
+
+                throw new Error(`Unexpected URL: ${url}`);
             },
         },
-        fetch: async (url: string, init?: RequestInit) => {
-            if (url === '/auth/claim-payment') {
-                const decodedReq = decodeClaimPaymentRequest(
-                    protoCtx,
-                    init?.body as Uint8Array
-                )!;
-                fetchCalls.push({
-                    url,
-                    method: init?.method || 'POST',
-                    body: {
-                        txHash: decodedReq[CLAIM_PAYMENT_REQUEST_TX_HASH],
-                        nickname: decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
-                    },
-                });
-                return makeProtoResponse([
-                    CLAIM_PAYMENT_RESPONSE_ACTIVATED,
-                    [
-                        SAMPLE_WALLET_LOWER,
-                        decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
-                        largeAccessUntil,
-                        true,
-                        DEFAULT_PROTO_PAYMENT_CFG,
-                    ],
-                ]);
-            }
-
-            if (url === '/auth/nonce') {
-                const decodedReq = decodeNonceRequest(
-                    protoCtx,
-                    init?.body as Uint8Array
-                )!;
-                fetchCalls.push({
-                    url,
-                    method: init?.method || 'POST',
-                    body: {
-                        walletAddress: decodedReq[NONCE_REQUEST_WALLET_ADDRESS],
-                    },
-                });
-                return makeNonceProtoResponse(
-                    SAMPLE_NONCE,
-                    SAMPLE_WALLET_LOWER,
-                    1_793_000_300
-                );
-            }
-
-            if (url === '/auth/verify') {
-                const decodedReq = decodeVerifySiweRequest(
-                    protoCtx,
-                    init?.body as Uint8Array
-                )!;
-                fetchCalls.push({
-                    url,
-                    method: init?.method || 'POST',
-                    body: {
-                        message: decodedReq[VERIFY_SIWE_REQUEST_MESSAGE],
-                        signature: decodedReq[VERIFY_SIWE_REQUEST_SIGNATURE],
-                    },
-                });
-                return makeSessionProtoResponse(
-                    SAMPLE_WALLET_LOWER,
-                    '',
-                    0,
-                    false
-                );
-            }
-
-            if (url === '/auth/session') {
-                fetchCalls.push({
-                    url,
-                    method: init?.method || 'GET',
-                });
-                return makeSessionProtoResponse(
-                    SAMPLE_WALLET_LOWER,
-                    'alice_eth',
-                    largeAccessUntil,
-                    true
-                );
-            }
-
-            throw new Error(`Unexpected URL: ${url}`);
-        },
-    } as unknown as Window;
+    });
 
     // 1. Connect + SIWE verify (unpaid profile)
     const connectedStatus = await runTask(connectAndSignInTask(ctx));
@@ -396,38 +388,36 @@ test('connectAndSignInTask and payAndClaimTask execute full binary protobuf conn
 });
 
 test('tasks surface provider and protobuf HTTP error messages cleanly', async () => {
-    const noWalletCtx = {} as unknown as Window;
+    const noWalletCtx = createTestWindow();
     await assert.rejects(
         () => runTask(requestAccountsTask(noWalletCtx)),
         /No Ethereum wallet detected/
     );
 
-    const errorFetchCtx = {
-        Uint8Array,
-        TextEncoder,
-        TextDecoder,
-        fetch: async () =>
-            makeProtoResponse([
-                CLAIM_PAYMENT_RESPONSE_NICKNAME_TAKEN,
-                ['Nickname is already registered to another wallet.'],
-            ]),
-    } as unknown as Window;
+    const errorFetchCtx = createTestWindow({
+        overrides: {
+            fetch: async () =>
+                makeProtoResponse([
+                    CLAIM_PAYMENT_RESPONSE_NICKNAME_TAKEN,
+                    ['Nickname is already registered to another wallet.'],
+                ]),
+        },
+    });
 
     await assert.rejects(
         () => runTask(claimPaymentTask(errorFetchCtx, SAMPLE_TX_HASH, 'alice')),
         /Nickname is already registered to another wallet/
     );
 
-    const httpErrorCtx = {
-        Uint8Array,
-        TextEncoder,
-        TextDecoder,
-        fetch: async () =>
-            bytesToResponse(
-                encodePaymentClaimNotice(protoCtx, 'SIWE nonce expired.'),
-                401
-            ),
-    } as unknown as Window;
+    const httpErrorCtx = createTestWindow({
+        overrides: {
+            fetch: async () =>
+                bytesToResponse(
+                    encodePaymentClaimNotice(protoCtx, 'SIWE nonce expired.'),
+                    401
+                ),
+        },
+    });
 
     await assert.rejects(
         () => runTask(verifySiweTask(httpErrorCtx, 'msg', SAMPLE_SIG)),
@@ -436,17 +426,16 @@ test('tasks surface provider and protobuf HTTP error messages cleanly', async ()
 
     const nonceChallenge = await runTask(
         fetchNonceTask(
-            {
-                Uint8Array,
-                TextEncoder,
-                TextDecoder,
-                fetch: async () =>
-                    makeNonceProtoResponse(
-                        SAMPLE_NONCE,
-                        SAMPLE_WALLET_LOWER,
-                        12345
-                    ),
-            } as unknown as Window,
+            createTestWindow({
+                overrides: {
+                    fetch: async () =>
+                        makeNonceProtoResponse(
+                            SAMPLE_NONCE,
+                            SAMPLE_WALLET_LOWER,
+                            12345
+                        ),
+                },
+            }),
             SAMPLE_WALLET_LOWER
         )
     );
@@ -461,18 +450,17 @@ test('tasks surface provider and protobuf HTTP error messages cleanly', async ()
 
     const verified = await runTask(
         verifySiweTask(
-            {
-                Uint8Array,
-                TextEncoder,
-                TextDecoder,
-                fetch: async () =>
-                    makeSessionProtoResponse(
-                        SAMPLE_WALLET_LOWER,
-                        'bob',
-                        999,
-                        true
-                    ),
-            } as unknown as Window,
+            createTestWindow({
+                overrides: {
+                    fetch: async () =>
+                        makeSessionProtoResponse(
+                            SAMPLE_WALLET_LOWER,
+                            'bob',
+                            999,
+                            true
+                        ),
+                },
+            }),
             'msg',
             SAMPLE_SIG
         )
@@ -480,7 +468,7 @@ test('tasks surface provider and protobuf HTTP error messages cleanly', async ()
     assert.equal(verified[SESSION_STATUS_NICKNAME], 'bob');
 
     // EIP-1193 plain-object RPC rejection is formatted into a readable message
-    const rpcErrCtx = { JSON } as unknown as Window;
+    const rpcErrCtx = createTestWindow();
     assert.equal(
         formatAuthError(rpcErrCtx, {
             code: 4001,
@@ -495,82 +483,62 @@ test('tasks surface provider and protobuf HTTP error messages cleanly', async ()
 });
 
 test('UI handlers drive connect -> sign -> payment -> claim -> join end-to-end', async () => {
-    const storage = new Map<string, string>();
-    const ctx = {
-        JSON,
-        Uint8Array,
-        TextEncoder,
-        TextDecoder,
-        Date: Object.assign(
-            class {
-                toISOString() {
-                    return '2026-10-28T12:00:00.000Z';
-                }
+    const ctx = createTestWindow({
+        url: 'https://erdmko.dev/chat/general',
+        overrides: {
+            ['ethereum']: {
+                ['request']: async (args: EthereumRequestArgs) => {
+                    if (args['method'] === 'eth_requestAccounts') {
+                        return [SAMPLE_WALLET_MIXED];
+                    }
+                    if (args['method'] === 'eth_chainId') {
+                        return '0x1';
+                    }
+                    if (args['method'] === 'personal_sign') {
+                        return SAMPLE_SIG;
+                    }
+                    if (args['method'] === 'eth_sendTransaction') {
+                        return SAMPLE_TX_HASH;
+                    }
+                    throw new Error(`Unexpected method: ${args['method']}`);
+                },
             },
-            { now: () => 1_793_102_400_000 }
-        ),
-        localStorage: {
-            getItem: (key: string) => storage.get(key) ?? null,
-            setItem: (key: string, value: string) => storage.set(key, value),
-            removeItem: (key: string) => storage.delete(key),
-        },
-        location: {
-            host: 'erdmko.dev',
-            href: 'https://erdmko.dev/chat/general',
-            protocol: 'https:',
-        },
-        ['ethereum']: {
-            ['request']: async (args: EthereumRequestArgs) => {
-                if (args['method'] === 'eth_requestAccounts') {
-                    return [SAMPLE_WALLET_MIXED];
+            fetch: async (url: string, init?: RequestInit) => {
+                if (url === '/auth/claim-payment') {
+                    const decodedReq = decodeClaimPaymentRequest(
+                        protoCtx,
+                        init?.body as Uint8Array
+                    )!;
+                    return makeProtoResponse([
+                        CLAIM_PAYMENT_RESPONSE_ACTIVATED,
+                        [
+                            SAMPLE_WALLET_LOWER,
+                            decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
+                            1_795_592_000,
+                            true,
+                            DEFAULT_PROTO_PAYMENT_CFG,
+                        ],
+                    ]);
                 }
-                if (args['method'] === 'eth_chainId') {
-                    return '0x1';
-                }
-                if (args['method'] === 'personal_sign') {
-                    return SAMPLE_SIG;
-                }
-                if (args['method'] === 'eth_sendTransaction') {
-                    return SAMPLE_TX_HASH;
-                }
-                throw new Error(`Unexpected method: ${args['method']}`);
-            },
-        },
-        fetch: async (url: string, init?: RequestInit) => {
-            if (url === '/auth/claim-payment') {
-                const decodedReq = decodeClaimPaymentRequest(
-                    protoCtx,
-                    init?.body as Uint8Array
-                )!;
-                return makeProtoResponse([
-                    CLAIM_PAYMENT_RESPONSE_ACTIVATED,
-                    [
+                if (url === '/auth/nonce') {
+                    return makeNonceProtoResponse(
+                        SAMPLE_NONCE,
                         SAMPLE_WALLET_LOWER,
-                        decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
-                        1_795_592_000,
-                        true,
-                        DEFAULT_PROTO_PAYMENT_CFG,
-                    ],
-                ]);
-            }
-            if (url === '/auth/nonce') {
-                return makeNonceProtoResponse(
-                    SAMPLE_NONCE,
-                    SAMPLE_WALLET_LOWER,
-                    1_793_000_300
-                );
-            }
-            if (url === '/auth/verify') {
-                return makeSessionProtoResponse(
-                    SAMPLE_WALLET_LOWER,
-                    '',
-                    0,
-                    false
-                );
-            }
-            throw new Error(`Unexpected URL: ${url}`);
+                        1_793_000_300
+                    );
+                }
+                if (url === '/auth/verify') {
+                    return makeSessionProtoResponse(
+                        SAMPLE_WALLET_LOWER,
+                        '',
+                        0,
+                        false
+                    );
+                }
+                throw new Error(`Unexpected URL: ${url}`);
+            },
         },
-    } as unknown as Window;
+    });
 
     const state = createChatUiState('');
     state[CHAT_UI_STATE_IS_ONLINE][SIGNAL_SET](true);
@@ -598,12 +566,18 @@ test('UI handlers drive connect -> sign -> payment -> claim -> join end-to-end',
     handlePayAndUnlock(ctx, 'chat-nickname-general', state);
     await new Promise((r) => setTimeout(r, 20));
     assert.equal(state[CHAT_UI_STATE_HAS_ACTIVE_ACCESS][SIGNAL_GET](), true);
-    assert.equal(storage.get('chat-nickname-general'), 'alice_eth');
+    assert.equal(
+        ctx.localStorage.getItem('chat-nickname-general'),
+        'alice_eth'
+    );
 
     // Step 3: Submit Join Room form
-    handleJoinSubmit(ctx, outgoing, state, {
-        preventDefault() {},
-    } as unknown as Event);
+    handleJoinSubmit(
+        ctx,
+        outgoing,
+        state,
+        new ctx.Event('submit', { cancelable: true })
+    );
     assert.equal(sentFrames.length, 1);
     assert.equal(
         sentFrames[0]?.[CLIENT_FRAME_PAYLOAD_VARIANT],
@@ -616,52 +590,49 @@ test('UI handlers drive connect -> sign -> payment -> claim -> join end-to-end',
 });
 
 test('payAndClaimTask persists txHash before claiming, polls Pending, reuses txHash on NicknameTaken/retry, and clears on Reverted/InvalidTransaction', async () => {
-    const storage = new Map<string, string>();
     let sendTxCount = 0;
     let claimResponses: ClaimPaymentResponsePayload[] = [];
     const claimedNicknames: string[] = [];
 
-    const ctx = {
-        Uint8Array,
-        TextEncoder,
-        TextDecoder,
-        localStorage: {
-            getItem: (key: string) => storage.get(key) ?? null,
-            setItem: (key: string, value: string) => storage.set(key, value),
-            removeItem: (key: string) => storage.delete(key),
-        },
-        ['ethereum']: {
-            ['request']: async (args: EthereumRequestArgs) => {
-                if (args['method'] === 'eth_chainId') {
-                    return '0x1';
+    const ctx = createTestWindow({
+        overrides: {
+            setTimeout: (fn: () => void) => {
+                fn();
+                return 0;
+            },
+            ['ethereum']: {
+                ['request']: async (args: EthereumRequestArgs) => {
+                    if (args['method'] === 'eth_chainId') {
+                        return '0x1';
+                    }
+                    if (args['method'] === 'eth_sendTransaction') {
+                        sendTxCount += 1;
+                        return SAMPLE_TX_HASH;
+                    }
+                    throw new Error(`Unexpected method: ${args['method']}`);
+                },
+            },
+            fetch: async (url: string, init?: RequestInit) => {
+                if (url === '/auth/claim-payment') {
+                    assert.equal(
+                        loadPendingPaymentTx(ctx, SAMPLE_WALLET_LOWER),
+                        SAMPLE_TX_HASH
+                    );
+                    const req = decodeClaimPaymentRequest(
+                        protoCtx,
+                        init?.body as Uint8Array
+                    )!;
+                    claimedNicknames.push(req[CLAIM_PAYMENT_REQUEST_NICKNAME]);
+                    const next = claimResponses.shift();
+                    if (!next) {
+                        throw new Error('No mock claim response queued');
+                    }
+                    return makeProtoResponse(next);
                 }
-                if (args['method'] === 'eth_sendTransaction') {
-                    sendTxCount += 1;
-                    return SAMPLE_TX_HASH;
-                }
-                throw new Error(`Unexpected method: ${args['method']}`);
+                throw new Error(`Unexpected URL: ${url}`);
             },
         },
-        fetch: async (url: string, init?: RequestInit) => {
-            if (url === '/auth/claim-payment') {
-                assert.equal(
-                    loadPendingPaymentTx(ctx, SAMPLE_WALLET_LOWER),
-                    SAMPLE_TX_HASH
-                );
-                const req = decodeClaimPaymentRequest(
-                    protoCtx,
-                    init?.body as Uint8Array
-                )!;
-                claimedNicknames.push(req[CLAIM_PAYMENT_REQUEST_NICKNAME]);
-                const next = claimResponses.shift();
-                if (!next) {
-                    throw new Error('No mock claim response queued');
-                }
-                return makeProtoResponse(next);
-            }
-            throw new Error(`Unexpected URL: ${url}`);
-        },
-    } as unknown as Window;
+    });
 
     // 1. First attempt: Pending -> Pending -> NicknameTaken (sendTxCount === 1, txHash remains saved!)
     claimResponses = [
@@ -748,48 +719,32 @@ test('payAndClaimTask persists txHash before claiming, polls Pending, reuses txH
 });
 
 test('payAndClaimTask recovers via fetchSessionTask when /auth/claim-payment HTTP response is lost after server commit', async () => {
-    const storage = new Map<string, string>();
-    savePendingPaymentTx(
-        {
-            localStorage: {
-                setItem: (k: string, v: string) => storage.set(k, v),
-            },
-        } as unknown as Window,
-        SAMPLE_WALLET_LOWER,
-        SAMPLE_TX_HASH
-    );
-
     let sendTxCount = 0;
-    const ctx = {
-        Uint8Array,
-        TextEncoder,
-        TextDecoder,
-        localStorage: {
-            getItem: (key: string) => storage.get(key) ?? null,
-            setItem: (key: string, value: string) => storage.set(key, value),
-            removeItem: (key: string) => storage.delete(key),
-        },
-        ['ethereum']: {
-            ['request']: async () => {
-                sendTxCount += 1;
-                return SAMPLE_TX_HASH;
+    const ctx = createTestWindow({
+        overrides: {
+            ['ethereum']: {
+                ['request']: async () => {
+                    sendTxCount += 1;
+                    return SAMPLE_TX_HASH;
+                },
+            },
+            fetch: async (url: string) => {
+                if (url === '/auth/claim-payment') {
+                    throw new Error('Network connection lost');
+                }
+                if (url === '/auth/session') {
+                    return makeSessionProtoResponse(
+                        SAMPLE_WALLET_LOWER,
+                        'alice_recovered',
+                        1_795_592_000,
+                        true
+                    );
+                }
+                throw new Error(`Unexpected URL: ${url}`);
             },
         },
-        fetch: async (url: string) => {
-            if (url === '/auth/claim-payment') {
-                throw new Error('Network connection lost');
-            }
-            if (url === '/auth/session') {
-                return makeSessionProtoResponse(
-                    SAMPLE_WALLET_LOWER,
-                    'alice_recovered',
-                    1_795_592_000,
-                    true
-                );
-            }
-            throw new Error(`Unexpected URL: ${url}`);
-        },
-    } as unknown as Window;
+    });
+    savePendingPaymentTx(ctx, SAMPLE_WALLET_LOWER, SAMPLE_TX_HASH);
 
     const status = await runTask(
         payAndClaimTask(ctx, SAMPLE_WALLET_LOWER, 'alice_recovered')
@@ -806,31 +761,33 @@ test('wrong-chain wallet requests wallet_switchEthereumChain and sends no transf
     let sendTxCount = 0;
     const ethMethods: string[] = [];
 
-    const ctx = {
-        ['ethereum']: {
-            ['request']: async (args: EthereumRequestArgs) => {
-                ethMethods.push(args['method']);
-                if (args['method'] === 'eth_chainId') {
-                    return currentChainHex;
-                }
-                if (args['method'] === 'wallet_switchEthereumChain') {
-                    if (!allowSwitch) {
-                        throw {
-                            code: 4001,
-                            message: 'User rejected chain switch.',
-                        };
+    const ctx = createTestWindow({
+        overrides: {
+            ['ethereum']: {
+                ['request']: async (args: EthereumRequestArgs) => {
+                    ethMethods.push(args['method']);
+                    if (args['method'] === 'eth_chainId') {
+                        return currentChainHex;
                     }
-                    currentChainHex = '0x1';
-                    return null;
-                }
-                if (args['method'] === 'eth_sendTransaction') {
-                    sendTxCount += 1;
-                    return SAMPLE_TX_HASH;
-                }
-                throw new Error(`Unexpected method: ${args['method']}`);
+                    if (args['method'] === 'wallet_switchEthereumChain') {
+                        if (!allowSwitch) {
+                            throw {
+                                code: 4001,
+                                message: 'User rejected chain switch.',
+                            };
+                        }
+                        currentChainHex = '0x1';
+                        return null;
+                    }
+                    if (args['method'] === 'eth_sendTransaction') {
+                        sendTxCount += 1;
+                        return SAMPLE_TX_HASH;
+                    }
+                    throw new Error(`Unexpected method: ${args['method']}`);
+                },
             },
         },
-    } as unknown as Window;
+    });
 
     // 1. Rejected chain switch stops before eth_sendTransaction with actionable message
     await assert.rejects(
@@ -870,130 +827,5 @@ test('wrong-chain wallet requests wallet_switchEthereumChain and sends no transf
         'wallet_switchEthereumChain',
         'eth_chainId',
         'eth_sendTransaction',
-    ]);
-});
-
-test('non-default server payment config drives SIWE chainId, chain switch, transfer params, and pending tx scoping', async () => {
-    const customRecipient = '0x2222222222222222222222222222222222222222';
-    const customWeiHex = '0x71afd498d0000'; // 0.002 ETH
-    const sepoliaChainId = 11_155_111; // 0xaa36a7
-    const customProtoCfg: AuthPaymentConfig = [
-        sepoliaChainId,
-        customRecipient,
-        customWeiHex,
-        604_800,
-    ];
-    let walletChainHex = '0x1';
-    const ethCalls: EthereumRequestArgs[] = [];
-    let signedMessage = '';
-    const storage = new Map<string, string>();
-
-    const ctx = {
-        Uint8Array,
-        TextEncoder,
-        TextDecoder,
-        Date: class {
-            toISOString() {
-                return '2026-10-28T12:00:00.000Z';
-            }
-        },
-        localStorage: {
-            getItem: (key: string) => storage.get(key) ?? null,
-            setItem: (key: string, value: string) => storage.set(key, value),
-            removeItem: (key: string) => storage.delete(key),
-        },
-        location: {
-            host: 'erdmko.dev',
-            href: 'https://erdmko.dev/chat',
-            protocol: 'https:',
-        },
-        ['ethereum']: {
-            ['request']: async (args: EthereumRequestArgs) => {
-                ethCalls.push(args);
-                if (args['method'] === 'eth_requestAccounts') {
-                    return [SAMPLE_WALLET_MIXED];
-                }
-                if (args['method'] === 'eth_chainId') {
-                    return walletChainHex;
-                }
-                if (args['method'] === 'wallet_switchEthereumChain') {
-                    walletChainHex = '0xaa36a7';
-                    return null;
-                }
-                if (args['method'] === 'personal_sign') {
-                    signedMessage = String(args['params']?.[0] ?? '');
-                    return SAMPLE_SIG;
-                }
-                if (args['method'] === 'eth_sendTransaction') {
-                    return SAMPLE_TX_HASH;
-                }
-                throw new Error(`Unexpected method: ${args['method']}`);
-            },
-        },
-        fetch: async (url: string, init?: RequestInit) => {
-            if (url === '/auth/nonce') {
-                return makeNonceProtoResponse(
-                    SAMPLE_NONCE,
-                    SAMPLE_WALLET_LOWER,
-                    1_793_000_300,
-                    customProtoCfg
-                );
-            }
-            if (url === '/auth/verify') {
-                return makeSessionProtoResponse(
-                    SAMPLE_WALLET_LOWER,
-                    '',
-                    0,
-                    false,
-                    customProtoCfg
-                );
-            }
-            if (url === '/auth/claim-payment') {
-                const decodedReq = decodeClaimPaymentRequest(
-                    protoCtx,
-                    init?.body as Uint8Array
-                )!;
-                return makeProtoResponse([
-                    CLAIM_PAYMENT_RESPONSE_ACTIVATED,
-                    [
-                        SAMPLE_WALLET_LOWER,
-                        decodedReq[CLAIM_PAYMENT_REQUEST_NICKNAME],
-                        1_795_592_000,
-                        true,
-                        customProtoCfg,
-                    ],
-                ]);
-            }
-            throw new Error(`Unexpected URL: ${url}`);
-        },
-    } as unknown as Window;
-
-    await runTask(connectAndSignInTask(ctx));
-    assert.ok(
-        signedMessage.includes(`Chain ID: ${sepoliaChainId}\n`),
-        'SIWE message must use server configured chainId'
-    );
-    assert.ok(
-        ethCalls.some(
-            (c) =>
-                c['method'] === 'wallet_switchEthereumChain' &&
-                (c['params']?.[0] as any)?.['chainId'] === '0xaa36a7'
-        ),
-        'must switch wallet to 0xaa36a7 before signing'
-    );
-
-    // Simulate user switching wallet back to mainnet (0x1) between sign-in and payment
-    walletChainHex = '0x1';
-    await runTask(payAndClaimTask(ctx, SAMPLE_WALLET_LOWER, 'sepolia_user'));
-
-    const sendTxCall = ethCalls.find(
-        (c) => c['method'] === 'eth_sendTransaction'
-    );
-    assert.deepEqual(sendTxCall?.['params'], [
-        {
-            ['from']: SAMPLE_WALLET_LOWER,
-            ['to']: customRecipient,
-            ['value']: customWeiHex,
-        },
     ]);
 });

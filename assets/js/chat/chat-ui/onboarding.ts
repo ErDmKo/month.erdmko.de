@@ -91,23 +91,8 @@ export type OnboardingState = TupleOf<{
     [ONBOARDING_TARGET_ROOM]: string;
 }>;
 
-const WIN_LOCATION = 0 as const;
-const LOC_ASSIGN = 0 as const;
-
-const windowLocationAssignStruct = objectStruct([
-    'location',
-    objectStruct(['assign', isFunction<(url: string) => void>]),
-]);
-
 export const navigateToUrl = (ctx: Window, url: string): void => {
-    const loc = validate(ctx, windowLocationAssignStruct);
-    if (loc) {
-        loc[WIN_LOCATION][LOC_ASSIGN](url);
-        return;
-    }
-    if (ctx.location) {
-        ctx.location.href = url;
-    }
+    ctx.location.assign(url);
 };
 
 export const sanitizeRoomSlug = (raw: string): string => {

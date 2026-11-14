@@ -7,9 +7,10 @@ never called as free-standing identifiers.
 
 **Why:**
 
-- **Testability** — pass a mock or a jsdom instance in tests instead of relying
-  on the real global `window`. Functions become pure with respect to the
-  environment and can be unit-tested without a browser.
+- **Testability** — pass an isolated `createTestWindow()` (`happy-dom`) instance
+  in unit tests instead of relying on a global `window` or hand-rolled DOM
+  stubs. Functions become pure with respect to the environment and can be
+  unit-tested hermetically without a browser.
 
 ```ts
 // ✗ wrong
@@ -34,6 +35,39 @@ as its first argument. The module entry point always has the signature:
 
 ```ts
 export const initXxxEffect = (ctx: Window): void => { ... };
+```
+
+### Non-Optional Global `Window` Interface vs `objectStruct`
+
+Declare standard browser APIs (`fetch`, `localStorage`, `navigator`,
+`location`, `addEventListener`, `removeEventListener`, `Date`, `JSON`,
+`Uint8Array`, etc.) as **non-optional** members on the shared
+`declare global { interface Window { ... } }` in `assets/js/utils/index.ts` and
+access them directly on `ctx`.
+
+- **Never** wrap standard `Window` properties in `objectStruct` + `validate` —
+  Closure Compiler `ADVANCED` already preserves standard W3C/HTML5 `Window`
+  externs, so validating `ctx` bloats bundles with redundant string keys and
+  runtime checks.
+- **Never** sprinkle optional chaining (`ctx.localStorage?.getItem`,
+  `ctx.addEventListener?.(...)`, `ctx.navigator?.onLine`) on standard `Window`
+  APIs just to accommodate incomplete `{}` test mocks. Unit tests use
+  `createTestWindow()` (`assets/js/test-window.ts`, backed by `happy-dom`),
+  which provides a complete `Window` instance out of the box.
+
+```ts
+// ✗ wrong — wrapping standard Window APIs in objectStruct or optional chaining
+const windowLocalStorageStruct = objectStruct([
+    'localStorage',
+    objectStruct(['getItem', isFunction<Storage['getItem']>]),
+]);
+const ls = validate(ctx, windowLocalStorageStruct);
+ctx.addEventListener?.('online', onOnline);
+
+// ✓ correct — non-optional on global Window in @month/utils, accessed directly
+const raw = ctx.localStorage.getItem(key);
+const online = ctx.navigator.onLine;
+ctx.addEventListener('online', onOnline);
 ```
 
 ## Tuples and Separate Functions
@@ -529,8 +563,10 @@ const mountList = () => {
 
 Avoid scattered `typeof x === 'string'`, `typeof x === 'object'`, custom
 type-guard functions, or optional tuple indexing (`?.[INDEX]`) when inspecting
-untrusted runtime values (JSON responses, `window.ethereum` providers, RPC
-error payloads, browser capabilities on `ctx: Window`).
+untrusted external runtime values (JSON responses, `unknown` error/event
+payloads, RPC error objects, or third-party browser extension injections like
+`window.ethereum` that are not standard `Window` APIs). Do **not** use
+`objectStruct` for standard `Window` properties (see *Explicit Window Context*).
 
 Use the closure-free `objectStruct` data tuple and `validate` from
 `@month/utils` to validate and project runtime objects directly into typed

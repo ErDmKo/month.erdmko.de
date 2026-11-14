@@ -41,55 +41,13 @@ import {
     validate,
 } from './index';
 import type { Task, TupleOf, ReadonlyTupleOf } from './index';
+import { createTestWindow } from '../test-window';
 
 const PAIR_FIRST = 0 as const;
 const PAIR_SECOND = 1 as const;
 const STORE_GET = 0 as const;
 const STORE_SET = 1 as const;
 const STORE_OBS = 2 as const;
-
-interface MockElement {
-    tagName: string;
-    style: Record<string, unknown>;
-    attrs: Record<string, string>;
-    children: MockElement[];
-    firstChild: MockElement | null;
-    innerText?: string;
-    setAttribute(key: string, val: string): void;
-    appendChild(child: MockElement): void;
-    removeChild(child: MockElement): void;
-}
-
-const createMockElement = (tag: string): MockElement => {
-    const children: MockElement[] = [];
-    const el: MockElement = {
-        tagName: tag.toUpperCase(),
-        style: {},
-        attrs: {},
-        children,
-        get firstChild() {
-            return children.length > 0 ? children[0] : null;
-        },
-        setAttribute(key: string, val: string) {
-            el.attrs[key] = val;
-        },
-        appendChild(child: MockElement) {
-            children.push(child);
-        },
-        removeChild(child: MockElement) {
-            const idx = children.indexOf(child);
-            if (idx !== -1) children.splice(idx, 1);
-        },
-    };
-    return el;
-};
-
-const createMockCtx = (): Window =>
-    ({
-        document: {
-            createElement: (tag: string) => createMockElement(tag),
-        },
-    }) as unknown as Window;
 
 test('bindArg and bindArgs partially apply arguments in order', () => {
     const add3 = (a: number, b: number, c: number) => a * 100 + b * 10 + c;
@@ -231,12 +189,9 @@ test('DOMStruct tuple indices and domCreatorRef / cleanHtml', () => {
     assert.equal(struct[DOM_META] & META_FLAG_HAS_REF, 0);
     assert.equal(struct[DOM_CHILDREN].length, 2);
 
-    const ctx = createMockCtx();
-    const root = createMockElement('div') as unknown as HTMLElement;
-    const refs = domCreatorRef(ctx, root, struct) as unknown as Record<
-        number,
-        MockElement
-    >;
+    const ctx = createTestWindow();
+    const root = ctx.document.createElement('div');
+    const refs = domCreatorRef(ctx, root, struct);
 
     assert.equal(refs[REF_HEADER].tagName, 'H2');
     assert.equal(refs[REF_HEADER].innerText, 'Title');
@@ -251,7 +206,7 @@ test('DOMStruct tuple indices and domCreatorRef / cleanHtml', () => {
     assert.equal(plainRefs.length, 1);
 
     cleanHtml(root);
-    assert.equal((root as unknown as MockElement).children.length, 0);
+    assert.equal(root.childNodes.length, 0);
 });
 
 test('TupleOf and ReadonlyTupleOf bind index constants to tuple slots and reject gaps', () => {

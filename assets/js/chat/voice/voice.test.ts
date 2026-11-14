@@ -59,7 +59,9 @@ import {
     CHAT_UI_STATE_VOICE_PARTICIPANTS,
 } from '../chat-ui/state';
 
-const ctx = globalThis as unknown as Window;
+import { createTestWindow } from '../../test-window';
+
+const ctx = createTestWindow();
 
 test('voice client frames encode/decode round-trip', () => {
     const joinBuf = encodeClientFrame(ctx, [CLIENT_FRAME_VOICE_JOIN, ['vj-1']]);

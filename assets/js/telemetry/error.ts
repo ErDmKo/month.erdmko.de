@@ -1,5 +1,4 @@
 import {
-    isFunction,
     isNumber,
     isObject,
     isString,
@@ -21,13 +20,6 @@ import {
 } from '@month/gen/telemetry';
 import { shouldRecordEvent } from './dedup';
 import type { DedupState } from './dedup';
-
-declare global {
-    interface Window {
-        Date: typeof Date;
-        JSON: typeof JSON;
-    }
-}
 
 export const MAX_CODE_LEN = 64;
 export const MAX_PATH_LEN = 128;
@@ -98,20 +90,6 @@ const PROVIDER_FLAGS: readonly ProviderFlagEntry[] = [
 const WIN_ETH_OBJ = 0 as const;
 const ethereumObjStruct = objectStruct(['ethereum', isObject]);
 
-const WIN_LOCATION = 0 as const;
-const LOC_PATHNAME = 0 as const;
-const windowPathnameStruct = objectStruct([
-    'location',
-    objectStruct(['pathname', isString]),
-]);
-
-const WIN_JSON = 0 as const;
-const JSON_STRINGIFY = 0 as const;
-const windowJsonStruct = objectStruct([
-    'JSON',
-    objectStruct(['stringify', isFunction<typeof JSON.stringify>]),
-]);
-
 const ERR_NUM_CODE = 0 as const;
 const ERR_STR_CODE = 1 as const;
 const ERR_NAME = 2 as const;
@@ -134,10 +112,8 @@ const stringifyFallback = (
     val: unknown,
     fallback: string
 ): string => {
-    const json = validate(ctx, windowJsonStruct);
-    if (!json) return fallback || String(val);
     try {
-        return json[WIN_JSON][JSON_STRINGIFY](val) || fallback;
+        return ctx.JSON.stringify(val) || fallback || String(val);
     } catch {
         return fallback;
     }
@@ -181,11 +157,6 @@ export const extractErrorInfo = (
     return ['', err == null ? fallback : String(err)];
 };
 
-const safePathname = (ctx: Window): string => {
-    const loc = validate(ctx, windowPathnameStruct);
-    return loc ? loc[WIN_LOCATION][LOC_PATHNAME].slice(0, MAX_PATH_LEN) : '';
-};
-
 export const encodeAcceptedTelemetry = (
     ctx: Window,
     resolveChainId: (ctx: Window) => number,
@@ -217,7 +188,7 @@ export const encodeAcceptedTelemetry = (
         op,
         code,
         msg,
-        safePathname(ctx),
+        ctx.location.pathname.slice(0, MAX_PATH_LEN),
         line,
         col,
         resolveChainId(ctx),

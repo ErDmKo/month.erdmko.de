@@ -25,6 +25,7 @@ import {
     SERVER_FRAME_ERROR,
 } from '@month/gen/chat';
 import type { ClientFramePayload, ServerFramePayload } from '@month/gen/chat';
+import { createTestWindow } from '../../test-window';
 import {
     CHAT_UI_ERROR,
     CHAT_UI_EVENT_TYPE,
@@ -43,156 +44,59 @@ import {
     CHAT_UI_STATE_IS_JOINED,
     CHAT_UI_STATE_IS_ONLINE,
     CHAT_UI_STATE_JOIN_IN_FLIGHT,
+    CHAT_UI_STATE_MESSAGE,
+    CHAT_UI_STATE_PENDING_TX_HASH,
     CHAT_UI_STATE_STATUS,
     CHAT_UI_STATE_ERROR,
-    CHAT_UI_STATE_MESSAGE,
     CHAT_UI_STATE_VOICE_IN_CALL,
     CHAT_UI_STATE_VOICE_MUTED,
     CHAT_UI_STATE_VOICE_PARTICIPANTS,
-    CHAT_UI_STATE_PENDING_TX_HASH,
     CHAT_UI_STATE_WALLET_ADDRESS,
 } from './state';
 import type { ChatUiState } from './state';
 import { CHAT_REF_FILE_INPUT, mountChatUi } from './template';
+import { initChatUi } from './init';
+import { applySessionStatusToState, tryAutoJoin } from './join-form-handler';
 import {
     initChatOnboarding,
     ONBOARDING_CHAT_STATE,
     onboardingTemplate,
 } from './onboarding';
-import { applySessionStatusToState, tryAutoJoin } from './join-form-handler';
 import { savePendingPaymentTx } from '../auth';
-import { initChatUi } from './init';
 import {
     attachmentItemTemplate,
     uploadPreviewTemplate,
 } from '../attachments/template';
 
-// Minimal browser doubles; production code still receives an explicit Window.
-class MockNode {
-    parentNode: MockNode | null = null;
-    childNodes: MockNode[] = [];
-    attributes = new Map<string, string>();
-    listeners = new Map<string, (event: any) => void>();
-    hidden = false;
-    disabled = false;
-    value = '';
-    files: File[] = [];
-    clicks = 0;
-    submits = 0;
-    dataset = { ['roomId']: 'test-room' };
-
-    constructor(
-        public tagName: string,
-        public data = ''
-    ) {}
-
-    get textContent(): string {
-        return (
-            this.data + this.childNodes.map((node) => node.textContent).join('')
-        );
-    }
-    get firstChild(): MockNode | null {
-        return this.childNodes[0] ?? null;
-    }
-    get nextSibling(): MockNode | null {
-        const siblings = this.parentNode?.childNodes ?? [];
-        return siblings[siblings.indexOf(this) + 1] ?? null;
-    }
-    get form(): MockNode | null {
-        return this.parentNode?.tagName === 'form'
-            ? this.parentNode
-            : (this.parentNode?.form ?? null);
-    }
-    setAttribute(key: string, value: string) {
-        this.attributes.set(key, value);
-    }
-    removeAttribute(key: string) {
-        this.attributes.delete(key);
-    }
-    appendChild(node: MockNode) {
-        return this.insertBefore(node, null);
-    }
-    insertBefore(node: MockNode, anchor: MockNode | null): MockNode {
-        node.parentNode?.removeChild(node);
-        node.parentNode = this;
-        const index = anchor
-            ? this.childNodes.indexOf(anchor)
-            : this.childNodes.length;
-        this.childNodes.splice(index, 0, node);
-        return node;
-    }
-    removeChild(node: MockNode): MockNode {
-        this.childNodes.splice(this.childNodes.indexOf(node), 1);
-        node.parentNode = null;
-        return node;
-    }
-    addEventListener(type: string, listener: (event: any) => void) {
-        this.listeners.set(type, listener);
-    }
-    removeEventListener(type: string) {
-        this.listeners.delete(type);
-    }
-    dispatch(type: string, fields: Record<string, unknown> = {}) {
-        this.listeners.get(type)?.({
-            currentTarget: this,
-            preventDefault() {},
-            ...fields,
-        });
-    }
-    click() {
-        this.clicks++;
-        this.dispatch('click');
-    }
-    requestSubmit() {
-        this.submits++;
-        this.dispatch('submit');
-    }
-    find(tagName: string, text?: string): MockNode {
+const findEl = <T extends HTMLElement = HTMLElement>(
+    root: Element,
+    tagName: string,
+    text?: string
+): T => {
+    const upper = tagName.toUpperCase();
+    const candidates = [root, ...Array.from(root.querySelectorAll(tagName))];
+    for (const el of candidates) {
         if (
-            this.tagName === tagName &&
-            (text === undefined || this.textContent === text)
-        )
-            return this;
-        for (const child of this.childNodes) {
-            const match = child.findOptional(tagName, text);
-            if (match) return match;
+            el.tagName === upper &&
+            (text === undefined || el.textContent === text)
+        ) {
+            return el as T;
         }
-        throw new Error(`Missing ${tagName}: ${text ?? ''}`);
     }
-    findOptional(tagName: string, text?: string): MockNode | null {
-        if (
-            this.tagName === tagName &&
-            (text === undefined || this.textContent === text)
-        )
-            return this;
-        for (const child of this.childNodes) {
-            const match = child.findOptional(tagName, text);
-            if (match) return match;
-        }
-        return null;
-    }
-}
+    throw new Error(`Missing <${tagName}>: ${text ?? ''}`);
+};
 
 const fixture = (
     nickname = 'alice',
     walletAddress = '0x7e5f4552091a69125d5dfcb7b8c2659029395bdf',
     hasActiveAccess = true,
-    accessUntil = 1_795_592_000
+    accessUntil = 1_795_592_000,
+    url = 'https://erdmko.dev/chat/test-room',
+    overrides?: Record<string, unknown>
 ) => {
-    const root = new MockNode('root');
-    const storage = new Map<string, string>();
-    const ctx = {
-        document: {
-            createElement: (tag: string) => new MockNode(tag),
-            createTextNode: (text: string) => new MockNode('#text', text),
-        },
-        localStorage: {
-            getItem: (key: string) => storage.get(key) ?? null,
-            setItem: (key: string, value: string) => storage.set(key, value),
-            removeItem: (key: string) => storage.delete(key),
-        },
-        Date,
-    } as unknown as Window;
+    const ctx = createTestWindow({ url, overrides });
+    const root = ctx.document.createElement('div');
+    root.dataset['roomId'] = 'test-room';
     const state = createChatUiState(
         nickname,
         walletAddress,
@@ -205,14 +109,7 @@ const fixture = (
     const received: ChatUiEvent[] = [];
     outgoing(bindArg((event: ClientFramePayload) => sent.push(event), on));
     events(bindArg((event: ChatUiEvent) => received.push(event), on));
-    const refs = mountChatUi(
-        ctx,
-        root as unknown as HTMLDivElement,
-        'nickname',
-        outgoing,
-        events,
-        state
-    );
+    const refs = mountChatUi(ctx, root, 'nickname', outgoing, events, state);
     return {
         root,
         ctx,
@@ -221,18 +118,17 @@ const fixture = (
         events,
         sent,
         received,
-        storage,
         refs,
     };
 };
 
 test('chat controls and text update from signals without rebuilding the UI', () => {
     const { root, state } = fixture();
-    const status = root.find('strong');
+    const status = findEl(root, 'strong');
     const statusText = status.firstChild;
-    const send = root.find('button', 'Send');
-    const textarea = root.find('textarea');
-    const chat = textarea.form!.parentNode!;
+    const send = findEl<HTMLButtonElement>(root, 'button', 'Send');
+    const textarea = findEl<HTMLTextAreaElement>(root, 'textarea');
+    const chat = textarea.closest('form')!.parentElement!;
     assert.equal(status.textContent, 'connecting');
     assert.equal(send.disabled, true);
     assert.equal(chat.hidden, true);
@@ -242,19 +138,19 @@ test('chat controls and text update from signals without rebuilding the UI', () 
     state[CHAT_UI_STATE_ERROR][SIGNAL_SET]('Oops');
     assert.equal(status.textContent, 'online');
     assert.equal(status.firstChild, statusText);
-    assert.equal(root.find('p').textContent, 'Oops');
+    assert.equal(findEl(root, 'p').textContent, 'Oops');
 
     state[CHAT_UI_STATE_IS_JOINED][SIGNAL_SET](true);
     assert.equal(chat.hidden, false);
     state[CHAT_UI_STATE_MESSAGE][SIGNAL_SET]('hello');
     assert.equal(textarea.value, 'hello');
-    assert.ok(root.textContent.includes('5/200'));
+    assert.ok(root.textContent!.includes('5/200'));
     assert.equal(send.disabled, false);
     state[CHAT_UI_STATE_MESSAGE][SIGNAL_SET]('x'.repeat(201));
     assert.equal(send.disabled, true);
     state[CHAT_UI_STATE_IS_JOINED][SIGNAL_SET](false);
     assert.equal(chat.hidden, true);
-    assert.equal(root.find('textarea'), textarea);
+    assert.equal(findEl(root, 'textarea'), textarea);
 });
 
 test('tryAutoJoin automatically emits CLIENT_FRAME_JOIN when online with active paid access', () => {
@@ -278,15 +174,25 @@ test('tryAutoJoin automatically emits CLIENT_FRAME_JOIN when online with active 
 });
 
 test('composer events update signals, send on Enter, and emit file selections', () => {
-    const { root, state, sent, received, refs } = fixture();
+    const { ctx, root, state, sent, received, refs } = fixture();
     state[CHAT_UI_STATE_IS_JOINED][SIGNAL_SET](true);
-    const textarea = root.find('textarea');
+    const textarea = findEl<HTMLTextAreaElement>(root, 'textarea');
     textarea.value = '  hello  ';
-    textarea.dispatch('input');
+    textarea.dispatchEvent(new ctx.Event('input'));
     assert.equal(state[CHAT_UI_STATE_MESSAGE][SIGNAL_GET](), '  hello  ');
-    textarea.dispatch('keydown', { key: 'Enter', shiftKey: true });
+    textarea.dispatchEvent(
+        new ctx.KeyboardEvent('keydown', {
+            key: 'Enter',
+            shiftKey: true,
+        })
+    );
     assert.equal(sent.length, 0);
-    textarea.dispatch('keydown', { key: 'Enter', shiftKey: false });
+    textarea.dispatchEvent(
+        new ctx.KeyboardEvent('keydown', {
+            key: 'Enter',
+            shiftKey: false,
+        })
+    );
     assert.equal(sent.length, 1);
     assert.equal(sent[0][CLIENT_FRAME_PAYLOAD_VARIANT], CLIENT_FRAME_MESSAGE);
     assert.equal(
@@ -295,63 +201,76 @@ test('composer events update signals, send on Enter, and emit file selections', 
     );
     assert.equal(state[CHAT_UI_STATE_MESSAGE][SIGNAL_GET](), '');
     assert.equal(textarea.value, '');
-    assert.ok(root.textContent.includes('0/200'));
-    assert.equal(root.find('button', 'Send').disabled, true);
-    textarea.form!.dispatch('submit');
+    assert.ok(root.textContent!.includes('0/200'));
+    assert.equal(
+        findEl<HTMLButtonElement>(root, 'button', 'Send').disabled,
+        true
+    );
+    textarea
+        .closest('form')!
+        .dispatchEvent(new ctx.Event('submit', { cancelable: true }));
     assert.equal(received.at(-1)?.[CHAT_UI_EVENT_TYPE], CHAT_UI_ERROR);
 
-    root.find('button', 'Attach').click();
-    const fileInput = refs[CHAT_REF_FILE_INPUT] as unknown as MockNode;
-    assert.equal(fileInput.clicks, 1);
-    const file = { name: 'a.txt', size: 1 } as File;
-    fileInput.files = [file];
-    fileInput.dispatch('change');
+    const fileInput = refs[CHAT_REF_FILE_INPUT] as HTMLInputElement;
+    let fileInputClicks = 0;
+    fileInput.click = () => {
+        fileInputClicks++;
+    };
+    findEl<HTMLButtonElement>(root, 'button', 'Attach').click();
+    assert.equal(fileInputClicks, 1);
+
+    const file = new ctx.File(['x'], 'a.txt', { type: 'text/plain' });
+    Object.defineProperty(fileInput, 'files', {
+        value: [file],
+        configurable: true,
+    });
+    fileInput.dispatchEvent(new ctx.Event('change'));
     assert.deepEqual(received.at(-1), [CHAT_UI_FILE_SELECTED, file]);
 });
 
 test('voice actions use declarative events and participants reconcile by key', () => {
     const { root, state, received } = fixture();
-    root.find('button', 'Join voice').click();
-    root.find('button', 'Mute').click();
-    root.find('button', 'Leave').click();
+    findEl<HTMLButtonElement>(root, 'button', 'Join voice').click();
+    findEl<HTMLButtonElement>(root, 'button', 'Mute').click();
+    findEl<HTMLButtonElement>(root, 'button', 'Leave').click();
     assert.deepEqual(received, [
         [CHAT_UI_VOICE_JOIN],
         [CHAT_UI_VOICE_MUTE],
         [CHAT_UI_VOICE_LEAVE],
     ]);
     state[CHAT_UI_STATE_VOICE_IN_CALL][SIGNAL_SET](true);
-    assert.equal(root.find('button', 'Join voice').hidden, true);
-    assert.equal(root.find('button', 'Mute').hidden, false);
+    assert.equal(findEl(root, 'button', 'Join voice').hidden, true);
+    assert.equal(findEl(root, 'button', 'Mute').hidden, false);
     state[CHAT_UI_STATE_VOICE_MUTED][SIGNAL_SET](true);
-    assert.equal(root.find('button', 'Unmute').hidden, false);
+    assert.equal(findEl(root, 'button', 'Unmute').hidden, false);
     state[CHAT_UI_STATE_VOICE_PARTICIPANTS][SIGNAL_SET]([
         ['u1', 'alice'],
         ['u2', 'bob'],
     ]);
-    const alice = root.find('li', 'alice');
-    const bob = root.find('li', 'bob');
+    const alice = findEl(root, 'li', 'alice');
+    const bob = findEl(root, 'li', 'bob');
     state[CHAT_UI_STATE_VOICE_PARTICIPANTS][SIGNAL_SET]([
         ['u2', 'bob'],
         ['u1', 'alice'],
     ]);
-    assert.equal(root.find('li', 'alice'), alice);
-    assert.equal(root.find('li', 'bob'), bob);
+    assert.equal(findEl(root, 'li', 'alice'), alice);
+    assert.equal(findEl(root, 'li', 'bob'), bob);
     assert.equal(bob.nextSibling, alice);
     state[CHAT_UI_STATE_VOICE_PARTICIPANTS][SIGNAL_SET]([['u1', 'renamed']]);
-    assert.equal(root.find('li', 'renamed').textContent, 'renamed');
+    assert.equal(findEl(root, 'li', 'renamed').textContent, 'renamed');
     assert.equal(alice.parentNode, null);
     assert.equal(bob.parentNode, null);
 });
 
 test('attachment progress binds text and visibility and disposes preview listeners', () => {
-    const { ctx } = fixture();
-    const root = new MockNode('root');
+    const ctx = createTestWindow();
+    const root = ctx.document.createElement('div');
     const progress = createStore('');
     const scope: DomScope = [];
     let removed = 0;
     domCreator(
         ctx,
-        root as unknown as HTMLElement,
+        root,
         uploadPreviewTemplate(
             'a.txt',
             1,
@@ -362,26 +281,27 @@ test('attachment progress binds text and visibility and disposes preview listene
         ),
         scope
     );
-    const preview = root.find('div');
-    const label = preview.childNodes.at(-1)!;
+    const preview = root.firstElementChild as HTMLElement;
+    const label = preview.lastElementChild as HTMLElement;
     assert.equal(label.hidden, true);
     progress[SIGNAL_SET]('1 / 2 chunks sent');
     assert.equal(label.hidden, false);
     assert.equal(label.textContent, '1 / 2 chunks sent');
-    root.find('button').click();
+    findEl<HTMLButtonElement>(root, 'button').click();
     assert.equal(removed, 1);
     domDispose(scope);
     progress[SIGNAL_SET]('Upload error');
     assert.equal(label.textContent, '1 / 2 chunks sent');
-    root.find('button').click();
+    findEl<HTMLButtonElement>(root, 'button').click();
     assert.equal(removed, 1);
 
     domCreator(
         ctx,
-        root as unknown as HTMLElement,
+        root,
         attachmentItemTemplate('a.txt', 1, 'text/plain', () => {}, progress)
     );
-    const downloadLabel = root.childNodes.at(-1)!.childNodes.at(-1)!;
+    const downloadLabel = root.lastElementChild!
+        .lastElementChild as HTMLElement;
     assert.equal(downloadLabel.textContent, 'Upload error');
     progress[SIGNAL_SET]('');
     assert.equal(downloadLabel.textContent, '');
@@ -389,25 +309,26 @@ test('attachment progress binds text and visibility and disposes preview listene
 });
 
 test('WebSocket lifecycle and server join errors drive the signal-bound UI', () => {
-    const { ctx } = fixture();
-    const root = new MockNode('root');
+    let ws: any;
+    const socketCtx = createTestWindow({
+        url: 'http://localhost/chat/test-room',
+        overrides: {
+            WebSocket: class {
+                onopen?: () => void;
+                onclose?: () => void;
+                onerror?: () => void;
+                constructor(public url: string) {
+                    ws = this;
+                }
+            },
+        },
+    });
+    const root = socketCtx.document.createElement('div');
+    root.dataset['roomId'] = 'test-room';
     const incoming: ((event: ServerFramePayload) => void)[] = [];
     const outgoing = observer<ClientFramePayload>();
-    let ws: any;
-    const socketCtx = {
-        ...ctx,
-        location: { protocol: 'http:', host: 'localhost' },
-        WebSocket: class {
-            onopen?: () => void;
-            onclose?: () => void;
-            onerror?: () => void;
-            constructor(public url: string) {
-                ws = this;
-            }
-        },
-    } as unknown as Window;
     let state: ChatUiState | undefined;
-    initChatUi(socketCtx, root as unknown as Element, [outgoing, incoming])(
+    initChatUi(socketCtx, root, [outgoing, incoming])(
         (events) => {
             events(
                 bindArg((event: ChatUiEvent) => {
@@ -422,26 +343,35 @@ test('WebSocket lifecycle and server join errors drive the signal-bound UI', () 
     );
     assert.ok(state);
     assert.equal(ws.url, 'ws://localhost/ws/chat/test-room');
-    assert.equal(root.find('strong').textContent, 'connecting');
+    assert.equal(findEl(root, 'strong').textContent, 'connecting');
     ws.onopen();
-    assert.equal(root.find('strong').textContent, 'online');
+    assert.equal(findEl(root, 'strong').textContent, 'online');
     state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_SET](true);
     trigger([SERVER_FRAME_ERROR, ['', 'INVALID', 'Try again']], incoming);
     assert.equal(state[CHAT_UI_STATE_JOIN_IN_FLIGHT][SIGNAL_GET](), false);
-    assert.equal(root.find('p').textContent, 'Try again');
+    assert.equal(findEl(root, 'p').textContent, 'Try again');
     trigger([SERVER_FRAME_JOINED, ['join-1', 'sender-1', 'alice']], incoming);
-    assert.equal(root.find('textarea').form!.parentNode!.hidden, false);
-    assert.equal(root.find('p').textContent, '');
+    assert.equal(
+        findEl<HTMLTextAreaElement>(root, 'textarea').closest('form')!
+            .parentElement!.hidden,
+        false
+    );
+    assert.equal(findEl(root, 'p').textContent, '');
     ws.onclose();
-    assert.equal(root.find('strong').textContent, 'offline');
+    assert.equal(findEl(root, 'strong').textContent, 'offline');
     assert.equal(state[CHAT_UI_STATE_IS_JOINED][SIGNAL_GET](), false);
-    assert.equal(root.find('textarea').form!.parentNode!.hidden, true);
-    assert.equal(root.find('button', 'Send').disabled, true);
+    assert.equal(
+        findEl<HTMLTextAreaElement>(root, 'textarea').closest('form')!
+            .parentElement!.hidden,
+        true
+    );
+    assert.equal(
+        findEl<HTMLButtonElement>(root, 'button', 'Send').disabled,
+        true
+    );
 });
 
 test('WebSocket sends CLIENT_FRAME_PING on interval and redirects to onboarding on UNAUTHORIZED or PAYMENT_REQUIRED', () => {
-    const { ctx } = fixture();
-    const root = new MockNode('root');
     const incoming: ((event: ServerFramePayload) => void)[] = [];
     const outgoing = observer<ClientFramePayload>();
     const sent: ClientFramePayload[] = [];
@@ -451,40 +381,36 @@ test('WebSocket sends CLIENT_FRAME_PING on interval and redirects to onboarding 
     const sentBuffers: ArrayBuffer[] = [];
     let intervalTick: (() => void) | undefined;
     let clearedTimerId: number | undefined;
-    const locationObj = {
-        protocol: 'http:',
-        host: 'localhost',
-        href: 'http://localhost/chat/test-room',
-    };
-    const socketCtx = {
-        ...ctx,
-        Uint8Array,
-        TextEncoder,
-        location: locationObj,
-        setInterval: (fn: () => void) => {
-            intervalTick = fn;
-            return 77;
+    const socketCtx = createTestWindow({
+        url: 'http://localhost/chat/test-room',
+        overrides: {
+            setInterval: (fn: () => void) => {
+                intervalTick = fn;
+                return 77;
+            },
+            clearInterval: (id: number) => {
+                clearedTimerId = id;
+            },
+            WebSocket: class {
+                OPEN = 1;
+                readyState = 1;
+                onopen?: () => void;
+                onclose?: () => void;
+                onerror?: () => void;
+                constructor(public url: string) {
+                    ws = this;
+                }
+                send(buf: ArrayBuffer) {
+                    sentBuffers.push(buf);
+                }
+            },
         },
-        clearInterval: (id: number) => {
-            clearedTimerId = id;
-        },
-        WebSocket: class {
-            OPEN = 1;
-            readyState = 1;
-            onopen?: () => void;
-            onclose?: () => void;
-            onerror?: () => void;
-            constructor(public url: string) {
-                ws = this;
-            }
-            send(buf: ArrayBuffer) {
-                sentBuffers.push(buf);
-            }
-        },
-    } as unknown as Window;
+    });
+    const root = socketCtx.document.createElement('div');
+    root.dataset['roomId'] = 'test-room';
 
     let state: ChatUiState | undefined;
-    initChatUi(socketCtx, root as unknown as Element, [outgoing, incoming])(
+    initChatUi(socketCtx, root, [outgoing, incoming])(
         (events) => {
             events(
                 bindArg((event: ChatUiEvent) => {
@@ -521,54 +447,66 @@ test('WebSocket sends CLIENT_FRAME_PING on interval and redirects to onboarding 
     assert.equal(clearedTimerId, 77);
     assert.equal(state![CHAT_UI_STATE_IS_JOINED][SIGNAL_GET](), false);
     assert.equal(state![CHAT_UI_STATE_HAS_ACTIVE_ACCESS][SIGNAL_GET](), false);
-    assert.equal(locationObj.href, '/chat?room=test-room');
+    assert.equal(
+        `${socketCtx.location.pathname}${socketCtx.location.search}`,
+        '/chat?room=test-room'
+    );
 });
 
 test('onboarding screen on /chat transitions across disconnected, connected unpaid, and connected paid states', () => {
-    const { ctx, events } = fixture('alice', '', false, 0);
-    const root = new MockNode('root');
+    const ctx = createTestWindow({ url: 'https://erdmko.dev/chat' });
+    const events = observer<ChatUiEvent>();
+    const root = ctx.document.createElement('div');
     const state = createChatUiState('alice', '', false, 0);
     const roomSig = createStore('general');
     domCreator(
         ctx,
-        root as unknown as HTMLElement,
+        root,
         onboardingTemplate(ctx, events, [state, roomSig, 'general'])
     );
 
-    const connectBtn = root.find('button', 'Connect Wallet');
-    const payBtn = root.find('button', 'Pay & Unlock Chat');
-    const openBtn = root.find('button', 'Open room');
-    const form = root.find('form');
+    const connectBtn = findEl<HTMLButtonElement>(
+        root,
+        'button',
+        'Connect Wallet'
+    );
+    const payBtn = findEl<HTMLButtonElement>(
+        root,
+        'button',
+        'Pay & Unlock Chat'
+    );
+    const openBtn = findEl<HTMLButtonElement>(root, 'button', 'Open room');
+    const form = findEl<HTMLFormElement>(root, 'form');
 
     // 1. Disconnected: Connect Wallet is shown, form is hidden, auth notice explains free SIWE + network/price/duration
-    assert.equal(connectBtn.parentNode!.hidden, false);
+    assert.equal(connectBtn.parentElement!.hidden, false);
     assert.equal(form.hidden, true);
     assert.equal(openBtn.disabled, true);
     assert.ok(
-        root.textContent.includes('Authorization required to join #general')
+        root.textContent!.includes('Authorization required to join #general')
     );
-    assert.ok(root.textContent.includes('free SIWE sign-in'));
+    assert.ok(root.textContent!.includes('free SIWE sign-in'));
     assert.ok(
-        root.textContent.includes('0.001 ETH on Ethereum Mainnet for 30 days')
+        root.textContent!.includes('0.001 ETH on Ethereum Mainnet for 30 days')
     );
 
     // 2. Connected but Unpaid: Wallet address + Pay & Unlock Chat shown, Open room hidden, price + network + duration shown
     state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_SET](
         '0x7e5f4552091a69125d5dfcb7b8c2659029395bdf'
     );
-    assert.equal(connectBtn.parentNode!.hidden, true);
+    assert.equal(connectBtn.parentElement!.hidden, true);
     assert.equal(form.hidden, false);
     assert.equal(payBtn.hidden, false);
     assert.equal(payBtn.disabled, false);
     assert.equal(openBtn.hidden, true);
     assert.equal(openBtn.disabled, true);
     assert.ok(
-        root.textContent.includes(
+        root.textContent!.includes(
             'Paid access required to join #general (0.001 ETH on Ethereum Mainnet for 30 days)'
         )
     );
     assert.ok(
-        root.textContent.includes('0x7e5f4552091a69125d5dfcb7b8c2659029395bdf')
+        root.textContent!.includes('0x7e5f4552091a69125d5dfcb7b8c2659029395bdf')
     );
 
     // 2b. Pending transaction restored from localStorage displays pending banner and Etherscan link
@@ -585,10 +523,10 @@ test('onboarding screen on /chat transitions across disconnected, connected unpa
         state
     );
     assert.equal(state[CHAT_UI_STATE_PENDING_TX_HASH][SIGNAL_GET](), sampleTx);
-    assert.ok(root.textContent.includes('Pending payment (0xabababab...)'));
-    const txLink = root.find('a', sampleTx);
+    assert.ok(root.textContent!.includes('Pending payment (0xabababab...)'));
+    const txLink = findEl<HTMLAnchorElement>(root, 'a', sampleTx);
     assert.equal(
-        txLink.attributes.get('href'),
+        txLink.getAttribute('href'),
         `https://etherscan.io/tx/${sampleTx}`
     );
 
@@ -608,54 +546,51 @@ test('onboarding screen on /chat transitions across disconnected, connected unpa
     assert.equal(payBtn.hidden, true);
     assert.equal(openBtn.hidden, false);
     assert.equal(openBtn.disabled, false);
-    assert.ok(root.textContent.includes('active until 2026-11-25'));
+    assert.ok(root.textContent!.includes('active until 2026-11-25'));
 });
 
 test('initChatOnboarding reacts to chainChanged, accountsChanged, and unauthenticated /auth/session protobuf config', async () => {
-    const { ctx: baseCtx } = fixture('alice', '', false, 0);
     const listeners = new Map<string, (...args: unknown[]) => void>();
-    const protoHelperCtx = {
-        Uint8Array,
-        TextEncoder,
-        TextDecoder,
-    } as unknown as Window;
+    const protoHelperCtx = createTestWindow();
     const unauthBytes = encodeAuthSession(protoHelperCtx, '', '', 0, false, [
         1,
         '0xeff121f128e0e64c0e64ae8eb6eb042a0e5aa81c',
         '0x71afd498d0000', // 0.002 ETH
         604800, // 7 days
     ]);
-    const ctx = {
-        ...baseCtx,
-        Uint8Array,
-        TextEncoder,
-        TextDecoder,
-        ['ethereum']: {
-            ['request']: async () => '0x1',
-            ['on']: (event: string, listener: (...args: unknown[]) => void) => {
-                listeners.set(event, listener);
+    const ctx = createTestWindow({
+        url: 'https://erdmko.dev/chat',
+        overrides: {
+            ['ethereum']: {
+                ['request']: async () => '0x1',
+                ['on']: (
+                    event: string,
+                    listener: (...args: unknown[]) => void
+                ) => {
+                    listeners.set(event, listener);
+                },
             },
+            fetch: async () =>
+                ({
+                    ok: true,
+                    status: 200,
+                    arrayBuffer: async () =>
+                        unauthBytes.buffer.slice(
+                            unauthBytes.byteOffset,
+                            unauthBytes.byteOffset + unauthBytes.byteLength
+                        ),
+                }) as Response,
         },
-        fetch: async () =>
-            ({
-                ok: true,
-                status: 200,
-                arrayBuffer: async () =>
-                    unauthBytes.buffer.slice(
-                        unauthBytes.byteOffset,
-                        unauthBytes.byteOffset + unauthBytes.byteLength
-                    ),
-            }) as Response,
-    } as unknown as Window;
+    });
 
-    const root = new MockNode('div');
-    (root as any).dataset = { ['targetRoom']: 'general' };
-    const onboardingState = initChatOnboarding(ctx, root as unknown as Element);
+    const root = ctx.document.createElement('div');
+    root.dataset['targetRoom'] = 'general';
+    const onboardingState = initChatOnboarding(ctx, root);
     const state = onboardingState[ONBOARDING_CHAT_STATE];
 
     await new Promise((r) => setTimeout(r, 15));
     assert.ok(
-        root.textContent.includes('0.002 ETH on Ethereum Mainnet for 7 days'),
+        root.textContent!.includes('0.002 ETH on Ethereum Mainnet for 7 days'),
         'unauthenticated /auth/session protobuf response updates displayed terms before connecting'
     );
 
@@ -669,7 +604,7 @@ test('initChatOnboarding reacts to chainChanged, accountsChanged, and unauthenti
     // 1. Switching to wrong chain (Base 0x2105) sets actionable banner error
     listeners.get('chainChanged')?.('0x2105');
     assert.ok(
-        root.textContent.includes(
+        root.textContent!.includes(
             'Switch your wallet network to Ethereum Mainnet (chain ID 1) to continue.'
         )
     );
@@ -684,7 +619,7 @@ test('initChatOnboarding reacts to chainChanged, accountsChanged, and unauthenti
     ]);
     assert.equal(state[CHAT_UI_STATE_WALLET_ADDRESS][SIGNAL_GET](), '');
     assert.ok(
-        root.textContent.includes(
+        root.textContent!.includes(
             'Wallet account changed — connect your wallet again to continue.'
         )
     );

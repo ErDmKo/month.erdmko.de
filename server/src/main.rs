@@ -162,7 +162,7 @@ async fn main() -> std::io::Result<()> {
             .service(pages::chat_landing_page_handler)
             .service(pages::chat_room_page_handler)
             .service(pages::chat_ws_page_handler)
-            .service(telemetry::telemetry_ws_handler)
+            .service(telemetry::post_telemetry_handler)
             .service(pages::sitemap_xml_handler)
             .service(pages::post_auth_nonce_handler)
             .service(pages::post_auth_verify_handler)

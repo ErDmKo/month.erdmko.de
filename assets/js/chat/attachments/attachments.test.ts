@@ -17,6 +17,7 @@ import {
     SERVER_FRAME_ERROR,
 } from '@month/gen/chat';
 import type { ClientFramePayload, ServerFramePayload } from '@month/gen/chat';
+import { createTestWindow } from '../../test-window';
 import type { BaseChatSocket } from '../protocol/incoming';
 import { formatFileSize } from './template';
 import {
@@ -52,20 +53,13 @@ test('startUpload rejects empty and oversized files with UPLOAD_ERROR', () => {
     const incoming: ObserverState<ServerFramePayload> = [];
     const outgoing = observer<ClientFramePayload>();
     const socket: BaseChatSocket = [outgoing, incoming];
-    const ctx = globalThis as unknown as Window;
+    const ctx = createTestWindow();
 
     const emptyEvents: UploadEvent[] = [];
-    const emptyFile = {
-        name: 'empty.txt',
-        size: 0,
-        type: 'text/plain',
-    } as File;
+    const emptyFile = new ctx.File([], 'empty.txt', { type: 'text/plain' });
     const obsEmpty = startUpload(ctx, socket, 'req-empty', 1, emptyFile);
     obsEmpty(bindArg((e: UploadEvent) => emptyEvents.push(e), on));
 
-    // startUpload emits synchronously if subscribed before, or we can check oversized behavior:
-    // Note: startUpload emits UPLOAD_ERROR immediately on size check before returning.
-    // Let's also verify no outgoing frame was sent for invalid sizes.
     const sentFrames: ClientFramePayload[] = [];
     outgoing(bindArg((f: ClientFramePayload) => sentFrames.push(f), on));
 
@@ -84,7 +78,7 @@ test('startUpload full flow: UPLOAD_START -> UPLOAD_READY -> chunks -> UPLOAD_EN
     const socket: BaseChatSocket = [outgoing, incoming];
 
     const fileBytes = new Uint8Array([10, 20, 30, 40]);
-    class MockFileReader {
+    class SyncFileReader {
         result: ArrayBuffer | null = null;
         onload: (() => void) | null = null;
         onerror: (() => void) | null = null;
@@ -97,19 +91,18 @@ test('startUpload full flow: UPLOAD_START -> UPLOAD_READY -> chunks -> UPLOAD_EN
         }
     }
 
-    const ctx = {
-        FileReader: MockFileReader,
-        Uint8Array,
-    } as unknown as Window;
+    const ctx = createTestWindow({
+        overrides: {
+            FileReader: SyncFileReader,
+        },
+    });
 
     const sentFrames: ClientFramePayload[] = [];
     outgoing(bindArg((f: ClientFramePayload) => sentFrames.push(f), on));
 
-    const file = {
-        name: 'hello.bin',
-        size: fileBytes.length,
+    const file = new ctx.File([fileBytes], 'hello.bin', {
         type: 'application/octet-stream',
-    } as File;
+    });
 
     const uploadObs = startUpload(ctx, socket, 'up-1', 99, file);
     const events: UploadEvent[] = [];
@@ -163,9 +156,9 @@ test('startUpload handles server error response', () => {
     const incoming: ObserverState<ServerFramePayload> = [];
     const outgoing = observer<ClientFramePayload>();
     const socket: BaseChatSocket = [outgoing, incoming];
-    const ctx = { Uint8Array } as unknown as Window;
+    const ctx = createTestWindow();
 
-    const file = { name: 'a.txt', size: 3, type: 'text/plain' } as File;
+    const file = new ctx.File(['abc'], 'a.txt', { type: 'text/plain' });
     const uploadObs = startUpload(ctx, socket, 'up-err', 10, file);
     const events: UploadEvent[] = [];
     uploadObs(bindArg((e: UploadEvent) => events.push(e), on));
@@ -184,10 +177,7 @@ test('startDownload reassembles out-of-order chunks into Blob on DOWNLOAD_END', 
     const incoming: ObserverState<ServerFramePayload> = [];
     const outgoing = observer<ClientFramePayload>();
     const socket: BaseChatSocket = [outgoing, incoming];
-    const ctx = {
-        Uint8Array,
-        Blob,
-    } as unknown as Window;
+    const ctx = createTestWindow();
 
     const sentFrames: ClientFramePayload[] = [];
     outgoing(bindArg((f: ClientFramePayload) => sentFrames.push(f), on));

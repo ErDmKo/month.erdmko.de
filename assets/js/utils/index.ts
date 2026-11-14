@@ -11,6 +11,25 @@ export * from './validator';
 
 declare global {
     interface Window {
+        Date: typeof Date;
+        Event: typeof Event;
+        File: typeof File;
+        JSON: typeof JSON;
+        KeyboardEvent: typeof KeyboardEvent;
+        Uint8Array: typeof Uint8Array;
         fetch: typeof fetch;
+        localStorage: Storage;
+        readonly navigator: Navigator;
+        location: Location;
+        addEventListener(
+            type: string,
+            listener: EventListenerOrEventListenerObject,
+            options?: boolean | AddEventListenerOptions
+        ): void;
+        removeEventListener(
+            type: string,
+            listener: EventListenerOrEventListenerObject,
+            options?: boolean | EventListenerOptions
+        ): void;
     }
 }

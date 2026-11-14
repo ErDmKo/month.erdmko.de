@@ -115,7 +115,7 @@ export const savePendingPaymentTx = (
         .trim()
         .toLowerCase();
     const resolvedChainId = chainId ?? cfg[PAYMENT_CONFIG_CHAIN_ID];
-    ctx.localStorage?.setItem(
+    ctx.localStorage.setItem(
         PENDING_PAYMENT_STORAGE_KEY,
         `${normTx}|${normWallet}|${normTo}|${normValue}|${resolvedChainId}`
     );
@@ -129,7 +129,7 @@ export const loadPendingPaymentTx = (
     valueHex?: string,
     chainId?: number
 ): string => {
-    const raw = ctx.localStorage?.getItem(PENDING_PAYMENT_STORAGE_KEY);
+    const raw = ctx.localStorage.getItem(PENDING_PAYMENT_STORAGE_KEY);
     if (!raw) return '';
     const cfg = getActivePaymentConfig(ctx);
     const expectedTo = (toWallet ?? cfg[PAYMENT_CONFIG_RECIPIENT])
@@ -154,7 +154,7 @@ export const loadPendingPaymentTx = (
 };
 
 export const clearPendingPaymentTx = (ctx: Window): void => {
-    ctx.localStorage?.setItem(PENDING_PAYMENT_STORAGE_KEY, '');
+    ctx.localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, '');
 };
 
 const signAndVerifyChallengeTask = (
@@ -229,14 +229,10 @@ export const pollClaimPaymentTask =
                     if (variant === CLAIM_PAYMENT_RESPONSE_PENDING) {
                         onPendingTx?.(txHash);
                         if (attempt + 1 < maxPollAttempts) {
-                            if (typeof ctx.setTimeout === 'function') {
-                                ctx.setTimeout(
-                                    bindArg(attempt + 1, attemptClaim),
-                                    pollIntervalMs
-                                );
-                            } else {
-                                attemptClaim(attempt + 1);
-                            }
+                            ctx.setTimeout(
+                                bindArg(attempt + 1, attemptClaim),
+                                pollIntervalMs
+                            );
                             return;
                         }
                         reject(new Error(claimPaymentOutcomeMessage(outcome)));
