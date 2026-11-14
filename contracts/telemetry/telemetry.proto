@@ -2,6 +2,17 @@ syntax = "proto3";
 
 package telemetry;
 
+// Matches OpenTelemetry Logs Data Model SeverityNumber values directly.
+enum TelemetrySeverity {
+  TELEMETRY_SEVERITY_UNSPECIFIED = 0;
+  TELEMETRY_SEVERITY_TRACE       = 1;
+  TELEMETRY_SEVERITY_DEBUG       = 5;
+  TELEMETRY_SEVERITY_INFO        = 9;
+  TELEMETRY_SEVERITY_WARN        = 13;
+  TELEMETRY_SEVERITY_ERROR       = 17;
+  TELEMETRY_SEVERITY_FATAL       = 21;
+}
+
 enum TelemetryKind {
   TELEMETRY_KIND_UNSPECIFIED         = 0;
   TELEMETRY_KIND_UNCAUGHT_ERROR      = 1;
@@ -47,16 +58,17 @@ enum TelemetryProviderFlag {
 }
 
 message TelemetryEvent {
-  uint64        timestamp_ms   = 1;
-  TelemetryKind kind           = 2;
-  TelemetryOp   op             = 3;
-  string        code           = 4;
-  string        message        = 5;
-  string        path           = 6;
-  uint32        line           = 7;
-  uint32        column         = 8;
-  uint64        chain_id       = 9;
-  uint32        provider_flags = 10;
+  uint64            timestamp_ms   = 1;
+  TelemetrySeverity severity       = 2;
+  TelemetryKind     kind           = 3;
+  TelemetryOp       op             = 4;
+  string            code           = 5;
+  string            message        = 6;
+  string            path           = 7;
+  uint32            line           = 8;
+  uint32            column         = 9;
+  uint64            chain_id       = 10;
+  uint32            provider_flags = 11;
 }
 
 message TelemetryBatch {

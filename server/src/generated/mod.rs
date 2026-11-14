@@ -7,7 +7,7 @@ pub use telemetry_proto::telemetry;
 mod tests {
     use super::telemetry::{
         TelemetryAck, TelemetryBatch, TelemetryEvent, TelemetryKind, TelemetryOp,
-        TelemetryProviderFlag,
+        TelemetryProviderFlag, TelemetrySeverity,
     };
     use prost::Message;
 
@@ -17,6 +17,7 @@ mod tests {
             (TelemetryProviderFlag::Ethereum as u32) | (TelemetryProviderFlag::Phantom as u32);
         let event = TelemetryEvent {
             timestamp_ms: 1_794_614_400_123,
+            severity: TelemetrySeverity::Error as i32,
             kind: TelemetryKind::WalletRpc as i32,
             op: TelemetryOp::PersonalSign as i32,
             code: "-32000".to_string(),
@@ -35,16 +36,17 @@ mod tests {
         let bytes = batch.encode_to_vec();
         let expected_wire: &[u8] = &[
             0x08, 0x07, // ack_id = 7
-            0x12, 0x34, // events[0] len = 52
+            0x12, 0x36, // events[0] len = 54
             0x08, 0xfb, 0xa8, 0xea, 0xba, 0x9d, 0x34, // timestamp_ms = 1794614400123
-            0x10, 0x03, // kind = WALLET_RPC
-            0x18, 0x04, // op = PERSONAL_SIGN
-            0x22, 0x06, b'-', b'3', b'2', b'0', b'0', b'0', // code = "-32000"
-            0x2a, 0x11, b'c', b'h', b'e', b'c', b'k', b's', b'u', b'm', b' ', b'm', b'i', b's',
+            0x10, 0x11, // severity = ERROR (17)
+            0x18, 0x03, // kind = WALLET_RPC (3)
+            0x20, 0x04, // op = PERSONAL_SIGN (4)
+            0x2a, 0x06, b'-', b'3', b'2', b'0', b'0', b'0', // code = "-32000"
+            0x32, 0x11, b'c', b'h', b'e', b'c', b'k', b's', b'u', b'm', b' ', b'm', b'i', b's',
             b'm', b'a', b't', b'c', b'h', // message = "checksum mismatch"
-            0x32, 0x05, b'/', b'c', b'h', b'a', b't', // path = "/chat"
-            0x48, 0xa7, 0xed, 0xa8, 0x05, // chain_id = 11155111
-            0x50, 0x05, // provider_flags = 5
+            0x3a, 0x05, b'/', b'c', b'h', b'a', b't', // path = "/chat"
+            0x50, 0xa7, 0xed, 0xa8, 0x05, // chain_id = 11155111
+            0x58, 0x05, // provider_flags = 5
         ];
         assert_eq!(bytes.as_slice(), expected_wire);
 
@@ -54,6 +56,7 @@ mod tests {
 
         let ev = &decoded.events[0];
         assert_eq!(ev.timestamp_ms, 1_794_614_400_123);
+        assert_eq!(ev.severity(), TelemetrySeverity::Error);
         assert_eq!(ev.kind(), TelemetryKind::WalletRpc);
         assert_eq!(ev.op(), TelemetryOp::PersonalSign);
         assert_eq!(ev.code, "-32000");

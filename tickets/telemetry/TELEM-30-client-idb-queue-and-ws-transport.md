@@ -1,12 +1,12 @@
 ---
-title: "Client IndexedDB Binary Queue, /ws/telemetry Transport & Last-Resort Beacon"
+title: "Client IndexedDB Binary Queue & /ws/telemetry Transport"
 ticket: "TELEM-30"
 status: "planned"
 draft: false
 weight: 30
 ---
 
-# TELEM-30 Client IndexedDB Binary Queue, `/ws/telemetry` Transport & Last-Resort Beacon
+# TELEM-30 Client IndexedDB Binary Queue & `/ws/telemetry` Transport
 
 **Priority: P2. Offline-capable frontend telemetry engine for [`DEPLOY-30`](../deployment/DEPLOY-30-client-error-logging.md).**
 
@@ -16,7 +16,7 @@ weight: 30
 
 ## Goal
 
-Build a small, dependency-free, codestyle-compliant client telemetry module that persists raw `Uint8Array` `TelemetryEvent` payloads in IndexedDB while offline, flushes them primarily over `/ws/telemetry` with server `TelemetryAck` confirmation, and uses `navigator.sendBeacon('/telemetry')` strictly as a last-resort unload fallback.
+Build a small, dependency-free, codestyle-compliant client telemetry module that persists raw `Uint8Array` `TelemetryEvent` payloads in IndexedDB while offline or across reloads and flushes them over `/ws/telemetry` with server `TelemetryAck` confirmation.
 
 ## Scope
 
@@ -30,7 +30,6 @@ Build a small, dependency-free, codestyle-compliant client telemetry module that
 - Synchronized in-memory ring mirror (`Array<ReadonlyTupleOf<{ [ENTRY_ID]: number; [ENTRY_BYTES]: Uint8Array }>>`):
   - Hydrated once on startup from IndexedDB (`getAll` / cursor).
   - Serves as seamless fallback when `ctx.indexedDB` is unavailable or blocked (e.g. strict private browsing / sandboxed iframes).
-  - Enables synchronous batch assembly during `pagehide` (where async IndexedDB reads cannot complete before tab teardown).
 - **Bounded storage**: cap queue at `MAX_QUEUE_EVENTS = 64` and `MAX_QUEUE_BYTES = 32 * 1024` (32 KiB), evicting oldest entries (`FIFO`) so prolonged offline sessions never grow unbounded.
 - **Zero-decode batch assembly**: wrap stored `TelemetryEvent` `Uint8Array` slices directly into `TelemetryBatch` wire format (`field 1 = ack_id = maxEntryId`, repeated `field 2` length-delimited slices up to `<= 12 KiB` / `16` events per frame) without decoding events on the client.
 
@@ -52,13 +51,6 @@ Build a small, dependency-free, codestyle-compliant client telemetry module that
 - **Idle teardown**:
   - Once the queue is completely empty and acknowledged, close `/ws/telemetry` after `10_000 ms` of inactivity so idle tabs consume zero server sockets.
 
-### 5. Last-resort `navigator.sendBeacon` fallback
-- Listen to `ctx.addEventListener('pagehide', ...)`.
-- **Only** when the page is unloading, unacknowledged entries exist in the in-memory mirror, and `/ws/telemetry` is not open (`readyState !== WebSocket.OPEN` or unable to complete an ACK roundtrip):
-  - Assemble up to `16` pending events (`<= 12 KiB`) synchronously from the in-memory mirror into a `TelemetryBatch` `Uint8Array`.
-  - Call `ctx.navigator.sendBeacon('/telemetry', batchBytes)`.
-  - If `sendBeacon` returns `false` (offline or browser beacon queue full), leave IndexedDB untouched so `/ws/telemetry` flushes them reliably on the next online session. If `sendBeacon` returns `true`, best-effort delete those sent IDs from IndexedDB so they are not re-sent on reload.
-
 ## Implementation Areas
 
 - `assets/js/telemetry/{index.ts,queue.ts,dedup.ts,transport.ts}`
@@ -67,10 +59,9 @@ Build a small, dependency-free, codestyle-compliant client telemetry module that
 
 ## Tests and Acceptance
 
-- [ ] Enqueuing events while offline (`navigator.onLine === false`) persists raw `Uint8Array` records in IndexedDB without opening a WebSocket or calling `sendBeacon`.
+- [ ] Enqueuing events while offline (`navigator.onLine === false`) persists raw `Uint8Array` records in IndexedDB without opening a WebSocket.
 - [ ] Firing `online` (or starting a new session with pre-existing IndexedDB records) opens `/ws/telemetry`, sends `TelemetryBatch`, keeps records if WS drops mid-flight, and deletes records `<= ack_id` only upon receiving `TelemetryAck`.
 - [ ] Idle timer closes `/ws/telemetry` once the queue drains and re-opens lazily if a later error occurs.
 - [ ] Queue cap (`64` events / `32 KiB`) evicts oldest entries cleanly; missing/throwing `indexedDB` falls back to the in-memory queue without throwing.
-- [ ] `sendBeacon('/telemetry', ...)` is never called during normal online operation and fires only on `pagehide` as a last resort when unacknowledged events remain.
 - [ ] Duplicate errors within the cooldown window are coalesced.
 - [ ] `bazel test //assets/js:all` passes.

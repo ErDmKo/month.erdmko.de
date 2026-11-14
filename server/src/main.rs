@@ -20,6 +20,7 @@ pub mod chat;
 pub mod db;
 pub mod generated;
 pub mod pages;
+pub mod telemetry;
 pub mod version;
 pub mod voice;
 
@@ -129,6 +130,8 @@ async fn main() -> std::io::Result<()> {
         Error::new(ErrorKind::Other, "Pool error")
     })?;
     info!("DB pool is ready");
+    let telemetry_sink = Arc::new(telemetry::StdoutTelemetrySink);
+    let telemetry_state = web::Data::new(telemetry::TelemetryState::with_sink(telemetry_sink));
     HttpServer::new(move || {
         let auth = GrantsMiddleware::with_extractor(extract);
         App::new()
@@ -138,6 +141,7 @@ async fn main() -> std::io::Result<()> {
                 css: css.clone(),
             }))
             .app_data(web::Data::new(payment_cfg.clone()))
+            .app_data(telemetry_state.clone())
             .wrap(middleware::NormalizePath::trim())
             .wrap(middleware::Compress::default())
             .wrap(middleware::Logger::default())
@@ -158,6 +162,7 @@ async fn main() -> std::io::Result<()> {
             .service(pages::chat_landing_page_handler)
             .service(pages::chat_room_page_handler)
             .service(pages::chat_ws_page_handler)
+            .service(telemetry::telemetry_ws_handler)
             .service(pages::sitemap_xml_handler)
             .service(pages::post_auth_nonce_handler)
             .service(pages::post_auth_verify_handler)

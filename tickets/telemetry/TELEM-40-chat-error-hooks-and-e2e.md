@@ -54,10 +54,9 @@ All instrumentation uses numeric `TelemetryKind` and `TelemetryOp` enum constant
 ### 4. Browser E2E & bundle-bloat verification (`tests/e2e/`)
 - Follow Page Object Model rules strictly (`tests/e2e/pages/` encapsulates all browser/DOM/network interactions; `tests/e2e/suites/page-object-enforcement.test.ts` must pass).
 - Add `tests/e2e/suites/telemetry.test.ts` verifying against the Closure `ADVANCED` `chat-bundle.js` and real Rust server:
-  1. **Live wallet RPC failure over `/ws/telemetry`**: mock Phantom provider (`isPhantom: true`) rejects `personal_sign` with `{ code: -32000, message: "checksum mismatch" }` on `/chat` (unauthenticated!) → client opens `/ws/telemetry`, receives `TelemetryAck`, clears IndexedDB queue, and server logs structured `event=browser.error transport=ws kind=wallet_rpc op=personal_sign code="-32000" providers=ethereum,phantom`.
+  1. **Live wallet RPC failure over `/ws/telemetry`**: mock Phantom provider (`isPhantom: true`) rejects `personal_sign` with `{ code: -32000, message: "checksum mismatch" }` on `/chat` (unauthenticated!) → client opens `/ws/telemetry`, receives `TelemetryAck`, clears IndexedDB queue, and server logs structured `event=browser.error severity=13 kind=wallet_rpc op=personal_sign code="-32000" chain_id=1 providers=ethereum,phantom`.
   2. **Offline IndexedDB persistence & reconnect flush**: trigger an error while offline (`page.setOfflineMode(true)`), reload page while still offline, restore connectivity (`setOfflineMode(false)`), and verify the stored binary event flushes over `/ws/telemetry` and is deleted after `TelemetryAck`.
-  3. **Last-resort `pagehide` beacon fallback**: enqueue an error while `/ws/telemetry` is blocked/unavailable, navigate away (`pagehide`), and verify `POST /telemetry` logs the event with `transport=beacon`.
-  4. **Bundle string audit**: assert compiled `chat-bundle.js` contains zero `ws-logger` frame-name tables, zero `localStorage` `'debug'` checks, and zero `TELEMETRY_KIND_*` / `TELEMETRY_OP_*` enum identifier strings.
+  3. **Bundle string audit**: assert compiled `chat-bundle.js` contains zero `ws-logger` frame-name tables, zero `localStorage` `'debug'` checks, and zero `TELEMETRY_KIND_*` / `TELEMETRY_OP_*` enum identifier strings.
 
 ## Implementation Areas
 
@@ -71,6 +70,5 @@ All instrumentation uses numeric `TelemetryKind` and `TelemetryOp` enum constant
 
 - [ ] Phantom/MetaMask RPC rejections on `/chat` (before any session cookie exists) appear in server telemetry logs with decoded `op`, `code`, `chain_id`, and `providers`.
 - [ ] Offline errors survive page reload in IndexedDB and flush automatically over `/ws/telemetry` upon reconnect, purging IndexedDB only after `TelemetryAck`.
-- [ ] `navigator.sendBeacon('/telemetry')` fires only as an unload fallback and never blocks UI navigation or error banners.
 - [ ] `chat-bundle.js` contains no `logger.ts` / `ws-logger.ts` debug strings or Protobuf enum label strings.
 - [ ] `bazel run //tools/format:format && bazel test //...` and `cd tests/e2e && npm test -- --runInBand` pass.
