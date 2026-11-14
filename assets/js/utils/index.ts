@@ -16,7 +16,10 @@ declare global {
         File: typeof File;
         JSON: typeof JSON;
         KeyboardEvent: typeof KeyboardEvent;
+        String: typeof String;
         Uint8Array: typeof Uint8Array;
+        atob: typeof atob;
+        btoa: typeof btoa;
         fetch: typeof fetch;
         localStorage: Storage;
         readonly navigator: Navigator;

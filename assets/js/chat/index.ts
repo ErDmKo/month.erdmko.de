@@ -16,8 +16,6 @@ import {
     TELEMETRY_OP_CHAT_INIT,
     TELEMETRY_SEVERITY_ERROR,
 } from '@month/gen/telemetry';
-import { detectProviderFlags } from '@month/telemetry';
-import { getActivePaymentConfig, PAYMENT_CONFIG_CHAIN_ID } from './auth';
 import { initChatUi, CHAT_UI_ERROR, CHAT_UI_TELEMETRY } from './chat-ui/init';
 import { initChatOnboarding } from './chat-ui/onboarding';
 import type { ChatUiObs } from './chat-ui/events';
@@ -42,11 +40,6 @@ declare global {
     }
 }
 
-const resolveChatChainId = (ctx: Window): number =>
-    detectProviderFlags(ctx)
-        ? getActivePaymentConfig(ctx)[PAYMENT_CONFIG_CHAIN_ID]
-        : 0;
-
 const reportFeatureInitError = (chatUiObs: ChatUiObs, err: unknown): void => {
     chatUiObs(
         bindArg(
@@ -65,8 +58,8 @@ const reportFeatureInitError = (chatUiObs: ChatUiObs, err: unknown): void => {
     chatUiObs(bindArg([CHAT_UI_ERROR, String(err)] as const, trigger));
 };
 
-const reportRootInitError = (err: unknown): void => {
-    emitChatTelemetry([
+const reportRootInitError = (ctx: Window, err: unknown): void => {
+    emitChatTelemetry(ctx, [
         TELEMETRY_SEVERITY_ERROR,
         TELEMETRY_KIND_UNCAUGHT_ERROR,
         TELEMETRY_OP_CHAT_INIT,
@@ -78,29 +71,32 @@ const initTemplate = (ctx: Window, root: Element) => {
     const incoming: ObserverState<ServerFramePayload> = [];
     const outgoing = observer<ClientFramePayload>();
     const socket: ChatSocket = [outgoing, incoming];
-    wireIncomingTelemetry(incoming);
+    wireIncomingTelemetry(ctx, incoming);
 
     pipe(
         initChatUi(ctx, root, socket),
-        taskFork((chatUiObs: ChatUiObs) => {
-            wireChatUiTelemetry(chatUiObs);
-            pipe(
-                initMessages(ctx, socket, chatUiObs),
-                taskChain((msgsObs: MsgsObs) =>
-                    initAttachments(ctx, socket, chatUiObs, msgsObs)
-                ),
-                taskFork(noop, bindArg(chatUiObs, reportFeatureInitError))
-            );
-            pipe(
-                initVoice(ctx, socket, chatUiObs),
-                taskFork(noop, bindArg(chatUiObs, reportFeatureInitError))
-            );
-        }, reportRootInitError)
+        taskFork(
+            (chatUiObs: ChatUiObs) => {
+                wireChatUiTelemetry(ctx, chatUiObs);
+                pipe(
+                    initMessages(ctx, socket, chatUiObs),
+                    taskChain((msgsObs: MsgsObs) =>
+                        initAttachments(ctx, socket, chatUiObs, msgsObs)
+                    ),
+                    taskFork(noop, bindArg(chatUiObs, reportFeatureInitError))
+                );
+                pipe(
+                    initVoice(ctx, socket, chatUiObs),
+                    taskFork(noop, bindArg(chatUiObs, reportFeatureInitError))
+                );
+            },
+            bindArg(ctx, reportRootInitError)
+        )
     );
 };
 
 export const initChatEffect = once((ctx: Window): void => {
-    initChatTelemetry(ctx, resolveChatChainId);
+    initChatTelemetry(ctx);
     const onboardingTags = ctx.document.querySelectorAll('.js-chat-onboarding');
     ctx.Array.from(onboardingTags).forEach((el) => initChatOnboarding(ctx, el));
     const tags = ctx.document.querySelectorAll('.js-chat');

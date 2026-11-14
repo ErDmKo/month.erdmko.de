@@ -12,13 +12,24 @@ use crate::chat::service as chat_service;
 use crate::generated::telemetry::TelemetryBatch;
 
 use super::sanitize;
-use super::sink::{StdoutTelemetrySink, TelemetrySink};
+use super::sink::{StdoutTelemetrySink, TelemetryRecord, TelemetrySink};
 
 pub const MAX_TELEMETRY_PAYLOAD_BYTES: usize = 16 * 1024;
 pub const MAX_TELEMETRY_BATCH_EVENTS: usize = 16;
 pub const DEFAULT_RATE_LIMIT_MAX_BATCHES: usize = 10;
 pub const DEFAULT_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
+pub const DEFAULT_DEDUP_WINDOW: Duration = Duration::from_secs(5);
 const MAX_TRACKED_RATE_KEYS: usize = 256;
+const MAX_DEDUP_ENTRIES: usize = 512;
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct DedupKey {
+    client: String,
+    kind: &'static str,
+    op: &'static str,
+    code: String,
+    message: String,
+}
 
 static DEFAULT_TELEMETRY_STATE: LazyLock<web::Data<TelemetryState>> =
     LazyLock::new(|| web::Data::new(TelemetryState::default()));
@@ -27,7 +38,9 @@ pub struct TelemetryState {
     pub sink: Arc<dyn TelemetrySink>,
     pub rate_limit_max_batches: usize,
     pub rate_limit_window: Duration,
+    pub dedup_window: Duration,
     rate_windows: Mutex<HashMap<String, VecDeque<Instant>>>,
+    dedup_seen: Mutex<HashMap<DedupKey, Instant>>,
 }
 
 impl Default for TelemetryState {
@@ -42,7 +55,9 @@ impl TelemetryState {
             sink,
             rate_limit_max_batches: DEFAULT_RATE_LIMIT_MAX_BATCHES,
             rate_limit_window: DEFAULT_RATE_LIMIT_WINDOW,
+            dedup_window: DEFAULT_DEDUP_WINDOW,
             rate_windows: Mutex::new(HashMap::new()),
+            dedup_seen: Mutex::new(HashMap::new()),
         }
     }
 
@@ -85,6 +100,40 @@ impl TelemetryState {
         }
         bucket.push_back(now);
         false
+    }
+
+    fn should_emit(&self, client_key: &str, record: &TelemetryRecord, now: Instant) -> bool {
+        let window = self.dedup_window;
+        if window.is_zero() {
+            return true;
+        }
+        let key = DedupKey {
+            client: client_key.to_string(),
+            kind: record.kind,
+            op: record.op,
+            code: record.code.clone(),
+            message: record.message.clone(),
+        };
+        let mut seen = self.dedup_seen.lock().expect("telemetry dedup mutex");
+        if let Some(&prev) = seen.get(&key) {
+            if now.duration_since(prev) < window {
+                return false;
+            }
+        }
+        if seen.len() >= MAX_DEDUP_ENTRIES && !seen.contains_key(&key) {
+            seen.retain(|_, ts| now.duration_since(*ts) < window);
+            if seen.len() >= MAX_DEDUP_ENTRIES {
+                if let Some(oldest_key) = seen
+                    .iter()
+                    .min_by_key(|(_, ts)| **ts)
+                    .map(|(k, _)| k.clone())
+                {
+                    seen.remove(&oldest_key);
+                }
+            }
+        }
+        seen.insert(key, now);
+        true
     }
 }
 
@@ -146,8 +195,9 @@ pub async fn post_telemetry_handler(req: HttpRequest, mut payload: web::Payload)
         return HttpResponse::BadRequest().body("Empty telemetry batch.");
     }
 
+    let now = Instant::now();
     let client_key = extract_client_key(&req);
-    if state.is_rate_limited(&client_key, Instant::now()) {
+    if state.is_rate_limited(&client_key, now) {
         return HttpResponse::TooManyRequests().body("Telemetry rate limit exceeded.");
     }
 
@@ -162,7 +212,9 @@ pub async fn post_telemetry_handler(req: HttpRequest, mut payload: web::Payload)
     let observed_ms = Utc::now().timestamp_millis();
     for event in &batch.events {
         let record = sanitize::build_record(event, observed_ms);
-        state.sink.emit(&record);
+        if state.should_emit(&client_key, &record, now) {
+            state.sink.emit(&record);
+        }
     }
 
     HttpResponse::NoContent().finish()

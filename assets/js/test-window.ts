@@ -20,11 +20,14 @@ export const createTestWindow = (options?: TestWindowOptions): Window => {
     });
     const win = happyWin as unknown as Record<string, unknown>;
 
+    win['String'] = String;
     win['Uint8Array'] = Uint8Array;
     win['ArrayBuffer'] = ArrayBuffer;
     win['TextEncoder'] = TextEncoder;
     win['TextDecoder'] = TextDecoder;
     win['Blob'] = Blob;
+    win['atob'] = atob;
+    win['btoa'] = btoa;
     win['fetch'] = async () => ({
         ok: true,
         status: 204,

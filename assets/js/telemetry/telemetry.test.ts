@@ -1,14 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import {
-    bindArg,
-    domDispose,
-    noop,
-    pipe,
-    taskFork,
-    trigger,
-} from '@month/utils';
-import type { DomScope } from '@month/utils';
+import { noop } from '@month/utils';
 import * as telemetryModule from '@month/gen/telemetry';
 import {
     TELEMETRY_BATCH_EVENTS,
@@ -58,7 +50,6 @@ import type {
 import { createTestWindow } from '../test-window';
 import {
     BACKOFF_DELAYS_MS,
-    detectProviderFlags,
     EXTRACTED_CODE,
     EXTRACTED_MESSAGE,
     extractErrorInfo,
@@ -67,9 +58,10 @@ import {
     MAX_CODE_LEN,
     MAX_MSG_LEN,
     MAX_QUEUE_EVENTS,
+    recordTelemetry,
     TELEMETRY_STORAGE_KEY,
 } from './index';
-import type { TelemetryInput, TelemetryObs } from './index';
+import type { TelemetryInput } from './index';
 
 const ctx = createTestWindow();
 
@@ -279,7 +271,6 @@ const createTelemetryTestEnv = (options?: {
     throwStorageWrite?: boolean;
     online?: boolean;
     pathname?: string;
-    ethereum?: Record<string, unknown>;
 }) => {
     let nowMs = 1_794_614_400_000;
     let online = options?.online ?? true;
@@ -344,7 +335,6 @@ const createTelemetryTestEnv = (options?: {
         url: `https://erdmko.dev${options?.pathname ?? '/chat'}`,
         overrides: {
             Date: Object.assign(Date, { now: () => nowMs }),
-            ethereum: options?.ethereum,
             fetch: mockFetch,
             setTimeout: (fn: () => void, delayMs = 0) => {
                 const id = nextTimerId++;
@@ -383,9 +373,6 @@ const createTelemetryTestEnv = (options?: {
         ctx: win,
         requests,
         timers,
-        advanceTime: (deltaMs: number) => {
-            nowMs += deltaMs;
-        },
         setOnline: (next: boolean) => {
             online = next;
             if (next) {
@@ -409,80 +396,60 @@ const createTelemetryTestEnv = (options?: {
     };
 };
 
-const mountTelemetry = (
-    envCtx: Window,
-    scope: DomScope,
-    chainId = 0,
-    dedupMs = 5000
-): TelemetryObs => {
-    let obs!: TelemetryObs;
-    pipe(
-        initTelemetry(
-            envCtx,
-            () => chainId,
-            scope,
-            undefined,
-            TELEMETRY_STORAGE_KEY,
-            dedupMs
-        ),
-        taskFork((resolved: TelemetryObs) => {
-            obs = resolved;
-        }, noop)
-    );
-    return obs;
-};
-
-const emit = (obs: TelemetryObs, input: TelemetryInput): void => {
-    obs(bindArg(input, trigger));
-};
-
 test('clean page load with empty localStorage sends zero fetch requests', () => {
     const env = createTelemetryTestEnv({ online: true });
-    const scope: DomScope = [];
-    mountTelemetry(env.ctx, scope);
+    initTelemetry(env.ctx);
 
     assert.equal(env.requests.length, 0);
     assert.equal(
         Boolean(env.ctx.localStorage.getItem(TELEMETRY_STORAGE_KEY)),
         false
     );
-    domDispose(scope);
 });
 
 test('offline enqueue persists Protobuf events in localStorage across reload, survives network/503 failure, and purges on 204', () => {
-    const env1 = createTelemetryTestEnv({
-        online: false,
-        ethereum: { isPhantom: true },
-    });
-    const scope1: DomScope = [];
-    const obs1 = mountTelemetry(env1.ctx, scope1, 1);
+    const env1 = createTelemetryTestEnv({ online: false });
+    const state1 = initTelemetry(env1.ctx);
 
-    emit(obs1, [
-        TELEMETRY_SEVERITY_ERROR,
-        TELEMETRY_KIND_WALLET_RPC,
-        TELEMETRY_OP_PERSONAL_SIGN,
-        { code: -32000, message: 'checksum mismatch' },
-    ]);
-    emit(obs1, [
-        TELEMETRY_SEVERITY_WARN,
-        TELEMETRY_KIND_WEBRTC,
-        TELEMETRY_OP_VOICE_SIGNALING,
-        'room full',
-        'VOICE_ROOM_FULL',
-    ]);
+    const flags =
+        TELEMETRY_PROVIDER_FLAG_ETHEREUM | TELEMETRY_PROVIDER_FLAG_PHANTOM;
+    recordTelemetry(
+        env1.ctx,
+        [
+            TELEMETRY_SEVERITY_ERROR,
+            TELEMETRY_KIND_WALLET_RPC,
+            TELEMETRY_OP_PERSONAL_SIGN,
+            { code: -32000, message: 'checksum mismatch' },
+            '',
+            0,
+            0,
+            1,
+            flags,
+        ],
+        state1
+    );
+    recordTelemetry(
+        env1.ctx,
+        [
+            TELEMETRY_SEVERITY_WARN,
+            TELEMETRY_KIND_WEBRTC,
+            TELEMETRY_OP_VOICE_SIGNALING,
+            'room full',
+            'VOICE_ROOM_FULL',
+        ],
+        state1
+    );
 
     assert.equal(env1.requests.length, 0);
-    const persistedHex = env1.ctx.localStorage.getItem(TELEMETRY_STORAGE_KEY);
-    assert.ok(persistedHex);
-    domDispose(scope1);
+    const persistedB64 = env1.ctx.localStorage.getItem(TELEMETRY_STORAGE_KEY);
+    assert.ok(persistedB64);
 
     // Simulate page reload while still offline -> hydrates 2 records, still 0 requests
     const env2 = createTelemetryTestEnv({
-        initialStorage: persistedHex,
+        initialStorage: persistedB64,
         online: false,
     });
-    const scope2: DomScope = [];
-    mountTelemetry(env2.ctx, scope2, 1);
+    initTelemetry(env2.ctx);
     assert.equal(env2.requests.length, 0);
 
     // Connectivity returns -> POST /telemetry with keepalive + application/x-protobuf
@@ -500,8 +467,12 @@ test('offline enqueue persists Protobuf events in localStorage across reload, su
         '-32000'
     );
     assert.equal(
+        sentBatch1[TELEMETRY_BATCH_EVENTS][0][TELEMETRY_EVENT_CHAIN_ID],
+        1
+    );
+    assert.equal(
         sentBatch1[TELEMETRY_BATCH_EVENTS][0][TELEMETRY_EVENT_PROVIDER_FLAGS],
-        TELEMETRY_PROVIDER_FLAG_ETHEREUM | TELEMETRY_PROVIDER_FLAG_PHANTOM
+        flags
     );
 
     // Network drop mid-flight -> localStorage stays intact + backoff[0] scheduled
@@ -528,23 +499,25 @@ test('offline enqueue persists Protobuf events in localStorage across reload, su
         Boolean(env2.ctx.localStorage.getItem(TELEMETRY_STORAGE_KEY)),
         false
     );
-    domDispose(scope2);
 });
 
 test('multi-batch sequential drain coalesces concurrent bursts while POST is in flight', () => {
     const env = createTelemetryTestEnv({ online: true });
-    const scope: DomScope = [];
-    const obs = mountTelemetry(env.ctx, scope, 0, 5000);
+    const state = initTelemetry(env.ctx);
 
     const totalEvents = 1 + MAX_BATCH_EVENTS * 2 + 4;
     for (let i = 0; i < totalEvents; i++) {
-        emit(obs, [
-            TELEMETRY_SEVERITY_WARN,
-            TELEMETRY_KIND_WS,
-            0,
-            `msg ${i}`,
-            `E_${i}`,
-        ]);
+        recordTelemetry(
+            env.ctx,
+            [
+                TELEMETRY_SEVERITY_WARN,
+                TELEMETRY_KIND_WS,
+                0,
+                `msg ${i}`,
+                `E_${i}`,
+            ],
+            state
+        );
     }
 
     // First event dispatches immediately with keepalive; remaining 24 coalesce behind inFlight
@@ -575,29 +548,35 @@ test('multi-batch sequential drain coalesces concurrent bursts while POST is in 
     assert.equal(env.timers.size, 0);
 
     // Subsequent error sends a fresh POST /telemetry immediately
-    emit(obs, [
-        TELEMETRY_SEVERITY_ERROR,
-        TELEMETRY_KIND_UNCAUGHT_ERROR,
-        0,
-        new ReferenceError('x is not defined'),
-    ]);
+    recordTelemetry(
+        env.ctx,
+        [
+            TELEMETRY_SEVERITY_ERROR,
+            TELEMETRY_KIND_UNCAUGHT_ERROR,
+            0,
+            new ReferenceError('x is not defined'),
+        ],
+        state
+    );
     assert.equal(env.requests.length, 5);
-    domDispose(scope);
 });
 
 test('queue cap evicts oldest entries at 64 and truncates oversized code/message fields', () => {
     const env = createTelemetryTestEnv({ online: false });
-    const scope: DomScope = [];
-    const obs = mountTelemetry(env.ctx, scope, 0, 0);
+    const state = initTelemetry(env.ctx);
 
     for (let i = 1; i <= MAX_QUEUE_EVENTS + 6; i++) {
-        emit(obs, [
-            TELEMETRY_SEVERITY_WARN,
-            TELEMETRY_KIND_WS,
-            0,
-            `item-${i}-${'x'.repeat(400)}`,
-            `${'C'.repeat(80)}_${i}`,
-        ]);
+        recordTelemetry(
+            env.ctx,
+            [
+                TELEMETRY_SEVERITY_WARN,
+                TELEMETRY_KIND_WS,
+                0,
+                `item-${i}-${'x'.repeat(400)}`,
+                `${'C'.repeat(80)}_${i}`,
+            ],
+            state
+        );
     }
 
     env.setOnline(true);
@@ -617,17 +596,15 @@ test('queue cap evicts oldest entries at 64 and truncates oversized code/message
         firstSent[TELEMETRY_BATCH_EVENTS][0][TELEMETRY_EVENT_MESSAGE].length,
         MAX_MSG_LEN
     );
-    domDispose(scope);
 });
 
-test('throwing localStorage getter or setter falls back to in-memory queue and deduplicates bursts', () => {
+test('throwing localStorage getter or setter falls back cleanly to in-memory queue', () => {
     for (const opts of [
         { throwStorageGetter: true },
         { throwStorageWrite: true },
     ] as const) {
         const env = createTelemetryTestEnv({ ...opts, online: true });
-        const scope: DomScope = [];
-        const obs = mountTelemetry(env.ctx, scope, 1, 5000);
+        const state = initTelemetry(env.ctx);
 
         const rejectedInput: TelemetryInput = [
             TELEMETRY_SEVERITY_WARN,
@@ -635,38 +612,22 @@ test('throwing localStorage getter or setter falls back to in-memory queue and d
             TELEMETRY_OP_PERSONAL_SIGN,
             { code: 4001, message: 'User rejected the request.' },
         ];
-        emit(obs, rejectedInput);
-        emit(obs, rejectedInput);
+        recordTelemetry(env.ctx, rejectedInput, state);
 
         assert.equal(env.requests.length, 1);
         const batch = decodeTelemetryBatch(env.ctx, env.requests[0].body)!;
         assert.equal(batch[TELEMETRY_BATCH_EVENTS].length, 1);
 
         env.requests[0].respond(204);
-
-        // After 5001ms cooldown, identical error is recorded again
-        env.advanceTime(5001);
-        emit(obs, rejectedInput);
-        assert.equal(env.requests.length, 2);
-        domDispose(scope);
     }
 });
 
-test('global error & unhandledrejection hooks, extractErrorInfo, and detectProviderFlags work via validate', () => {
+test('global error & unhandledrejection hooks and extractErrorInfo work via validate', () => {
     const env = createTelemetryTestEnv({
         online: true,
         pathname: '/chat/general',
-        ethereum: { isMetaMask: true, isRabby: true },
     });
-    const scope: DomScope = [];
-    mountTelemetry(env.ctx, scope, 11155111);
-
-    assert.equal(
-        detectProviderFlags(env.ctx),
-        TELEMETRY_PROVIDER_FLAG_ETHEREUM |
-            TELEMETRY_PROVIDER_FLAG_METAMASK |
-            telemetryModule.TELEMETRY_PROVIDER_FLAG_RABBY
-    );
+    initTelemetry(env.ctx);
 
     const extractedObj = extractErrorInfo(
         env.ctx,
@@ -700,7 +661,7 @@ test('global error & unhandledrejection hooks, extractErrorInfo, and detectProvi
     assert.equal(errEv[TELEMETRY_EVENT_LINE], 42);
     assert.equal(errEv[TELEMETRY_EVENT_COLUMN], 9);
     assert.equal(errEv[TELEMETRY_EVENT_PATH], '/chat/general');
-    assert.equal(errEv[TELEMETRY_EVENT_CHAIN_ID], 11155111);
+    assert.equal(errEv[TELEMETRY_EVENT_CHAIN_ID], 0);
 
     const rejEv = sent[TELEMETRY_BATCH_EVENTS][1];
     assert.equal(
@@ -709,6 +670,4 @@ test('global error & unhandledrejection hooks, extractErrorInfo, and detectProvi
     );
     assert.equal(rejEv[TELEMETRY_EVENT_CODE], 'E_ASYNC');
     assert.equal(rejEv[TELEMETRY_EVENT_MESSAGE], 'nested failure');
-
-    domDispose(scope);
 });

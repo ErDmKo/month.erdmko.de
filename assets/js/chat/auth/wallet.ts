@@ -31,12 +31,18 @@ import {
     extractErrorInfo,
 } from '@month/telemetry';
 import { emitChatTelemetry } from '../telemetry';
-
-export const DEFAULT_CHAIN_ID = 1;
-export const RECIPIENT_WALLET_ADDRESS =
-    '0xEFF121F128e0e64C0E64AE8Eb6eB042a0E5Aa81c';
-export const DEFAULT_PAYMENT_VALUE_HEX = '0x38d7ea4c68000';
-export const DEFAULT_ACCESS_DURATION_SECS = 30 * 24 * 60 * 60;
+import {
+    DEFAULT_ACCESS_DURATION_SECS,
+    DEFAULT_CHAIN_ID,
+    DEFAULT_PAYMENT_VALUE_HEX,
+    RECIPIENT_WALLET_ADDRESS,
+} from './constants';
+export {
+    DEFAULT_ACCESS_DURATION_SECS,
+    DEFAULT_CHAIN_ID,
+    DEFAULT_PAYMENT_VALUE_HEX,
+    RECIPIENT_WALLET_ADDRESS,
+};
 
 const FIRST_ACCOUNT_INDEX = 0 as const;
 const WIN_ETHEREUM = 0 as const;
@@ -167,7 +173,7 @@ const rethrowWalletError = (ctx: Window, op: number, err: unknown): never => {
     const code = extracted[EXTRACTED_CODE];
     const sev =
         code === '4001' ? TELEMETRY_SEVERITY_WARN : TELEMETRY_SEVERITY_ERROR;
-    emitChatTelemetry([
+    emitChatTelemetry(ctx, [
         sev,
         TELEMETRY_KIND_WALLET_RPC,
         op,

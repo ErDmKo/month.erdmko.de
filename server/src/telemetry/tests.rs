@@ -372,16 +372,24 @@ async fn rejects_bad_origin_malformed_oversized_excess_events_and_rate_bursts() 
     actix_web::rt::time::sleep(Duration::from_millis(100)).await;
 
     // 7. Rate limit allows 2 batches, rejects 3rd with 429, then recovers after window
-    let valid_batch = TelemetryBatch {
-        events: vec![sample_event("4001", "User rejected")],
+    let valid_batch_1 = TelemetryBatch {
+        events: vec![sample_event("4001", "User rejected #1")],
+    }
+    .encode_to_vec();
+    let valid_batch_2 = TelemetryBatch {
+        events: vec![sample_event("4001", "User rejected #2")],
+    }
+    .encode_to_vec();
+    let valid_batch_3 = TelemetryBatch {
+        events: vec![sample_event("4001", "User rejected #3")],
     }
     .encode_to_vec();
 
-    for _ in 0..2 {
+    for b in [&valid_batch_1, &valid_batch_2] {
         let r = client
             .post(&url)
             .insert_header(("Origin", "http://localhost:8080"))
-            .send_body(valid_batch.clone())
+            .send_body(b.clone())
             .await
             .expect("valid batch");
         assert_eq!(r.status(), StatusCode::NO_CONTENT);
@@ -390,7 +398,7 @@ async fn rejects_bad_origin_malformed_oversized_excess_events_and_rate_bursts() 
     let r = client
         .post(&url)
         .insert_header(("Origin", "http://localhost:8080"))
-        .send_body(valid_batch.clone())
+        .send_body(valid_batch_3.clone())
         .await
         .expect("burst batch");
     assert_eq!(r.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -400,11 +408,55 @@ async fn rejects_bad_origin_malformed_oversized_excess_events_and_rate_bursts() 
     let r = client
         .post(&url)
         .insert_header(("Origin", "http://localhost:8080"))
-        .send_body(valid_batch)
+        .send_body(valid_batch_3)
         .await
         .expect("recovered batch");
     assert_eq!(r.status(), StatusCode::NO_CONTENT);
     assert_eq!(sink.snapshot().len(), 3);
+
+    handle.stop(true).await;
+}
+
+#[actix_web::test]
+async fn deduplicates_identical_events_within_server_window_and_re_allows_after_expiry() {
+    let sink = Arc::new(RecordingSink::default());
+    let mut raw_state = TelemetryState::with_sink(sink.clone());
+    raw_state.dedup_window = Duration::from_millis(80);
+    let state = web::Data::new(raw_state);
+    let (addr, handle) = spawn_telemetry_server(state);
+    let client = awc::Client::new();
+    let url = format!("http://{addr}/telemetry");
+
+    // Same batch containing duplicate sanitized events + immediate second POST -> emitted once
+    let dup_batch = TelemetryBatch {
+        events: vec![
+            sample_event("4001", "User rejected\r\n"),
+            sample_event("4001", "User rejected "),
+        ],
+    }
+    .encode_to_vec();
+
+    for _ in 0..2 {
+        let r = client
+            .post(&url)
+            .insert_header(("Origin", "http://localhost:8080"))
+            .send_body(dup_batch.clone())
+            .await
+            .expect("dup post");
+        assert_eq!(r.status(), StatusCode::NO_CONTENT);
+    }
+    assert_eq!(sink.snapshot().len(), 1);
+
+    // After dedup_window expires, the same event is emitted again
+    actix_web::rt::time::sleep(Duration::from_millis(100)).await;
+    let r = client
+        .post(&url)
+        .insert_header(("Origin", "http://localhost:8080"))
+        .send_body(dup_batch)
+        .await
+        .expect("post after dedup expiry");
+    assert_eq!(r.status(), StatusCode::NO_CONTENT);
+    assert_eq!(sink.snapshot().len(), 2);
 
     handle.stop(true).await;
 }

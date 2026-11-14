@@ -1,7 +1,8 @@
+import { bindArg } from '@month/utils';
 import type { ReadonlyTupleOf } from '@month/utils';
 import { concatBytes, encodeBytesField } from '../utils/proto-utils';
 
-export const TELEMETRY_STORAGE_KEY = 'chat-telemetry';
+export const TELEMETRY_STORAGE_KEY = 'telemetry';
 export const MAX_QUEUE_EVENTS = 64;
 export const MAX_BATCH_EVENTS = 10;
 
@@ -17,20 +18,13 @@ export type AssembledBatch = ReadonlyTupleOf<{
     [BATCH_BODY]: Uint8Array;
 }>;
 
-const bytesToHex = (bytes: Uint8Array): string => {
-    let out = '';
-    for (const b of bytes) out += b.toString(16).padStart(2, '0');
-    return out;
-};
+const charCode = (ch: string): number => ch.charCodeAt(0);
 
-const hexToBytes = (ctx: Window, hex: string): Uint8Array => {
-    const len = hex.length >> 1;
-    const out = new ctx.Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    }
-    return out;
-};
+const bytesToBase64 = (ctx: Window, bytes: Uint8Array): string =>
+    ctx.btoa(ctx.String.fromCharCode(...bytes));
+
+const base64ToBytes = (ctx: Window, encoded: string): Uint8Array =>
+    ctx.Uint8Array.from(ctx.atob(encoded), charCode);
 
 export const createTelemetryQueue = (): TelemetryQueue => [];
 
@@ -74,33 +68,26 @@ export const assembleNextBatch = (
     return [slice[slice.length - 1], concatBytes(ctx, parts)];
 };
 
-export const hydrateQueue = (
-    ctx: Window,
-    storageKey: string,
-    queue: TelemetryQueue
-): void => {
-    if (!storageKey) return;
+export const hydrateQueue = (ctx: Window, queue: TelemetryQueue): void => {
     try {
-        const raw = ctx.localStorage.getItem(storageKey);
+        const raw = ctx.localStorage.getItem(TELEMETRY_STORAGE_KEY);
         if (!raw) return;
         for (const part of raw.split(',').slice(-MAX_QUEUE_EVENTS)) {
-            if (part.length >= 2 && (part.length & 1) === 0) {
-                enqueueBytes(hexToBytes(ctx, part), queue);
+            if (part) {
+                enqueueBytes(base64ToBytes(ctx, part), queue);
             }
         }
     } catch {
-        // ignore restricted storage errors
+        // ignore restricted storage or malformed base64 errors
     }
 };
 
-export const persistQueue = (
-    ctx: Window,
-    storageKey: string,
-    queue: TelemetryQueue
-): void => {
-    if (!storageKey) return;
+export const persistQueue = (ctx: Window, queue: TelemetryQueue): void => {
     try {
-        ctx.localStorage.setItem(storageKey, queue.map(bytesToHex).join(','));
+        ctx.localStorage.setItem(
+            TELEMETRY_STORAGE_KEY,
+            queue.map(bindArg(ctx, bytesToBase64)).join(',')
+        );
     } catch {
         // ignore quota or restricted storage errors
     }

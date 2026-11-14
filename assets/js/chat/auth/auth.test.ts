@@ -82,6 +82,7 @@ import {
     signSiweMessageTask,
     verifySiweTask,
 } from './index';
+import { detectProviderFlags } from '../telemetry';
 import type { EthereumRequestArgs } from './wallet';
 
 const SAMPLE_WALLET_MIXED = '0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf';
@@ -173,6 +174,16 @@ test('wallet address, tx hash, and access duration helpers validate and format a
     assert.equal(formatAccessDuration(7200), '2 hours');
     assert.equal(formatAccessDuration(60), '1 minute');
     assert.equal(formatAccessDuration(45), '45 seconds');
+
+    assert.equal(detectProviderFlags(createTestWindow()), 0);
+    assert.equal(
+        detectProviderFlags(
+            createTestWindow({
+                overrides: { ethereum: { isMetaMask: true, isRabby: true } },
+            })
+        ),
+        1 | 2 | 16
+    );
 });
 
 test('requestAccountsTask, signSiweMessageTask, and sendPaymentTransactionTask call window.ethereum', async () => {
@@ -729,6 +740,9 @@ test('payAndClaimTask recovers via fetchSessionTask when /auth/claim-payment HTT
                 },
             },
             fetch: async (url: string) => {
+                if (url === '/telemetry') {
+                    return bytesToResponse(new Uint8Array(0), 204);
+                }
                 if (url === '/auth/claim-payment') {
                     throw new Error('Network connection lost');
                 }

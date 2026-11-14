@@ -1,4 +1,11 @@
-import { bindArg, pipe, taskCatch, taskChain, taskMap } from '@month/utils';
+import {
+    bindArg,
+    bindArgs,
+    pipe,
+    taskCatch,
+    taskChain,
+    taskMap,
+} from '@month/utils';
 import type { ReadonlyTupleOf, Task } from '@month/utils';
 import {
     AUTH_PAYMENT_CONFIG_ACCESS_DURATION_SECS,
@@ -38,7 +45,7 @@ import {
     DEFAULT_CHAIN_ID,
     DEFAULT_PAYMENT_VALUE_HEX,
     RECIPIENT_WALLET_ADDRESS,
-} from './wallet';
+} from './constants';
 import {
     TELEMETRY_KIND_AUTH_HTTP,
     TELEMETRY_OP_AUTH_CLAIM_PAYMENT,
@@ -167,8 +174,8 @@ const fetchProtoTask = (
         taskMap(bindArg(ctx, unwrapProtoBytes))
     );
 
-const rethrowAuthError = (op: number, err: unknown): never => {
-    emitChatTelemetry([
+const rethrowAuthError = (ctx: Window, op: number, err: unknown): never => {
+    emitChatTelemetry(ctx, [
         TELEMETRY_SEVERITY_ERROR,
         TELEMETRY_KIND_AUTH_HTTP,
         op,
@@ -192,7 +199,7 @@ const postAuthProtoTask = <T>(
             ['body']: bodyBytes as unknown as BodyInit,
         }),
         taskMap((bytes: Uint8Array) => parseFn(ctx, bytes)),
-        taskCatch(bindArg(op, rethrowAuthError))
+        taskCatch(bindArgs([ctx, op], rethrowAuthError))
     );
 
 export const authSessionToStatus = (

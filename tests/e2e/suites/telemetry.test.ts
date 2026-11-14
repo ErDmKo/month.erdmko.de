@@ -108,9 +108,8 @@ describe('client error telemetry E2E (POST /telemetry -> server stdout)', () => 
 
             // Persisted in localStorage while offline, and NOT yet sent to server
             await new Promise((r) => setTimeout(r, 250));
-            const persistedHex =
-                await onboarding.localStorageItem('chat-telemetry');
-            expect(persistedHex).toBeTruthy();
+            const persistedB64 = await onboarding.localStorageItem('telemetry');
+            expect(persistedB64).toBeTruthy();
             expect(telemetryServer.getStdout()).not.toContain(marker);
 
             // Simulate closing tab, coming back online, and opening a fresh /chat page in the same BrowserContext
@@ -130,10 +129,10 @@ describe('client error telemetry E2E (POST /telemetry -> server stdout)', () => 
             // Query string `?room=secret-room` is never leaked in telemetry path
             expect(stdout).not.toContain('secret-room');
 
-            // Once server returns 204 No Content, `chat-telemetry` is purged from localStorage
+            // Once server returns 204 No Content, `telemetry` is purged from localStorage
             await new Promise((r) => setTimeout(r, 150));
             expect(
-                await reloadedOnboarding.localStorageItem('chat-telemetry')
+                await reloadedOnboarding.localStorageItem('telemetry')
             ).toBeFalsy();
         } finally {
             await session.close();
