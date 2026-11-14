@@ -1,11 +1,11 @@
 {% extends "inner.html" %}
-{% block title %}WebRTC Voice &amp; Ethereum Wallet Chat Rooms{% endblock title %}
-{% block desc %}Browser chat rooms with WebRTC Opus voice calls and file sharing. Sign in free with your Ethereum wallet (SIWE) and unlock {{ payment_access_duration_display | default(value="30 days") }} of room access for {{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }}.{% endblock desc %}
+{% block title %}WebRTC Voice &amp; Chat Rooms — Sign In &amp; Pay with ETH (No Phone or Cards){% endblock title %}
+{% block desc %}Browser voice calls (WebRTC Opus), live chat, and file sharing with zero phone numbers, emails, bank cards, or app stores. Sign in free with your Ethereum wallet (SIWE) and unlock {{ payment_access_duration_display | default(value="30 days") }} across all rooms for {{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }}.{% endblock desc %}
 {% block robots %}{% if target_room %}noindex, follow{% else %}index, follow, max-image-preview:large{% endif %}{% endblock robots %}
-{% block og_title %}WebRTC Voice &amp; Ethereum Wallet Chat Rooms{% endblock og_title %}
-{% block twitter_title %}WebRTC Voice &amp; Ethereum Wallet Chat Rooms{% endblock twitter_title %}
-{% block og_desc %}Browser chat rooms with WebRTC Opus voice calls and file sharing. Sign in free with your Ethereum wallet (SIWE) and unlock {{ payment_access_duration_display | default(value="30 days") }} of room access for {{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }}.{% endblock og_desc %}
-{% block twitter_desc %}Browser chat rooms with WebRTC Opus voice calls and file sharing. Sign in free with your Ethereum wallet (SIWE) and unlock {{ payment_access_duration_display | default(value="30 days") }} of room access for {{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }}.{% endblock twitter_desc %}
+{% block og_title %}WebRTC Voice &amp; Chat Rooms — Sign In &amp; Pay with ETH (No Phone or Cards){% endblock og_title %}
+{% block twitter_title %}WebRTC Voice &amp; Chat Rooms — Sign In &amp; Pay with ETH (No Phone or Cards){% endblock twitter_title %}
+{% block og_desc %}Browser voice calls (WebRTC Opus), live chat, and file sharing with zero phone numbers, emails, bank cards, or app stores. Sign in free with your Ethereum wallet (SIWE) and unlock {{ payment_access_duration_display | default(value="30 days") }} across all rooms for {{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }}.{% endblock og_desc %}
+{% block twitter_desc %}Browser voice calls (WebRTC Opus), live chat, and file sharing with zero phone numbers, emails, bank cards, or app stores. Sign in free with your Ethereum wallet (SIWE) and unlock {{ payment_access_duration_display | default(value="30 days") }} across all rooms for {{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }}.{% endblock twitter_desc %}
 {% block analytics_preconnect %}{% endblock analytics_preconnect %}
 {% block analytics %}{% endblock analytics %}
 {% block head %}
@@ -20,7 +20,7 @@
       "url": "{{ site_url | default(value="https://erdmko.dev") | safe }}/chat",
       "applicationCategory": "CommunicationApplication",
       "operatingSystem": "Any",
-      "description": "Browser chat rooms with WebRTC Opus voice calls, binary Protobuf WebSocket messaging, chunked file sharing, Sign-In with Ethereum (SIWE) authentication, and paid on-chain access.",
+      "description": "Browser voice and text chat rooms with WebRTC Opus calls, binary Protobuf WebSocket messaging, and chunked file sharing. No phone number, email, bank card, or app download required — Sign-In with Ethereum (SIWE) authentication and paid on-chain ETH access.",
       "offers": {
         "@type": "Offer",
         "price": "{{ payment_amount_eth | default(value="0.001") }}",
@@ -28,15 +28,23 @@
         "description": "{{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }} unlocks {{ payment_access_duration_display | default(value="30 days") }} of chat and voice room access."
       },
       "featureList": [
-        "Sign-In with Ethereum (EIP-4361 SIWE) wallet authentication via a free off-chain signature",
-        "Paid room access ({{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }} for {{ payment_access_duration_display | default(value="30 days") }})",
-        "Low-latency WebRTC Opus voice calls powered by GStreamer",
+        "No phone number, SIM card, email, or KYC — Sign-In with Ethereum (EIP-4361 SIWE) via a free off-chain wallet signature",
+        "Direct on-chain ETH payment with no bank cards or recurring subscriptions ({{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }} for {{ payment_access_duration_display | default(value="30 days") }})",
+        "100% browser-based low-latency WebRTC Opus voice calls powered by GStreamer with nothing to install",
         "Binary Protobuf WebSocket transport with chunked file attachments over HTTPS/WSS"
       ]
     },
     {
       "@type": "FAQPage",
       "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Do I need a phone number, email address, bank card, or app download?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. Everything runs directly in a modern desktop or mobile browser with nothing to install from an app store. Your identity is an Ethereum wallet verified with a free off-chain SIWE signature, and access is unlocked with a single on-chain ETH transfer rather than a bank card or recurring subscription."
+          }
+        },
         {
           "@type": "Question",
           "name": "How do I invite people to a room?",
@@ -70,81 +78,119 @@
 {% block inner_content %}
 <section class="{{ css["chat-page"] }}">
     <div class="{{ css.chat }}">
-        <h1 class="{{ css.chat__title }}">WebRTC Voice &amp; Text Chat Rooms</h1>
-        <p class="{{ css.chat__meta }}">
-            Browser chat rooms with low-latency WebRTC Opus voice calls, chunked file sharing, and Ethereum wallet (SIWE) access. Sign in with a free wallet signature and unlock paid access on <strong>{{ payment_chain_name | default(value="Ethereum Mainnet") }}</strong> to create or join any room.
+        <ul class="{{ css.chat__badges }}" aria-label="Highlights">
+            <li class="{{ css.chat__badge }}">No Phone or SIM</li>
+            <li class="{{ css.chat__badge }}">No Bank Cards — Pay in ETH</li>
+            <li class="{{ css.chat__badge }}">Nothing to Install</li>
+            <li class="{{ css.chat__badge }}">WebRTC Opus Voice</li>
+        </ul>
+        <h1 class="{{ css.chat__title }}">Voice &amp; Text Chat Rooms — Powered by Your Ethereum Wallet</h1>
+        <p class="{{ css.chat__lead }}">
+            Talk over low-latency WebRTC Opus voice, message in real time, and share files directly in your browser. Skip phone numbers, SMS codes, app stores, and bank card blocks — sign in with a free off-chain wallet signature and unlock <strong>{{ payment_access_duration_display | default(value="30 days") }}</strong> across every room for <strong>{{ payment_amount_display | default(value="0.001 ETH") }}</strong> on <strong>{{ payment_chain_name | default(value="Ethereum Mainnet") }}</strong>.
         </p>
 
-        <h2>Access &amp; Pricing</h2>
-        <div class="{{ css.chat__message }}">
-            <h3>1. Free Wallet Sign-In (SIWE)</h3>
-            <p class="{{ css["chat__message-body"] }}">Connect an EIP-1193 Ethereum wallet and sign a free off-chain EIP-4361 message. This signature only verifies wallet ownership and costs no gas or ETH.</p>
-        </div>
-        <div class="{{ css.chat__message }}">
-            <h3>2. Paid Access Unlock</h3>
-            <p class="{{ css["chat__message-body"] }}">Send <strong>{{ payment_amount_display | default(value="0.001 ETH") }}</strong> on <strong>{{ payment_chain_name | default(value="Ethereum Mainnet") }}</strong> (Chain ID <code>{{ payment_chain_id | default(value=1) }}</code>) to <code>{{ payment_recipient | default(value="0xeff121f128e0e64c0e64ae8eb6eb042a0e5aa81c") }}</code> to unlock <strong>{{ payment_access_duration_display | default(value="30 days") }}</strong> of access across all chat and voice rooms and claim your persistent nickname.</p>
+        <div class="{{ css["chat__cta-card"] }}">
+            <div class="{{ css["chat__cta-head"] }}">
+                <h2 class="{{ css["chat__cta-title"] }}">{% if target_room %}Unlock &amp; Join #{{ target_room }}{% else %}Connect Wallet &amp; Open a Room{% endif %}</h2>
+                <span class="{{ css["chat__cta-price"] }}">Free SIWE sign-in · {{ payment_amount_display | default(value="0.001 ETH") }} for {{ payment_access_duration_display | default(value="30 days") }}</span>
+            </div>
+            <div class="{{ css.chat }} js-chat-onboarding" data-target-room="{{ target_room | default(value="") }}">
+                {% if target_room %}
+                <div class="{{ css.chat__meta }} {{ css["chat__upload-preview-item"] }}" role="status">
+                    <strong>Paid wallet access required to join #{{ target_room }} ({{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }} for {{ payment_access_duration_display | default(value="30 days") }}) — connect your Ethereum wallet below to sign in free (SIWE) and continue.</strong>
+                </div>
+                {% endif %}
+                <form action="/chat" method="get" class="{{ css.chat__form }}">
+                    <label class="{{ css.chat__label }}" for="room-slug-input">
+                        <strong>Create or join a room by name</strong>
+                        <input
+                            id="room-slug-input"
+                            type="text"
+                            name="room"
+                            value="{{ target_room | default(value="") }}"
+                            required
+                            pattern="[A-Za-z0-9_-]{1,64}"
+                            placeholder="e.g. general, rust-devs, daily-standup"
+                            class="{{ css.chat__input }}"
+                        />
+                    </label>
+                    <div class="{{ css.chat__controls }}">
+                        <span class="{{ css.chat__counter }}">Letters, numbers, hyphens, or underscores</span>
+                        <button type="submit" class="{{ css.chat__button }}">Open room</button>
+                    </div>
+                </form>
+            </div>
         </div>
 
-        <div class="{{ css.chat }} js-chat-onboarding" data-target-room="{{ target_room | default(value="") }}">
-            {% if target_room %}
-            <div class="{{ css.chat__meta }} {{ css["chat__upload-preview-item"] }}" role="status">
-                <strong>Paid wallet access required to join #{{ target_room }} ({{ payment_amount_display | default(value="0.001 ETH") }} on {{ payment_chain_name | default(value="Ethereum Mainnet") }} for {{ payment_access_duration_display | default(value="30 days") }}) — connect your Ethereum wallet below to sign in free (SIWE) and continue.</strong>
+        <h2>Why Wallet-Native Chat?</h2>
+        <div class="{{ css.chat__grid }}">
+            <div class="{{ css.chat__message }}">
+                <h3>No Phone Number, Email, or KYC</h3>
+                <p class="{{ css["chat__card-body"] }}">Your account is just an EIP-1193 Ethereum wallet (MetaMask, Rabby, Brave, Frame) verified with a free off-chain signature. Zero SIM cards, SMS codes, or personal forms.</p>
             </div>
-            {% endif %}
-            <form action="/chat" method="get" class="{{ css.chat__form }}">
-                <label class="{{ css.chat__label }}" for="room-slug-input">
-                    <strong>Create or join a room by name</strong>
-                    <input
-                        id="room-slug-input"
-                        type="text"
-                        name="room"
-                        value="{{ target_room | default(value="") }}"
-                        required
-                        pattern="[A-Za-z0-9_-]{1,64}"
-                        placeholder="e.g. general, rust-devs, daily-standup"
-                        class="{{ css.chat__input }}"
-                    />
-                </label>
-                <div class="{{ css.chat__controls }}">
-                    <span class="{{ css.chat__counter }}">Letters, numbers, hyphens, or underscores</span>
-                    <button type="submit" class="{{ css.chat__button }}">Open room</button>
-                </div>
-            </form>
+            <div class="{{ css.chat__message }}">
+                <h3>Borderless ETH Access — No Bank Cards</h3>
+                <p class="{{ css["chat__card-body"] }}">One direct on-chain transfer unlocks {{ payment_access_duration_display | default(value="30 days") }} across all rooms — no Visa/Mastercard gateways, region-locked billing, or recurring subscriptions.</p>
+            </div>
+            <div class="{{ css.chat__message }}">
+                <h3>100% in Your Browser — No App Store</h3>
+                <p class="{{ css["chat__card-body"] }}">Join voice calls, send messages, and transfer files from any modern desktop or mobile browser. Nothing to download from regional app stores.</p>
+            </div>
+            <div class="{{ css.chat__message }}">
+                <h3>Independent Hosting &amp; Clear Security</h3>
+                <p class="{{ css["chat__card-body"] }}">Self-hosted outside domestic telecom ecosystems. Rooms enforce verified paid wallet sessions server-side and protect traffic in transit via HTTPS/WSS and DTLS-SRTP.</p>
+            </div>
+        </div>
+
+        <h2>How Access &amp; Pricing Work</h2>
+        <div class="{{ css.chat__grid }}">
+            <div class="{{ css.chat__message }}">
+                <h3>1. Free Wallet Sign-In (SIWE)</h3>
+                <p class="{{ css["chat__card-body"] }}">Connect an EIP-1193 Ethereum wallet and sign a free off-chain EIP-4361 message. This signature only verifies wallet ownership and costs no gas or ETH.</p>
+            </div>
+            <div class="{{ css.chat__message }}">
+                <h3>2. Paid Access Unlock</h3>
+                <p class="{{ css["chat__card-body"] }}">Send <strong>{{ payment_amount_display | default(value="0.001 ETH") }}</strong> on <strong>{{ payment_chain_name | default(value="Ethereum Mainnet") }}</strong> (Chain ID <code>{{ payment_chain_id | default(value=1) }}</code>) to <code>{{ payment_recipient | default(value="0xeff121f128e0e64c0e64ae8eb6eb042a0e5aa81c") }}</code> to unlock <strong>{{ payment_access_duration_display | default(value="30 days") }}</strong> across every chat and voice room and claim your persistent nickname.</p>
+            </div>
         </div>
 
         <h2>Featured Chat Rooms</h2>
-        <p class="{{ css.chat__meta }}">Shared rooms available to members with active paid wallet access:</p>
-        <div>
+        <p class="{{ css.chat__meta }}">Shared rooms included with active wallet access — or type any custom <code>/chat/{room}</code> slug to spin up a dedicated room for your team or friends:</p>
+        <div class="{{ css.chat__grid }}">
             {% for room in featured_rooms %}
             <div class="{{ css.chat__message }}">
                 <div class="{{ css["chat__message-head"] }}">
                     <a href="/chat/{{ room.slug }}">#{{ room.slug }}</a> — {{ room.title }}
                 </div>
-                <div class="{{ css["chat__message-body"] }}">{{ room.description }}</div>
+                <p class="{{ css["chat__card-body"] }}">{{ room.description }}</p>
             </div>
             {% endfor %}
         </div>
 
-        <h2>Key Features</h2>
+        <h2>Built for Fast Calls &amp; File Sharing</h2>
         <ul>
-            <li><strong>URL-Addressed Rooms:</strong> Every path under <code>/chat/{room}</code> is an independent room you can bookmark or share with other active members.</li>
-            <li><strong>WebRTC Voice Calls:</strong> Low-latency browser Opus voice chat backed by a Rust &amp; GStreamer media pipeline.</li>
-            <li><strong>Binary Protobuf &amp; File Sharing:</strong> Stream messages and chunked file attachments with real-time upload and download progress over Protobuf WebSockets.</li>
-            <li><strong>Persistent Wallet Nicknames:</strong> Reserve a unique lowercase nickname tied to your verified Ethereum wallet across all rooms.</li>
+            <li><strong>Shareable Room URLs:</strong> Every path under <code>/chat/{room}</code> is an independent voice and text room you can bookmark or send to teammates.</li>
+            <li><strong>Low-Latency WebRTC Opus Voice:</strong> Clear browser voice channels backed by a lightweight Rust &amp; GStreamer media pipeline.</li>
+            <li><strong>Chunked File Transfers:</strong> Stream messages and file attachments with live upload/download progress over binary Protobuf WebSockets.</li>
+            <li><strong>Persistent Wallet Nicknames:</strong> Reserve one unique lowercase nickname tied to your Ethereum wallet across every room.</li>
         </ul>
 
         <h2>Frequently Asked Questions</h2>
         <div class="{{ css.chat__message }}">
+            <h3>Do I need a phone number, email address, bank card, or app download?</h3>
+            <p class="{{ css["chat__card-body"] }}">No. Everything runs directly in a modern desktop or mobile browser with nothing to install from an app store. Your identity is an Ethereum wallet verified with a free off-chain SIWE signature, and access is unlocked with a single on-chain ETH transfer rather than a bank card or recurring subscription.</p>
+        </div>
+        <div class="{{ css.chat__message }}">
             <h3>How do I invite people to a room?</h3>
-            <p class="{{ css["chat__message-body"] }}">Share any room URL such as <code>/chat/my-team</code>. Members who already have active paid access open the room directly; visitors without an active paid session are redirected to <code>/chat?room=my-team</code> to sign in with their Ethereum wallet and unlock access before entering the room.</p>
+            <p class="{{ css["chat__card-body"] }}">Share any room URL such as <code>/chat/my-team</code>. Members who already have active paid access open the room directly; visitors without an active paid session are redirected to <code>/chat?room=my-team</code> to sign in with their Ethereum wallet and unlock access before entering the room.</p>
         </div>
         <div class="{{ css.chat__message }}">
             <h3>Are messages and voice calls end-to-end encrypted?</h3>
-            <p class="{{ css["chat__message-body"] }}">No. Web and WebSocket traffic is protected in transit over HTTPS/WSS and WebRTC voice streams use DTLS-SRTP transport encryption in transit, but room messages, file chunks, and audio routing are processed by the server and are not end-to-end encrypted.</p>
+            <p class="{{ css["chat__card-body"] }}">No. Web and WebSocket traffic is protected in transit over HTTPS/WSS and WebRTC voice streams use DTLS-SRTP transport encryption in transit, but room messages, file chunks, and audio routing are processed by the server and are not end-to-end encrypted.</p>
         </div>
         <div class="{{ css.chat__message }}">
             <h3>Are chat rooms indexed by search engines or made private by <code>noindex</code>?</h3>
-            <p class="{{ css["chat__message-body"] }}">Only the <code>/chat</code> overview page is publicly crawlable and listed in the sitemap. All <code>/chat/{room}</code> routes require an active paid session, redirect unauthenticated requests to onboarding, and emit a <code>noindex</code> robots directive. The <code>noindex</code> directive only tells compliant search crawlers not to list a URL in search results; it is not a privacy or room-access guarantee. Room access is enforced by server-side session and payment verification.</p>
+            <p class="{{ css["chat__card-body"] }}">Only the <code>/chat</code> overview page is publicly crawlable and listed in the sitemap. All <code>/chat/{room}</code> routes require an active paid session, redirect unauthenticated requests to onboarding, and emit a <code>noindex</code> robots directive. The <code>noindex</code> directive only tells compliant search crawlers not to list a URL in search results; it is not a privacy or room-access guarantee. Room access is enforced by server-side session and payment verification.</p>
         </div>
     </div>
 </section>

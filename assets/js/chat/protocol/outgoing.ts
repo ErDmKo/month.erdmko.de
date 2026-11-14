@@ -14,15 +14,11 @@ import {
 import type { ClientFramePayload } from '@month/gen/chat';
 import { MAX_NICKNAME_LEN } from '../chat-ui/join-form-handler';
 import { MAX_MESSAGE_LEN } from '../chat-ui/message-form-handler';
-import { logOutgoingFrame } from '../../utils/ws-logger';
 
 export const serializeCommand = (
     ctx: Window,
     command: ClientFramePayload
-): ArrayBuffer => {
-    logOutgoingFrame(ctx, command);
-    return encodeClientFrame(ctx, command).buffer as ArrayBuffer;
-};
+): ArrayBuffer => encodeClientFrame(ctx, command).buffer as ArrayBuffer;
 
 // ── Validation ────────────────────────────────────────────────────────────────
 

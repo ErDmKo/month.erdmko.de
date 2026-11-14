@@ -1,6 +1,5 @@
 import {
     bindArg,
-    createLogger,
     noop,
     on,
     pipe,
@@ -78,8 +77,6 @@ import {
     renderParticipants,
     resetVoiceUi,
 } from './ui';
-
-const voiceLog = createLogger('voice');
 
 // Note: `navigator` is already part of the standard `Window` interface in
 // this project's (trimmed) lib.dom typings, but `RTCPeerConnection` isn't —
@@ -162,13 +159,10 @@ export const initVoice =
                 if (!refs) return;
                 pipe(
                     playVoiceRemoteAudioTask(
-                        ctx,
                         refs[CHAT_REF_VOICE_REMOTE_AUDIO],
                         event[VOICE_PEER_REMOTE_TRACK_STREAM]
                     ),
-                    taskFork(noop, (e) =>
-                        voiceLog(ctx, '<audio>.play() rejected', e)
-                    )
+                    taskFork(noop, noop)
                 );
                 return;
             }
@@ -215,10 +209,10 @@ export const initVoice =
                             );
                             peer = createVoicePeerConnection(ctx, stream);
                             voicePeerEvents(peer)(bindArg(handlePeerEvent, on));
-                            createVoiceOfferTask(
-                                ctx,
-                                voicePeerConnection(peer)
-                            )(resolveOffer, rejectOffer);
+                            createVoiceOfferTask(voicePeerConnection(peer))(
+                                resolveOffer,
+                                rejectOffer
+                            );
                         }
                 ),
                 taskChain((sdp: string): Task<void> => (resolveSend) => {
@@ -284,7 +278,7 @@ export const initVoice =
                 const sdp =
                     event[SERVER_FRAME_PAYLOAD_VALUE][SERVER_VOICE_ANSWER_SDP];
                 pipe(
-                    applyVoiceAnswerTask(ctx, voicePeerConnection(peer), sdp),
+                    applyVoiceAnswerTask(voicePeerConnection(peer), sdp),
                     taskFork(noop, (e) => {
                         showError(`Failed to apply voice answer: ${String(e)}`);
                         leaveVoice(true);
@@ -301,7 +295,6 @@ export const initVoice =
                 const value = event[SERVER_FRAME_PAYLOAD_VALUE];
                 pipe(
                     addVoiceIceCandidateTask(
-                        ctx,
                         voicePeerConnection(peer),
                         value[SERVER_VOICE_ICE_CANDIDATE],
                         value[SERVER_VOICE_ICE_SDP_MID],

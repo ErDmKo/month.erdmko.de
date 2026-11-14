@@ -300,21 +300,14 @@ test('voice peer helpers toggle track mute, close resources, and run SDP/ICE tas
         },
     } as unknown as RTCPeerConnection;
 
-    const mockLogCtx = {
-        localStorage: { getItem: () => null },
-    } as unknown as Window;
-
     const sdp = await new Promise<string>((resolve, reject) => {
-        pipe(
-            createVoiceOfferTask(mockLogCtx, mockPc),
-            taskFork(resolve, reject)
-        );
+        pipe(createVoiceOfferTask(mockPc), taskFork(resolve, reject));
     });
     assert.equal(sdp, 'offer-sdp');
 
     await new Promise<void>((resolve, reject) => {
         pipe(
-            applyVoiceAnswerTask(mockLogCtx, mockPc, 'answer-sdp'),
+            applyVoiceAnswerTask(mockPc, 'answer-sdp'),
             taskFork(resolve, reject)
         );
     });
@@ -322,7 +315,7 @@ test('voice peer helpers toggle track mute, close resources, and run SDP/ICE tas
 
     await new Promise<void>((resolve, reject) => {
         pipe(
-            addVoiceIceCandidateTask(mockLogCtx, mockPc, 'cand-1', '0', 0),
+            addVoiceIceCandidateTask(mockPc, 'cand-1', '0', 0),
             taskFork(resolve, reject)
         );
     });

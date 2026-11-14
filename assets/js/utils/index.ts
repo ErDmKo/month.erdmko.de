@@ -6,7 +6,5 @@ export * from './canvas';
 export * from './cont';
 export * from './observer';
 export * from './dom';
-export * from './logger';
-export * from './ws-logger';
 export * from './tuple';
 export * from './validator';

@@ -145,6 +145,9 @@ async fn chat_landing_and_room_copy_metadata_and_json_ld_match_paid_wallet_acces
     assert!(html.contains("Sepolia Testnet"));
     assert!(html.contains("7 days"));
     assert!(html.contains("0x2222222222222222222222222222222222222222"));
+    assert!(html.contains("No Phone Number, Email, or KYC"));
+    assert!(html.contains("No Bank Cards"));
+    assert!(html.contains("Nothing to Install"));
     assert!(html.contains("free off-chain"));
     assert!(html.contains("not end-to-end encrypted"));
     assert!(html.contains("not a privacy or room-access guarantee"));
@@ -179,7 +182,7 @@ async fn chat_landing_and_room_copy_metadata_and_json_ld_match_paid_wallet_acces
     assert_eq!(web_app["offers"]["priceCurrency"], "ETH");
     let faq = &graph[1];
     assert_eq!(faq["@type"], "FAQPage");
-    assert_eq!(faq["mainEntity"].as_array().unwrap().len(), 3);
+    assert_eq!(faq["mainEntity"].as_array().unwrap().len(), 4);
 
     // 2. Anonymous /chat?room=general uses noindex, follow + canonical /chat
     let invite_resp = test::call_service(

@@ -1,0 +1,22 @@
+load("@rules_proto//proto:defs.bzl", "proto_library")
+load("@rules_rust_prost//:defs.bzl", "rust_prost_library")
+
+package(default_visibility = ["//visibility:public"])
+
+proto_library(
+    name = "telemetry_proto",
+    srcs = ["telemetry.proto"],
+)
+
+rust_prost_library(
+    name = "telemetry_rs",
+    proto = ":telemetry_proto",
+)
+
+genrule(
+    name = "telemetry_descriptor_json",
+    srcs = [":telemetry_proto"],
+    outs = ["telemetry.descriptor.json"],
+    cmd = "$(execpath //tools/prost:descriptor_to_json) $(location :telemetry_proto) $@",
+    tools = ["//tools/prost:descriptor_to_json"],
+)

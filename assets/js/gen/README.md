@@ -6,6 +6,7 @@ Auto-generated TypeScript files. Not tracked in git.
 |---|---|---|
 | `styles.ts` | `assets/css/style.css` via postcss-modules | `//assets/js:styles_ts` |
 | `chat.ts` | `contracts/chat/chat.proto` via `cargo build` | `//assets/js:chat_ts` |
+| `telemetry.ts` | `contracts/telemetry/telemetry.proto` | `//assets/js:telemetry_ts` |
 
 ## Regenerate
 

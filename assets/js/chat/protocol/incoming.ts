@@ -1,6 +1,5 @@
 import { ObserverState, ObserverInstance } from '../../utils';
 import type { ReadonlyTupleOf } from '../../utils';
-import { logIncomingFrame } from '../../utils/ws-logger';
 import { decodeServerFrame } from '@month/gen/chat';
 import type { ClientFramePayload, ServerFramePayload } from '@month/gen/chat';
 
@@ -26,8 +25,5 @@ export const parseBinaryFrame = (
     buf: Uint8Array
 ): ServerFramePayload | null => {
     if (buf.length === 0) return null;
-    const frame = decodeServerFrame(ctx, buf);
-    if (!frame) return null;
-    logIncomingFrame(ctx, frame);
-    return frame;
+    return decodeServerFrame(ctx, buf);
 };

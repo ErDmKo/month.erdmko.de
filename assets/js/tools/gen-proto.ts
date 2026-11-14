@@ -53,8 +53,19 @@ type MessageDescriptor = {
     oneofs?: OneofDescriptor[];
 };
 
+type EnumValueDescriptor = {
+    name: string;
+    number: number;
+};
+
+type EnumDescriptor = {
+    name: string;
+    values: EnumValueDescriptor[];
+};
+
 type PackageDescriptor = {
     package: string;
+    enums?: EnumDescriptor[];
     messages: MessageDescriptor[];
 };
 
@@ -125,6 +136,27 @@ const fieldConstName = (msgName: string, fieldName: string): string =>
 
 const toCamel = (s: string): string =>
     s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+
+// ── Generate numeric enum constants ──────────────────────────────────────────
+
+const genEnum = (enm: EnumDescriptor): string => {
+    const lines: string[] = [];
+    enm.values.forEach((v) => {
+        lines.push(
+            `export const ${toScreamingSnake(v.name)} = ${v.number} as const;`
+        );
+    });
+    if (enm.values.length > 0) {
+        lines.push('');
+        lines.push(`export type ${enm.name} =`);
+        enm.values.forEach((v, i) => {
+            const sep = i < enm.values.length - 1 ? '' : ';';
+            lines.push(`    | typeof ${toScreamingSnake(v.name)}${sep}`);
+        });
+    }
+    lines.push('');
+    return lines.join('\n');
+};
 
 // ── Generate a plain message (no oneof) ───────────────────────────────────────
 
@@ -377,6 +409,9 @@ const genFile = (
     protoUtilsPath: string
 ): string => {
     const parts: string[] = [];
+    for (const enm of descriptor.enums ?? []) {
+        parts.push(genEnum(enm));
+    }
     for (const msg of descriptor.messages) {
         if (msg.oneofs && msg.oneofs.length > 0) {
             parts.push(genOneofWrapper(msg));
@@ -410,20 +445,31 @@ const genFile = (
         'decodeOneofFrame',
     ].filter((sym) => new RegExp(`\\b${sym}\\b`).test(body));
 
-    const header = [
+    const headerLines = [
         `// @generated from ${descriptor.package}.proto — do not edit by hand`,
         `// Re-generate: cargo build (server/build.rs) then bazel run //assets/js/tools:gen-proto`,
         ``,
-        `import {`,
-        ...candidateImports.map((sym) => `    ${sym},`),
-        `} from '${protoUtilsPath}';`,
-        `import type { ReadonlyTupleOf } from '../utils/tuple';`,
+    ];
+    if (candidateImports.length > 0) {
+        headerLines.push(
+            `import {`,
+            ...candidateImports.map((sym) => `    ${sym},`),
+            `} from '${protoUtilsPath}';`
+        );
+    }
+    if (/\bReadonlyTupleOf\b/.test(body)) {
+        headerLines.push(
+            `import type { ReadonlyTupleOf } from '../utils/tuple';`
+        );
+    }
+    headerLines.push(
         ``,
         `declare global { interface Window { Uint8Array: typeof Uint8Array; } }`,
         ``,
-    ].join('\n');
+        ``
+    );
 
-    return header + body + '\n';
+    return headerLines.join('\n') + body + '\n';
 };
 
 // ── Entry point ───────────────────────────────────────────────────────────────

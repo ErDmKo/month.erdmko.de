@@ -45,3 +45,36 @@ js_binary(
     ],
     entry_point = "gen-styles.js",
 )
+
+# ── Compile bundle-size tool ──────────────────────────────────────────────────
+
+ts_project(
+    name = "bundle_size_lib",
+    srcs = ["bundle-size.ts"],
+    declaration = True,
+    tsconfig = ":tsconfig",
+    deps = ["//:node_modules/@types/node"],
+)
+
+js_binary(
+    name = "bundle_size_bin",
+    data = [
+        "package.json",
+        ":bundle_size_lib",
+    ],
+    entry_point = "bundle-size.js",
+)
+
+js_binary(
+    name = "bundle_size",
+    data = [
+        "package.json",
+        ":bundle_size_lib",
+        "//assets/js:chat-bundle",
+        "//assets/js:month-bundle",
+        "//assets/js:snowflake-bundle",
+        "//assets/js:tennis-bundle",
+        "//assets/js:tetris-bundle",
+    ],
+    entry_point = "bundle-size.js",
+)

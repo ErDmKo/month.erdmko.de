@@ -325,6 +325,100 @@ a:hover {
     margin-bottom: 14px;
 }
 
+.chat__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 14px;
+    padding: 0;
+    list-style: none;
+}
+
+.chat__badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 11px;
+    border-radius: 999px;
+    border: 1px solid #bae6fd;
+    background: #f0f9ff;
+    color: #0369a1;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.chat__lead {
+    font-size: 19px;
+    line-height: 1.65;
+    color: #3f3f46;
+    margin: 0 0 22px;
+}
+
+.chat__cta-card {
+    padding: 20px 22px;
+    margin: 0 0 28px;
+    border: 1px solid #d4d4d8;
+    border-radius: 10px;
+    background: #fafafa;
+}
+
+.chat__cta-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin-bottom: 12px;
+}
+
+.chat .chat__cta-title {
+    font-family: 'Roboto', sans-serif;
+    font-size: 20px;
+    font-weight: 600;
+    -webkit-text-stroke: 0;
+    letter-spacing: normal;
+    line-height: 1.35;
+    margin: 0;
+    color: #09090b;
+}
+
+.chat__cta-price {
+    font-size: 15px;
+    font-weight: 500;
+    color: #0369a1;
+}
+
+.chat__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+.chat__grid > .chat__message {
+    margin-bottom: 0;
+}
+
+.chat__card-body {
+    font-size: 16px;
+    line-height: 1.6;
+    color: #27272a;
+    margin: 0;
+    word-break: break-word;
+}
+
+@media only screen and (max-width: 640px) {
+    .chat__grid {
+        grid-template-columns: 1fr;
+    }
+    .chat__title {
+        font-size: 34px;
+    }
+    .chat__cta-card {
+        padding: 16px;
+    }
+}
+
 .chat__error {
     font-size: 16px;
     font-weight: 500;

@@ -31,7 +31,10 @@ rust_binary(
     },
     rustc_env_files = ["version.env"],
     stamp = 1,
-    deps = all_crate_deps(normal = True) + ["//contracts/chat:chat_rs"],
+    deps = all_crate_deps(normal = True) + [
+        "//contracts/chat:chat_rs",
+        "//contracts/telemetry:telemetry_rs",
+    ],
 )
 
 rust_test(
@@ -45,5 +48,8 @@ rust_test(
     proc_macro_deps = all_crate_deps(proc_macro = True),
     rustc_env_files = ["version.env"],
     stamp = 1,
-    deps = all_crate_deps(normal = True) + ["//contracts/chat:chat_rs"],
+    deps = all_crate_deps(normal = True) + [
+        "//contracts/chat:chat_rs",
+        "//contracts/telemetry:telemetry_rs",
+    ],
 )

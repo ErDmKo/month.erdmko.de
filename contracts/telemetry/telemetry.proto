@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package telemetry;
+
+enum TelemetryKind {
+  TELEMETRY_KIND_UNSPECIFIED         = 0;
+  TELEMETRY_KIND_UNCAUGHT_ERROR      = 1;
+  TELEMETRY_KIND_UNHANDLED_REJECTION = 2;
+  TELEMETRY_KIND_WALLET_RPC          = 3;
+  TELEMETRY_KIND_AUTH_HTTP           = 4;
+  TELEMETRY_KIND_WS                  = 5;
+  TELEMETRY_KIND_WEBRTC              = 6;
+}
+
+enum TelemetryOp {
+  TELEMETRY_OP_UNSPECIFIED                  = 0;
+  TELEMETRY_OP_ETH_CHAIN_ID                 = 1;
+  TELEMETRY_OP_WALLET_SWITCH_ETHEREUM_CHAIN = 2;
+  TELEMETRY_OP_ETH_REQUEST_ACCOUNTS         = 3;
+  TELEMETRY_OP_PERSONAL_SIGN                = 4;
+  TELEMETRY_OP_ETH_SEND_TRANSACTION         = 5;
+  TELEMETRY_OP_AUTH_SESSION                 = 6;
+  TELEMETRY_OP_AUTH_NONCE                   = 7;
+  TELEMETRY_OP_AUTH_VERIFY                  = 8;
+  TELEMETRY_OP_AUTH_CLAIM_PAYMENT           = 9;
+  TELEMETRY_OP_AUTH_NICKNAME                = 10;
+  TELEMETRY_OP_AUTH_LOGOUT                  = 11;
+  TELEMETRY_OP_CHAT_INIT                    = 12;
+  TELEMETRY_OP_WS_CONNECT                   = 13;
+  TELEMETRY_OP_WS_DECODE                    = 14;
+  TELEMETRY_OP_WS_SERVER_ERROR              = 15;
+  TELEMETRY_OP_VOICE_GUM                    = 16;
+  TELEMETRY_OP_VOICE_OFFER                  = 17;
+  TELEMETRY_OP_VOICE_ANSWER                 = 18;
+  TELEMETRY_OP_VOICE_ICE                    = 19;
+  TELEMETRY_OP_VOICE_SIGNALING              = 20;
+}
+
+enum TelemetryProviderFlag {
+  TELEMETRY_PROVIDER_FLAG_NONE     = 0;
+  TELEMETRY_PROVIDER_FLAG_ETHEREUM = 1;
+  TELEMETRY_PROVIDER_FLAG_METAMASK = 2;
+  TELEMETRY_PROVIDER_FLAG_PHANTOM  = 4;
+  TELEMETRY_PROVIDER_FLAG_COINBASE = 8;
+  TELEMETRY_PROVIDER_FLAG_RABBY    = 16;
+  TELEMETRY_PROVIDER_FLAG_BRAVE    = 32;
+}
+
+message TelemetryEvent {
+  uint64        timestamp_ms   = 1;
+  TelemetryKind kind           = 2;
+  TelemetryOp   op             = 3;
+  string        code           = 4;
+  string        message        = 5;
+  string        path           = 6;
+  uint32        line           = 7;
+  uint32        column         = 8;
+  uint64        chain_id       = 9;
+  uint32        provider_flags = 10;
+}
+
+message TelemetryBatch {
+  uint32                  ack_id = 1;
+  repeated TelemetryEvent events = 2;
+}
+
+message TelemetryAck {
+  uint32 ack_id = 1;
+}

@@ -57,6 +57,13 @@ const main = async () => {
     await copyGenerated(chatSrc, path.join(GENERATED_DIR, 'chat.ts'));
     console.log(`  copied → assets/js/gen/chat.ts`);
 
+    // ── gen/telemetry.ts ──────────────────────────────────────────────────────
+    console.log('\nBuilding telemetry_ts...');
+    await run('bazel build //assets/js:telemetry_ts');
+    const telemetrySrc = await bazelOut('//assets/js:telemetry_ts');
+    await copyGenerated(telemetrySrc, path.join(GENERATED_DIR, 'telemetry.ts'));
+    console.log(`  copied → assets/js/gen/telemetry.ts`);
+
     console.log('\nDone. Commit assets/js/gen/ to keep editors in sync.');
 };
 

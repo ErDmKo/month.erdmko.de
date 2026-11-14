@@ -77,7 +77,7 @@ fn main() {
                     .map(|f| {
                         use prost_types::field_descriptor_proto::{Label, Type};
                         let type_name = match f.r#type() {
-                            Type::Uint32 => "uint32",
+                            Type::Uint32 | Type::Enum => "uint32",
                             Type::Int32 => "int32",
                             Type::Int64 => "int64",
                             Type::Uint64 => "uint64",
@@ -157,10 +157,34 @@ fn main() {
             })
             .collect();
 
-        let descriptor = serde_json::json!({
+        let enums: Vec<serde_json::Value> = file
+            .enum_type
+            .iter()
+            .map(|enm| {
+                let values: Vec<serde_json::Value> = enm
+                    .value
+                    .iter()
+                    .map(|v| {
+                        serde_json::json!({
+                            "name":   v.name(),
+                            "number": v.number(),
+                        })
+                    })
+                    .collect();
+                serde_json::json!({
+                    "name":   enm.name(),
+                    "values": values,
+                })
+            })
+            .collect();
+
+        let mut descriptor = serde_json::json!({
             "package":  package,
             "messages": messages,
         });
+        if !enums.is_empty() {
+            descriptor["enums"] = serde_json::Value::Array(enums);
+        }
 
         let json_path = out_dir.join(format!("{}.descriptor.json", package));
         fs::write(

@@ -6,7 +6,6 @@
 
 import {
     bindArg,
-    createLogger,
     observer,
     pipe,
     taskChain,
@@ -14,8 +13,6 @@ import {
     trigger,
 } from '../../utils';
 import type { ObserverInstance, ReadonlyTupleOf, Task } from '../../utils';
-
-const voiceLog = createLogger('voice');
 
 // ── Peer event tuple ──────────────────────────────────────────────────────────
 
@@ -67,7 +64,6 @@ export const createVoicePeerConnection = (
     const events = observer<VoicePeerEvent>();
 
     const localTracks = localStream.getAudioTracks();
-    voiceLog(ctx, 'local mic tracks:', localTracks.length);
     for (const track of localTracks) {
         peerConnection.addTrack(track, localStream);
     }
@@ -75,11 +71,6 @@ export const createVoicePeerConnection = (
     peerConnection.addEventListener(
         'icecandidate',
         (e: RTCPeerConnectionIceEvent) => {
-            voiceLog(
-                ctx,
-                'onicecandidate',
-                e.candidate ? e.candidate.candidate : '(end of candidates)'
-            );
             if (e.candidate) {
                 events(
                     bindArg(
@@ -92,7 +83,6 @@ export const createVoicePeerConnection = (
     );
 
     peerConnection.addEventListener('track', (e: RTCTrackEvent) => {
-        voiceLog(ctx, 'ontrack fired');
         if (e.streams[0]) {
             events(
                 bindArg(
@@ -104,7 +94,6 @@ export const createVoicePeerConnection = (
     });
 
     peerConnection.addEventListener('iceconnectionstatechange', () => {
-        voiceLog(ctx, 'iceConnectionState');
         events(
             bindArg(
                 [
@@ -144,40 +133,30 @@ const setLocalDescriptionTask =
     };
 
 export const createVoiceOfferTask = (
-    ctx: Window,
     peerConnection: RTCPeerConnection
 ): Task<string> =>
     pipe(
         createRtcOfferTask(peerConnection),
-        taskChain((offer: RTCSessionDescriptionInit) => {
-            voiceLog(ctx, 'created offer, sdp length', offer.sdp?.length ?? 0);
-            return setLocalDescriptionTask(peerConnection, offer);
-        }),
+        taskChain(bindArg(peerConnection, setLocalDescriptionTask)),
         taskMap((offer: RTCSessionDescriptionInit) => offer.sdp ?? '')
     );
 
 export const applyVoiceAnswerTask =
-    (ctx: Window, peerConnection: RTCPeerConnection, sdp: string): Task<void> =>
+    (peerConnection: RTCPeerConnection, sdp: string): Task<void> =>
     (resolve, reject) => {
-        voiceLog(ctx, 'received answer, sdp length', sdp.length, sdp);
         peerConnection
             .setRemoteDescription({ type: 'answer', sdp })
-            .then(() => {
-                voiceLog(ctx, 'setRemoteDescription(answer) OK');
-                resolve();
-            }, reject);
+            .then(resolve, reject);
     };
 
 export const addVoiceIceCandidateTask =
     (
-        ctx: Window,
         peerConnection: RTCPeerConnection,
         candidate: string,
         sdpMid: string,
         sdpMLineIndex: number
     ): Task<void> =>
     (resolve, reject) => {
-        voiceLog(ctx, 'received remote ICE candidate', candidate);
         peerConnection
             .addIceCandidate({ candidate, sdpMid, sdpMLineIndex })
             .then(resolve, reject);
@@ -192,18 +171,10 @@ export const getVoiceUserMediaTask =
     };
 
 export const playVoiceRemoteAudioTask =
-    (ctx: Window, audioEl: HTMLAudioElement, stream: MediaStream): Task<void> =>
+    (audioEl: HTMLAudioElement, stream: MediaStream): Task<void> =>
     (resolve, reject) => {
-        voiceLog(
-            ctx,
-            'setting <audio> srcObject from remote stream',
-            stream.id
-        );
         audioEl.srcObject = stream;
-        audioEl.play().then(() => {
-            voiceLog(ctx, '<audio>.play() resolved');
-            resolve();
-        }, reject);
+        audioEl.play().then(resolve, reject);
     };
 
 export const closeVoicePeerConnection = (

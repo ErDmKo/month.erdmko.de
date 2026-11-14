@@ -41,11 +41,23 @@ genrule(
     tools = ["//assets/js/tools:gen_proto_bin"],
 )
 
+# ── Generate gen/telemetry.ts from the proto descriptor ───────────────────────
+
+genrule(
+    name = "telemetry_ts",
+    srcs = ["//contracts/telemetry:telemetry_descriptor_json"],
+    outs = ["gen/telemetry.ts"],
+    cmd = "BAZEL_BINDIR=$(BINDIR) $(execpath //assets/js/tools:gen_proto_bin) $$PWD/$(location //contracts/telemetry:telemetry_descriptor_json) $$PWD/$@ ../utils/proto-utils",
+    tags = ["local"],
+    tools = ["//assets/js/tools:gen_proto_bin"],
+)
+
 ts_project(
     name = "gen",
     srcs = [
         ":chat_ts",
         ":styles_ts",
+        ":telemetry_ts",
     ],
     declaration = True,
     deps = [":utils"],
@@ -202,6 +214,27 @@ advanced_bundle(
     deps = [
         ":month",
     ],
+)
+
+BUNDLES = [
+    ":chat-bundle",
+    ":month-bundle",
+    ":tetris-bundle",
+    ":tennis-bundle",
+    ":snowflake-bundle",
+]
+
+alias(
+    name = "bundle-size",
+    actual = "//assets/js/tools:bundle_size",
+)
+
+genrule(
+    name = "bundle_sizes_json",
+    srcs = BUNDLES,
+    outs = ["bundle-sizes.json"],
+    cmd = "BAZEL_BINDIR=$(BINDIR) $(execpath //assets/js/tools:bundle_size_bin) --json $$PWD/$@ $$PWD/$(location :chat-bundle) $$PWD/$(location :month-bundle) $$PWD/$(location :tetris-bundle) $$PWD/$(location :tennis-bundle) $$PWD/$(location :snowflake-bundle)",
+    tools = ["//assets/js/tools:bundle_size_bin"],
 )
 
 filegroup(
